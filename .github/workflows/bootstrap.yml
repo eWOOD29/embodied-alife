@@ -1,0 +1,93 @@
+name: publish-initial-source
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "bootstrap/source.part*"
+      - ".github/workflows/bootstrap.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: embodied-alife-initial-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out bootstrap repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Reconstruct and verify source archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(find bootstrap -maxdepth 1 -name 'source.part*' | wc -l)" -eq 9
+          cat bootstrap/source.part* | base64 --decode > "$RUNNER_TEMP/embodied-alife-v0.2.0.zip"
+          echo "a74ba1cd49b86984382a96d68136ec456887cb182c1f9d662baa245a4e146b6d  $RUNNER_TEMP/embodied-alife-v0.2.0.zip" | sha256sum --check
+          mkdir -p "$RUNNER_TEMP/source"
+          unzip -q "$RUNNER_TEMP/embodied-alife-v0.2.0.zip" -d "$RUNNER_TEMP/source"
+          test -f "$RUNNER_TEMP/source/README.md"
+          test -f "$RUNNER_TEMP/source/pyproject.toml"
+          test -f "$RUNNER_TEMP/source/install-windows.ps1"
+          test -f "$RUNNER_TEMP/source/.github/workflows/release.yml"
+
+      - name: Replace bootstrap tree with verified source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rsync -a --delete \
+            --exclude='.git/' \
+            --exclude='bootstrap/' \
+            --exclude='.github/workflows/bootstrap.yml' \
+            "$RUNNER_TEMP/source/" ./
+          rm -rf bootstrap
+          rm -f .github/workflows/bootstrap.yml
+          chmod +x start.sh || true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install and verify
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev]'
+          python -m pytest -q
+          python -m compileall -q app tests scripts
+          python scripts/validate_package.py
+          python scripts/build_release.py --output dist/embodied-alife-update.zip
+
+      - name: Commit normal project tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Publish Embodied Artificial Life v0.2.0"
+          git push origin HEAD:main
+
+      - name: Tag and publish v0.2.0 release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git tag -f v0.2.0
+          git push origin refs/tags/v0.2.0 --force
+          gh release delete v0.2.0 --yes --cleanup-tag=false 2>/dev/null || true
+          gh release create v0.2.0 \
+            dist/embodied-alife-update.zip \
+            dist/embodied-alife-update.zip.sha256 \
+            --title "Embodied Artificial Life v0.2.0" \
+            --notes "First public release. Includes deterministic fallback mode, LM Studio integration, browser dashboard, Tailscale-ready binding, persistence, memory, and verified one-click updates."
