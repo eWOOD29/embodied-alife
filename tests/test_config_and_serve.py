@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app import serve
-from app.config import Settings
+from app.config import Settings, load_settings
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,6 +16,17 @@ def test_default_host_binds_all_interfaces() -> None:
 def test_hidden_controls_are_not_overridden_by_component_styles() -> None:
     stylesheet = (ROOT / "app" / "web" / "static" / "style.css").read_text(encoding="utf-8")
     assert "[hidden] { display: none !important; }" in stylesheet
+
+
+def test_project_env_overrides_inherited_host(monkeypatch, tmp_path: Path) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text("HOST=0.0.0.0\nPORT=8797\n", encoding="utf-8")
+    monkeypatch.setenv("HOST", "127.0.0.1")
+    monkeypatch.setenv("DATA_DIR", str(tmp_path / "inherited-data"))
+
+    settings = load_settings(env_file)
+
+    assert settings.host == "0.0.0.0"
 
 
 def test_serve_uses_env_host_and_port(monkeypatch, tmp_path: Path) -> None:
