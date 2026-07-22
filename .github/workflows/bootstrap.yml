@@ -20,15 +20,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out bootstrap repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
       - name: Reconstruct and verify source archive
         shell: bash
         run: |
-          set -euo pipefail
-          test "$(find bootstrap -maxdepth 1 -name 'source.part*' | wc -l)" -eq 9
+          set -euxo pipefail
+          count="$(find bootstrap -maxdepth 1 -name 'source.part*' | wc -l)"
+          echo "Found ${count} source parts"
+          test "$count" -eq 9
           cat bootstrap/source.part* | base64 --decode > "$RUNNER_TEMP/embodied-alife-v0.2.0.zip"
           echo "a74ba1cd49b86984382a96d68136ec456887cb182c1f9d662baa245a4e146b6d  $RUNNER_TEMP/embodied-alife-v0.2.0.zip" | sha256sum --check
           mkdir -p "$RUNNER_TEMP/source"
@@ -41,7 +43,7 @@ jobs:
       - name: Replace bootstrap tree with verified source
         shell: bash
         run: |
-          set -euo pipefail
+          set -euxo pipefail
           rsync -a --delete \
             --exclude='.git/' \
             --exclude='bootstrap/' \
@@ -52,14 +54,16 @@ jobs:
           chmod +x start.sh || true
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: pip
+          cache-dependency-path: pyproject.toml
 
       - name: Install and verify
         shell: bash
         run: |
+          set -euxo pipefail
           python -m pip install --upgrade pip
           python -m pip install -e '.[dev]'
           python -m pytest -q
@@ -70,7 +74,7 @@ jobs:
       - name: Commit normal project tree
         shell: bash
         run: |
-          set -euo pipefail
+          set -euxo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
@@ -82,7 +86,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          set -euo pipefail
+          set -euxo pipefail
           git tag -f v0.2.0
           git push origin refs/tags/v0.2.0 --force
           gh release delete v0.2.0 --yes --cleanup-tag=false 2>/dev/null || true
@@ -91,5 +95,3 @@ jobs:
             dist/embodied-alife-update.zip.sha256 \
             --title "Embodied Artificial Life v0.2.0" \
             --notes "First public release. Includes deterministic fallback mode, LM Studio integration, browser dashboard, Tailscale-ready binding, persistence, memory, and verified one-click updates."
-
-# Retriggered after all verified archive parts were present.
