@@ -54,6 +54,42 @@
       <h3>Active plan</h3><div id="activePlan"></div>
     </section>
 
+    <section class="panel llm-settings-panel">
+      <div class="panel-title"><h2>Local LLM brain</h2><span id="llmState" class="pill warning">loading</span></div>
+      <p class="muted">Discover and switch models from LM Studio without editing <code>.env</code> or restarting the app.</p>
+      <div class="settings-form">
+        <label class="toggle-row"><input id="llmEnabled" type="checkbox"> Use local LLM</label>
+        <label>OpenAI-compatible base URL
+          <input id="llmBaseUrl" type="url" value="http://127.0.0.1:1234/v1" spellcheck="false">
+        </label>
+        <label>Model
+          <input id="llmModel" list="llmModelOptions" placeholder="Discover loaded models" spellcheck="false">
+          <datalist id="llmModelOptions"></datalist>
+        </label>
+        <div class="settings-grid">
+          <label>Temperature<input id="llmTemperature" type="number" min="0" max="2" step="0.05"></label>
+          <label>Max output tokens<input id="llmMaxTokens" type="number" min="32" max="32768" step="1"></label>
+          <label>Timeout (seconds)<input id="llmTimeout" type="number" min="5" max="600" step="1"></label>
+          <label>Context length<input id="llmContext" type="number" min="1024" max="262144" step="1024"></label>
+        </div>
+        <label>API key <span class="muted">(optional; leave blank to preserve)</span>
+          <input id="llmApiKey" type="password" autocomplete="off" placeholder="LM Studio does not require one by default">
+        </label>
+        <div class="update-actions">
+          <button id="discoverModels">Discover models</button>
+          <button id="saveLlmSettings" class="primary">Save and apply</button>
+        </div>
+        <p id="llmSettingsSummary" class="muted"></p>
+      </div>
+    </section>
+
+    <section class="panel model-panel">
+      <h2>Brain and outcome boundary</h2>
+      <h3>What Ari decided</h3><pre id="decision"></pre>
+      <h3>What actually happened</h3><pre id="result"></pre>
+      <h3>Model/API status</h3><pre id="modelStatus"></pre>
+    </section>
+
     <section class="panel update-panel">
       <div class="panel-title"><h2>Application updates</h2><span id="currentVersion" class="pill"></span></div>
       <p id="updateSummary" class="muted">Checking GitHub Releases…</p>
@@ -64,13 +100,6 @@
       </div>
       <pre id="updateNotes" hidden></pre>
       <p class="muted update-warning">Updates preserve <code>.env</code>, <code>.venv</code>, <code>data/</code>, and <code>.git</code>. The app briefly stops and restarts after verification.</p>
-    </section>
-
-    <section class="panel model-panel">
-      <h2>Brain and outcome boundary</h2>
-      <h3>What Ari decided</h3><pre id="decision"></pre>
-      <h3>What actually happened</h3><pre id="result"></pre>
-      <h3>Model/API status</h3><pre id="modelStatus"></pre>
     </section>
 
     <section class="panel knowledge-panel">
