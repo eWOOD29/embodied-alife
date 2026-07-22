@@ -6,8 +6,16 @@ from app import serve
 from app.config import Settings
 
 
+ROOT = Path(__file__).resolve().parents[1]
+
+
 def test_default_host_binds_all_interfaces() -> None:
     assert Settings().host == "0.0.0.0"
+
+
+def test_hidden_controls_are_not_overridden_by_component_styles() -> None:
+    stylesheet = (ROOT / "app" / "web" / "static" / "style.css").read_text(encoding="utf-8")
+    assert "[hidden] { display: none !important; }" in stylesheet
 
 
 def test_serve_uses_env_host_and_port(monkeypatch, tmp_path: Path) -> None:
