@@ -7,6 +7,9 @@ let state = null;
 let activeKnowledgeTab = 'perception';
 let updateStatus = null;
 let updatePolling = null;
+let liveSocket = null;
+let reconnectTimer = null;
+let updateInProgress = false;
 
 const terrainColors = {
   meadow: '#496f46', forest: '#244b31', dense_forest: '#153524',
@@ -16,8 +19,16 @@ const terrainColors = {
 
 async function apiRequest(path, options={}) {
   const response = await fetch(path, options);
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.detail || 'request failed');
+  const text = await response.text();
+  let data = {};
+  if (text) {
+    try { data = JSON.parse(text); }
+    catch (_) {
+      if (!response.ok) throw new Error(`Request failed with HTTP ${response.status}`);
+      throw new Error('The server returned an invalid response');
+    }
+  }
+  if (!response.ok) throw new Error(data.detail || `Request failed with HTTP ${response.status}`);
   return data;
 }
 
@@ -42,8 +53,13 @@ function renderUpdateStatus() {
   install.textContent = updateStatus.installing ? 'Installing…' : `Install v${updateStatus.latest_version || ''}`;
   badge.hidden = !updateStatus.update_available;
   badge.textContent = updateStatus.update_available ? `Update v${updateStatus.latest_version}` : 'Update available';
-  releaseLink.hidden = !updateStatus.release_url;
-  if (updateStatus.release_url) releaseLink.href = updateStatus.release_url;
+  releaseLink.hidden = true;
+  if (updateStatus.release_url) {
+    try {
+      releaseLink.href = new URL(updateStatus.release_url, window.location.href).href;
+      releaseLink.hidden = false;
+    } catch (_) {}
+  }
   notes.hidden = !updateStatus.release_notes;
   notes.textContent = updateStatus.release_notes || '';
   if (!updateStatus.enabled) summary.textContent = 'Automatic update checks are disabled.';
@@ -63,6 +79,19 @@ async function refreshUpdateStatus(check=false) {
   }
 }
 
+function closeLiveSocketForUpdate() {
+  updateInProgress = true;
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  if (liveSocket) {
+    liveSocket.onclose = null;
+    try { liveSocket.close(1000, 'application update'); } catch (_) {}
+    liveSocket = null;
+  }
+}
+
 async function installAvailableUpdate() {
   if (!updateStatus?.update_available) return;
   const version = updateStatus.latest_version;
@@ -70,6 +99,7 @@ async function installAvailableUpdate() {
   const button = document.getElementById('installUpdate');
   button.disabled = true;
   button.textContent = 'Verifying and staging…';
+  closeLiveSocketForUpdate();
   try {
     const result = await apiRequest('/api/update/install', {
       method: 'POST',
@@ -81,8 +111,10 @@ async function installAvailableUpdate() {
     renderUpdateStatus();
     waitForRestart(version);
   } catch (error) {
+    updateInProgress = false;
     button.disabled = false;
     showToast(error.message);
+    connect();
     await refreshUpdateStatus(false);
   }
 }
@@ -104,7 +136,9 @@ function waitForRestart(version) {
     } catch (_) {}
     if (attempts > 180) {
       clearInterval(updatePolling);
+      updateInProgress = false;
       showToast('The update is taking longer than expected. Check data/runtime/update-worker.log.');
+      connect();
     }
   }, 2000);
 }
@@ -294,5 +328,29 @@ async function initialize(){
   render();
   connect();
 }
-function connect(){ const protocol=location.protocol==='https:'?'wss':'ws'; const ws=new WebSocket(`${protocol}://${location.host}/ws`); const badge=document.getElementById('connection'); ws.onopen=()=>{badge.textContent='live';badge.className='pill ok';}; ws.onmessage=e=>{state=JSON.parse(e.data);render();}; ws.onclose=()=>{badge.textContent='reconnecting';badge.className='pill warning';setTimeout(connect,1500);}; ws.onerror=()=>{badge.textContent='socket error';badge.className='pill error';}; }
+function connect(){
+  if (updateInProgress || liveSocket) return;
+  const protocol=location.protocol==='https:'?'wss':'ws';
+  const badge=document.getElementById('connection');
+  let socket;
+  try {
+    socket = new WebSocket(`${protocol}://${location.host}/ws`);
+  } catch (error) {
+    badge.textContent='socket error';
+    badge.className='pill error';
+    reconnectTimer=setTimeout(connect,1500);
+    return;
+  }
+  liveSocket = socket;
+  socket.onopen=()=>{badge.textContent='live';badge.className='pill ok';};
+  socket.onmessage=e=>{state=JSON.parse(e.data);render();};
+  socket.onclose=()=>{
+    if (liveSocket === socket) liveSocket = null;
+    if (updateInProgress) return;
+    badge.textContent='reconnecting';
+    badge.className='pill warning';
+    reconnectTimer=setTimeout(connect,1500);
+  };
+  socket.onerror=()=>{badge.textContent='socket error';badge.className='pill error';};
+}
 initialize().catch(e=>{document.getElementById('connection').textContent=e.message;document.getElementById('connection').className='pill error';});
