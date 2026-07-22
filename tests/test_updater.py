@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from app.main import create_app
 from app.updater.manager import UpdateError, UpdateManager
 from app.updater.security import UpdateValidationError, inspect_update_archive, parse_checksum
+from app.version import __version__
 from scripts.apply_update import apply_update
 
 
@@ -214,7 +215,7 @@ class FakeUpdater:
 
     def public_status(self) -> dict:
         return {
-            "current_version": "0.2.0",
+            "current_version": __version__,
             "enabled": True,
             "state": "available",
             "update_available": True,
@@ -260,4 +261,4 @@ def test_update_api_requires_confirmation_header(engine) -> None:
         )
         assert accepted.status_code == 200
         assert updater.installed is True
-        assert client.get("/health").json()["version"] == "0.2.0"
+        assert client.get("/health").json()["version"] == __version__
