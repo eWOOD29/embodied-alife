@@ -40,7 +40,8 @@ $envLines = @(
 if (-not $hostFound) {
     $envLines = @('HOST=0.0.0.0') + $envLines
 }
-Set-Content -LiteralPath $envPath -Value $envLines -Encoding UTF8
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllLines($envPath, $envLines, $utf8NoBom)
 
 Get-NetFirewallRule -Group $groupName -ErrorAction SilentlyContinue |
     Remove-NetFirewallRule -ErrorAction SilentlyContinue
