@@ -60,7 +60,9 @@ def _bool(name: str, default: bool) -> bool:
 
 
 def load_settings(env_file: str | Path | None = None) -> Settings:
-    load_dotenv(dotenv_path=env_file, override=False)
+    # The project-local .env is the application's explicit configuration and must
+    # override unrelated or stale process/user environment variables such as HOST.
+    load_dotenv(dotenv_path=env_file, override=True)
     settings = Settings(
         host=os.getenv("HOST", "0.0.0.0"),
         port=int(os.getenv("PORT", "8797")),
