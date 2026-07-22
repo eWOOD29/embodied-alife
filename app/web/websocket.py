@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 router = APIRouter()
@@ -12,7 +14,13 @@ async def simulation_socket(websocket: WebSocket) -> None:
     queue = await engine.subscribe()
     try:
         while True:
-            state = await queue.get()
+            if getattr(websocket.app.state, "shutting_down", False):
+                await websocket.close(code=1012, reason="application update")
+                break
+            try:
+                state = await asyncio.wait_for(queue.get(), timeout=0.5)
+            except TimeoutError:
+                continue
             await websocket.send_json(state)
     except (WebSocketDisconnect, RuntimeError):
         pass
