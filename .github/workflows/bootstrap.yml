@@ -91,3 +91,5 @@ jobs:
             dist/embodied-alife-update.zip.sha256 \
             --title "Embodied Artificial Life v0.2.0" \
             --notes "First public release. Includes deterministic fallback mode, LM Studio integration, browser dashboard, Tailscale-ready binding, persistence, memory, and verified one-click updates."
+
+# Retriggered after all verified archive parts were present.
