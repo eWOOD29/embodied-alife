@@ -1,14 +1,17 @@
 # Windows setup
 
+_Last updated: 2026-07-22_  
+_Current release at update: **v0.2.3**_
+
 Target directory:
 
 ```text
 C:\Users\ethan\workspace\local-apps\embodied-alife
 ```
 
-## Recommended: install the latest GitHub Release
+For deeper diagnostics, see [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md). For architecture and project history, see [`docs/PROJECT_HANDOFF.md`](docs/PROJECT_HANDOFF.md).
 
-This method becomes available after `eWOOD29/embodied-alife` has a published release containing the generated update assets.
+## Install or repair the latest release
 
 Open PowerShell:
 
@@ -23,16 +26,19 @@ PowerShell -ExecutionPolicy Bypass -File $installer
 The installer:
 
 - downloads the latest published GitHub Release
-- verifies `embodied-alife-update.zip` with SHA-256
-- installs directly into the target directory
-- creates `.venv` with `uv`
-- installs dependencies into that project-local environment
-- creates `.env` only when one does not already exist
-- preserves `data/`, `.env`, `.venv`, and `.git`
-- runs package validation
+- requires the custom `embodied-alife-update.zip` asset
+- verifies SHA-256
+- installs into the target directory
+- creates or reuses the project-local `.venv`
+- installs dependencies into that environment
+- creates `.env` only if it does not exist
+- preserves `.env`, `.venv`, `data/`, and `.git`
+- validates the installed package
 - launches the app
 
-For a private repository, use a fine-grained GitHub token with read-only **Contents** access:
+Running the installer again is the supported repair path when an old updater cannot complete its own upgrade.
+
+For a private repository, use a fine-grained read-only token:
 
 ```powershell
 PowerShell -ExecutionPolicy Bypass -File .\install-windows.ps1 `
@@ -40,68 +46,27 @@ PowerShell -ExecutionPolicy Bypass -File .\install-windows.ps1 `
   -GitHubToken "<read-only token>"
 ```
 
-Do not place the token in Git, screenshots, logs, or shell-history exports. For ongoing private-repository update checks, place it only in the local `.env` as `UPDATE_GITHUB_TOKEN`.
+Do not place tokens in Git, screenshots, exported terminal history, or documentation.
 
-## Alternative: install the downloaded ZIP in Git Bash
+## Run locally
 
-```bash
-mkdir -p /c/Users/ethan/workspace/local-apps
-cd /c/Users/ethan/workspace/local-apps
-
-unzip /c/Users/ethan/Downloads/embodied-alife-v0.2.0.zip
-cd embodied-alife
-
-uv venv --python 3.11
-unset PYTHONPATH
-uv pip install --python .venv/Scripts/python.exe -e '.[dev]'
-
-cp .env.example .env
-
-unset PYTHONPATH
-.venv/Scripts/python.exe -m pytest -q
-.venv/Scripts/python.exe -m compileall -q app tests scripts
-.venv/Scripts/python.exe scripts/validate_package.py
-.venv/Scripts/python.exe scripts/smoke_simulation.py
-```
-
-The commands install only into:
-
-```text
-C:\Users\ethan\workspace\local-apps\embodied-alife\.venv
-```
-
-They do not install into system Python, Hermes, or another project.
-
-## Configure fallback mode first
-
-Edit `.env`:
-
-```text
-NO_LLM=true
-LLM_MODEL=
-```
-
-Keep:
-
-```text
-HOST=0.0.0.0
-PORT=8797
-```
-
-Start with:
-
-```bash
-unset PYTHONPATH
-.venv/Scripts/python.exe -m app.serve
-```
-
-Or double-click:
+Double-click:
 
 ```text
 start-embodied-alife.bat
 ```
 
-Open locally:
+Or use Git Bash:
+
+```bash
+cd /c/Users/ethan/workspace/local-apps/embodied-alife
+unset PYTHONPATH
+.venv/Scripts/python.exe -m app.serve
+```
+
+Use `app.serve`, not raw `uvicorn app.main:app`. The managed launcher provides the graceful-shutdown callback needed by one-click updates.
+
+Local URL:
 
 ```text
 http://127.0.0.1:8797/
@@ -113,42 +78,104 @@ Health endpoint:
 http://127.0.0.1:8797/health
 ```
 
-Use `app.serve` rather than raw Uvicorn. The managed launcher is needed for graceful one-click updates.
+PowerShell health check:
 
-## Configure automatic updates
-
-The defaults in `.env.example` are:
-
-```text
-UPDATE_ENABLED=true
-UPDATE_REPOSITORY=eWOOD29/embodied-alife
-UPDATE_CHANNEL=stable
-UPDATE_ASSET_NAME=embodied-alife-update.zip
-UPDATE_CHECK_ON_STARTUP=true
-UPDATE_STARTUP_DELAY_SECONDS=5
-UPDATE_CHECK_INTERVAL_HOURS=6
-UPDATE_TIMEOUT_SECONDS=30
-UPDATE_AUTO_RESTART=true
-UPDATE_GITHUB_TOKEN=
+```powershell
+Invoke-RestMethod "http://127.0.0.1:8797/health"
 ```
 
-For a public repository, leave `UPDATE_GITHUB_TOKEN` empty.
+## Configure LM Studio through the dashboard
 
-For a private repository, set a read-only fine-grained token:
+LM Studio's expected default server is:
 
 ```text
-UPDATE_GITHUB_TOKEN=<token>
+http://127.0.0.1:1234/v1
 ```
 
-Restart the app. In the dashboard's **Application updates** panel:
+1. Load a model in LM Studio.
+2. Open LM Studio's **Developer** area.
+3. Start the OpenAI-compatible server on port 1234.
+4. Open Embodied Artificial Life.
+5. Find **Local LLM brain**.
+6. Keep the base URL at `http://127.0.0.1:1234/v1`.
+7. Click **Discover models**.
+8. Select the exact model ID returned by LM Studio.
+9. Enable **Use local LLM**.
+10. Click **Save and apply**.
+
+No `.env` edit or app restart is required when changing models.
+
+Runtime LLM choices persist at:
+
+```text
+data\runtime\llm-settings.json
+```
+
+Direct model-server check:
+
+```powershell
+(Invoke-RestMethod "http://127.0.0.1:1234/v1/models").data.id
+```
+
+The user currently has Qwen3-14B available in LM Studio, but always use the exact model ID returned by `/v1/models`.
+
+### Context-length note
+
+The actual loaded context window is configured in LM Studio. The app currently stores its context-length field as runtime metadata/prompt-budget intent; it does not reconfigure the LM Studio model.
+
+## Configure Tailscale Serve
+
+The proven remote-access configuration is Tailscale Serve proxying the localhost app.
+
+Open PowerShell as Administrator:
+
+```powershell
+tailscale serve --bg --https=8797 http://127.0.0.1:8797
+tailscale serve status
+```
+
+Expected status:
+
+```text
+https://ethan-pc.tailce5cf1.ts.net:8797 (tailnet only)
+|-- / proxy http://127.0.0.1:8797
+```
+
+Remote URL:
+
+```text
+https://ethan-pc.tailce5cf1.ts.net:8797
+```
+
+This has been confirmed working from the user's phone.
+
+Do not use a router port-forward or public Tailscale Funnel. The app has no independent login and should remain limited to trusted tailnet devices.
+
+### Important distinction
+
+`0.0.0.0` is a server bind address, not a browser URL. Direct binding and Windows Firewall rules are not the same as creating a Tailscale Serve mapping. The user's other remote local applications work because they appear explicitly in `tailscale serve status`.
+
+The earlier `scripts/enable-tailscale-access.ps1` direct-IP approach is not the recommended setup for this machine.
+
+### Laptop-specific issue
+
+At the time of this update, the phone could open the Serve URL but the laptop could not. Since the phone works, first diagnose the laptop's Tailscale connection, MagicDNS, browser/TLS, VPN, DNS filtering, or endpoint protection rather than changing the server.
+
+See [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md#phone-works-but-laptop-does-not).
+
+## Use in-app updates
+
+The updater checks GitHub Releases shortly after startup and periodically afterward.
+
+In **Application updates**:
 
 1. Click **Check now**.
-2. Confirm the installed/latest version result.
-3. When a newer version appears, click **Install v…**.
+2. Confirm the latest version.
+3. Click **Install v…** when available.
 4. Confirm the prompt.
-5. Keep the browser open while the app stops, updates, restarts, and reconnects.
+5. The dashboard socket closes, the app stops, files update, and the page reconnects after restart.
 
-Local state is preserved automatically:
+The updater preserves:
 
 ```text
 .env
@@ -157,7 +184,7 @@ data/
 .git/
 ```
 
-If an update fails, inspect:
+Update diagnostics:
 
 ```text
 data\runtime\update-worker.log
@@ -165,74 +192,45 @@ data\runtime\update-state.json
 data\runtime\update-backups\
 ```
 
-A file rollback is automatic when copying or dependency synchronization fails. Do not delete the backup until the updated app has run successfully.
+v0.2.3 fixed an issue where a successfully staged update could hang because the live dashboard WebSocket prevented Uvicorn from finishing shutdown.
 
-## Configure LM Studio
+## Recover from a stuck pre-v0.2.3 update
 
-A practical initial target for the RTX 5080's 16 GB VRAM is **Qwen3-14B Q4_K_M or an equivalent strong Q4 quant**.
-
-1. Load the model in LM Studio.
-2. Set model context to **16,384 tokens**.
-3. Start LM Studio's OpenAI-compatible server at `127.0.0.1:1234`.
-4. In Git Bash:
-
-```bash
-curl http://127.0.0.1:1234/v1/models
-```
-
-5. Edit `.env`:
-
-```text
-NO_LLM=false
-LLM_BASE_URL=http://127.0.0.1:1234/v1
-LLM_API_KEY=***
-LLM_MODEL=<exact model ID returned by /v1/models>
-LLM_CONTEXT_LENGTH=16384
-LLM_TIMEOUT_SECONDS=60
-```
-
-6. Restart. The dashboard's model status should change from `fallback` to `llm` after a successful decision.
-
-## Allow restricted Tailscale access
-
-Open PowerShell **as Administrator**:
+Close open app pages, then run PowerShell as Administrator:
 
 ```powershell
-cd C:\Users\ethan\workspace\local-apps\embodied-alife
-Set-ExecutionPolicy -Scope Process Bypass
-.\scripts\enable-tailscale-access.ps1
+$root = "$env:USERPROFILE\workspace\local-apps\embodied-alife"
+
+Get-CimInstance Win32_Process |
+  Where-Object {
+    $_.CommandLine -like "*embodied-alife*" -and
+    $_.CommandLine -like "*apply_update.py*"
+  } |
+  ForEach-Object {
+    Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+  }
+
+Get-NetTCPConnection `
+  -LocalPort 8797 `
+  -State Listen `
+  -ErrorAction SilentlyContinue |
+  Select-Object -ExpandProperty OwningProcess -Unique |
+  ForEach-Object {
+    Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue
+  }
+
+$installer = "$env:TEMP\install-embodied-alife.ps1"
+Invoke-WebRequest `
+  -Uri "https://raw.githubusercontent.com/eWOOD29/embodied-alife/main/install-windows.ps1" `
+  -OutFile $installer
+PowerShell -ExecutionPolicy Bypass -File $installer
 ```
 
-Find the desktop's Tailscale address:
-
-```powershell
-& "$env:ProgramFiles\Tailscale\tailscale.exe" status
-& "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
-```
-
-From another permitted tailnet device:
-
-```text
-http://<desktop-tailscale-ip>:8797/
-```
-
-With MagicDNS enabled:
-
-```text
-http://<desktop-machine-name>:8797/
-```
-
-Do not create a router port-forward. The app has no independent login, so permit only trusted tailnet identities/devices.
-
-Remove the firewall rules with:
-
-```powershell
-.\scripts\disable-tailscale-access.ps1
-```
+This repair preserves the world database, memories, snapshots, runtime model settings, `.env`, and `.venv`.
 
 ## AppDock
 
-The manifest expects:
+Suggested manifest/runtime values:
 
 ```text
 Project directory: C:\Users\ethan\workspace\local-apps\embodied-alife
@@ -241,120 +239,73 @@ Arguments: -m app.serve
 Health URL: http://127.0.0.1:8797/health
 Local URL: http://127.0.0.1:8797/
 Startup: manual
-Automatic startup: disabled
+Automatic startup: disabled until verified
 ```
 
-After manual launch succeeds:
+The updater restarts the app directly. If AppDock is used, verify that AppDock's process status remains coherent after an updater-managed restart.
 
-1. Import or discover `appdock.json`.
-2. Confirm the command and arguments are exactly as above.
-3. Start the app.
-4. Verify `/health` includes `"status":"ok"` and the expected `version`.
-5. Use the update panel to verify that an AppDock-launched instance can stop and restart.
-6. Confirm AppDock's displayed process state after the updater restarts the app directly.
-
-The final two behaviors require local verification because AppDock is not available in the sandbox.
-
-## Publishing the first release
-
-After the GitHub repository exists and this project has been pushed:
+## Developer setup from a source checkout
 
 ```bash
 cd /c/Users/ethan/workspace/local-apps/embodied-alife
-
-git status
-git add -A
-git commit -m "Add verified automatic updates"
-git push -u origin main
-
-git tag v0.2.0
-git push origin v0.2.0
+uv venv --python 3.11
+unset PYTHONPATH
+uv pip install --python .venv/Scripts/python.exe -e '.[dev]'
+cp .env.example .env
 ```
 
-The release workflow should create:
-
-```text
-embodied-alife-update.zip
-embodied-alife-update.zip.sha256
-```
-
-Check the repository's **Actions** and **Releases** pages. The application updater will not report v0.2.0 until the release workflow has finished and the release is published.
-
-## Local verification checklist
+Verification:
 
 ```bash
 unset PYTHONPATH
 .venv/Scripts/python.exe -m pytest -q
 .venv/Scripts/python.exe -m compileall -q app tests scripts
 .venv/Scripts/python.exe scripts/validate_package.py
-.venv/Scripts/python.exe scripts/build_release.py
+.venv/Scripts/python.exe scripts/build_release.py --output dist/embodied-alife-update.zip
 .venv/Scripts/ruff.exe check app tests scripts
 ```
 
-Then verify:
+## Release workflow
 
-- fallback simulation runs
-- dashboard and WebSocket update
-- local and Tailscale URLs open
-- LM Studio changes the model mode to `llm`
-- **Check now** reaches the correct GitHub repository
-- a later test release is detected
-- one-click update preserves `.env`, the SQLite database, snapshots, and Markdown memories
-- the app restarts at the new version
-- AppDock's state remains usable after the updater-managed restart
+Normal releases are automatic.
 
-## Troubleshooting
-
-### `No published GitHub release was found`
-
-Confirm `UPDATE_REPOSITORY` is correct and the repository has a non-draft release. A pushed commit or tag alone is not enough. For a private repository, confirm `UPDATE_GITHUB_TOKEN` has read-only Contents access.
-
-### `Release … does not contain embodied-alife-update.zip`
-
-The release was created manually or its workflow failed before uploading assets. Rerun/fix `.github/workflows/release.yml` or publish the two assets generated by:
-
-```bash
-.venv/Scripts/python.exe scripts/build_release.py
-```
-
-### Update installation fails
-
-Inspect:
-
-```bash
-cat data/runtime/update-worker.log
-cat data/runtime/update-state.json
-```
-
-The previous managed files should be under `data/runtime/update-backups/`. Local `.env`, `.venv`, database, snapshots, and memories should remain untouched.
-
-### The page does not reconnect after updating
-
-From Git Bash:
-
-```bash
-.venv/Scripts/python.exe -m app.serve
-```
-
-Then inspect the update log. Dependency synchronization may have succeeded even if automatic restart was blocked by Defender or another process manager.
-
-### Port 8797 is already in use
-
-```bash
-netstat -ano | grep 8797
-```
-
-Stop the conflicting process or change `PORT` in `.env`.
-
-### Wrong Python environment
-
-```bash
-unset PYTHONPATH
-.venv/Scripts/python.exe -c "import sys; print(sys.executable)"
-```
-
-The path should end in:
+When a coherent release is ready, update both:
 
 ```text
-embodied-alife\.venv\Scripts\python.exe
+pyproject.toml
+app/version.py
 ```
+
+After those matching version changes reach `main`, `.github/workflows/release.yml`:
+
+1. installs dependencies
+2. verifies versions match
+3. runs tests
+4. compiles source
+5. validates the package
+6. builds the custom ZIP and checksum
+7. creates the version tag
+8. publishes or updates the GitHub Release
+
+Do not manually create routine release tags. Do not bump versions for documentation-only commits.
+
+A valid release contains:
+
+```text
+embodied-alife-update.zip
+embodied-alife-update.zip.sha256
+```
+
+GitHub-generated source archives are not accepted by the application updater.
+
+## Persistent state backup
+
+```powershell
+$root = "$env:USERPROFILE\workspace\local-apps\embodied-alife"
+$stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$destination = "$env:USERPROFILE\Desktop\embodied-alife-data-$stamp"
+Copy-Item "$root\data" $destination -Recurse
+Write-Host "Backup created at $destination"
+```
+
+Never delete `data/`, `.env`, or `.venv` as a generic troubleshooting step without understanding the consequence and receiving explicit confirmation.
