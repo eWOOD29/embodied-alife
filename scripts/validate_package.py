@@ -48,6 +48,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    installed = args.installed or (ROOT / ".venv").is_dir()
+
     missing = [path for path in REQUIRED if not (ROOT / path).is_file()]
     empty = [path for path in REQUIRED if (ROOT / path).is_file() and (ROOT / path).stat().st_size == 0]
     if missing or empty:
@@ -71,7 +73,7 @@ def main() -> None:
         raise SystemExit("package version declarations do not match")
 
     forbidden_parts = set(CACHE_PARTS)
-    if not args.installed:
+    if not installed:
         forbidden_parts.update(SOURCE_ONLY_FORBIDDEN_PARTS)
 
     forbidden = [
@@ -80,7 +82,7 @@ def main() -> None:
         if any(part in forbidden_parts for part in path.parts)
     ]
     generated = []
-    if not args.installed:
+    if not installed:
         generated = [
             str(path.relative_to(ROOT))
             for path in (ROOT / "data" / "runtime").glob("*")
@@ -101,7 +103,7 @@ def main() -> None:
     if forbidden or generated or secrets:
         raise SystemExit(f"forbidden={forbidden}, generated={generated}, possible_secrets={secrets}")
 
-    mode = "installed" if args.installed else "source"
+    mode = "installed" if installed else "source"
     print(f"package validation passed ({mode} mode): {len(REQUIRED)} required files present")
 
 
