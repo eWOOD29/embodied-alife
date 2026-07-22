@@ -14,12 +14,18 @@ const terrainColors = {
   cave: '#221d28', build_area: '#8f7840'
 };
 
-
-async function updateRequest(path, options={}) {
+async function apiRequest(path, options={}) {
   const response = await fetch(path, options);
   const data = await response.json();
-  if (!response.ok) throw new Error(data.detail || 'update request failed');
+  if (!response.ok) throw new Error(data.detail || 'request failed');
   return data;
+}
+
+function showToast(text) {
+  const el = document.getElementById('toast');
+  el.textContent = text;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 2600);
 }
 
 function renderUpdateStatus() {
@@ -40,7 +46,7 @@ function renderUpdateStatus() {
   if (updateStatus.release_url) releaseLink.href = updateStatus.release_url;
   notes.hidden = !updateStatus.release_notes;
   notes.textContent = updateStatus.release_notes || '';
-  if (!updateStatus.enabled) summary.textContent = 'Automatic update checks are disabled in .env.';
+  if (!updateStatus.enabled) summary.textContent = 'Automatic update checks are disabled.';
   else if (updateStatus.error) summary.textContent = `Update check failed: ${updateStatus.error}`;
   else if (updateStatus.installing) summary.textContent = 'The verified update is being installed. This page will reconnect after restart.';
   else if (updateStatus.update_available) summary.textContent = `${updateStatus.release_name || 'A new release'} is available from ${updateStatus.repository}.`;
@@ -50,7 +56,7 @@ function renderUpdateStatus() {
 
 async function refreshUpdateStatus(check=false) {
   try {
-    updateStatus = await updateRequest(check ? '/api/update/check' : '/api/update/status', {method: check ? 'POST' : 'GET'});
+    updateStatus = await apiRequest(check ? '/api/update/check' : '/api/update/status', {method: check ? 'POST' : 'GET'});
     renderUpdateStatus();
   } catch (error) {
     showToast(error.message);
@@ -65,7 +71,7 @@ async function installAvailableUpdate() {
   button.disabled = true;
   button.textContent = 'Verifying and staging…';
   try {
-    const result = await updateRequest('/api/update/install', {
+    const result = await apiRequest('/api/update/install', {
       method: 'POST',
       headers: {'Content-Type':'application/json', 'X-Embodied-Alife-Update':'confirm'},
       body: JSON.stringify({version})
@@ -103,15 +109,115 @@ function waitForRestart(version) {
   }, 2000);
 }
 
-function showToast(text) {
-  const el = document.getElementById('toast'); el.textContent = text; el.classList.add('show');
-  setTimeout(() => el.classList.remove('show'), 2200);
+function renderLlmSummary(configuration) {
+  const status = configuration.status || {};
+  const badge = document.getElementById('llmState');
+  const summary = document.getElementById('llmSettingsSummary');
+  badge.textContent = status.mode || (configuration.enabled ? 'configured' : 'disabled');
+  badge.className = `pill ${status.mode === 'llm' && status.available ? 'ok' : status.last_error ? 'warning' : ''}`;
+  if (!configuration.enabled) summary.textContent = 'Local LLM disabled; deterministic fallback brain is active.';
+  else if (status.mode === 'llm' && status.available) summary.textContent = `Connected to ${status.model} at ${status.base_url}. Changes apply immediately.`;
+  else if (status.last_error) summary.textContent = status.last_error;
+  else summary.textContent = 'Choose a loaded model, then save and apply.';
+  if (state && status) {
+    state.model_status = status;
+    document.getElementById('modelStatus').textContent = fmt(status);
+  }
 }
+
+function fillLlmForm(configuration) {
+  document.getElementById('llmEnabled').checked = configuration.enabled;
+  document.getElementById('llmBaseUrl').value = configuration.base_url || 'http://127.0.0.1:1234/v1';
+  document.getElementById('llmModel').value = configuration.model || '';
+  document.getElementById('llmTemperature').value = configuration.temperature;
+  document.getElementById('llmMaxTokens').value = configuration.max_tokens;
+  document.getElementById('llmTimeout').value = configuration.timeout_seconds;
+  document.getElementById('llmContext').value = configuration.context_length;
+  document.getElementById('llmApiKey').value = '';
+  document.getElementById('llmApiKey').placeholder = configuration.api_key_configured ? 'Configured; leave blank to preserve' : 'LM Studio does not require one by default';
+  renderLlmSummary(configuration);
+}
+
+async function loadLlmSettings() {
+  try {
+    const configuration = await apiRequest('/api/llm/settings');
+    fillLlmForm(configuration);
+    await discoverModels(false);
+  } catch (error) {
+    document.getElementById('llmSettingsSummary').textContent = error.message;
+  }
+}
+
+async function discoverModels(showMessage=true) {
+  const button = document.getElementById('discoverModels');
+  button.disabled = true;
+  try {
+    const apiKey = document.getElementById('llmApiKey').value.trim();
+    const payload = {
+      base_url: document.getElementById('llmBaseUrl').value.trim(),
+      api_key: apiKey || null
+    };
+    const result = await apiRequest('/api/llm/models', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const datalist = document.getElementById('llmModelOptions');
+    datalist.replaceChildren(...result.models.map(model => new Option(model, model)));
+    const modelInput = document.getElementById('llmModel');
+    if (!modelInput.value && result.models.length === 1) modelInput.value = result.models[0];
+    document.getElementById('llmSettingsSummary').textContent = result.models.length
+      ? `Found ${result.models.length} loaded model${result.models.length === 1 ? '' : 's'}.`
+      : 'LM Studio responded, but no loaded models were returned.';
+    if (showMessage) showToast(`Found ${result.models.length} loaded model${result.models.length === 1 ? '' : 's'}`);
+  } catch (error) {
+    document.getElementById('llmSettingsSummary').textContent = error.message;
+    if (showMessage) showToast(error.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function saveLlmSettings() {
+  const button = document.getElementById('saveLlmSettings');
+  button.disabled = true;
+  button.textContent = 'Applying…';
+  try {
+    const apiKey = document.getElementById('llmApiKey').value.trim();
+    const payload = {
+      enabled: document.getElementById('llmEnabled').checked,
+      base_url: document.getElementById('llmBaseUrl').value.trim(),
+      model: document.getElementById('llmModel').value.trim(),
+      api_key: apiKey || null,
+      temperature: Number(document.getElementById('llmTemperature').value),
+      max_tokens: Number(document.getElementById('llmMaxTokens').value),
+      timeout_seconds: Number(document.getElementById('llmTimeout').value),
+      context_length: Number(document.getElementById('llmContext').value)
+    };
+    const configuration = await apiRequest('/api/llm/settings', {
+      method: 'PUT',
+      headers: {'Content-Type':'application/json', 'X-Embodied-Alife-Settings':'confirm'},
+      body: JSON.stringify(payload)
+    });
+    fillLlmForm(configuration);
+    showToast(configuration.status?.mode === 'llm' ? 'Local LLM connected' : 'LLM settings saved');
+  } catch (error) {
+    showToast(error.message);
+    document.getElementById('llmSettingsSummary').textContent = error.message;
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Save and apply';
+  }
+}
+
 async function control(payload) {
-  const response = await fetch('/api/control', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.detail || 'request failed');
-  showToast(JSON.stringify(data)); return data;
+  const data = await apiRequest('/api/control', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(payload)
+  });
+  showToast(JSON.stringify(data));
+  return data;
 }
 
 document.querySelectorAll('[data-action]').forEach(btn => btn.addEventListener('click', () => control({action:btn.dataset.action}).catch(e=>showToast(e.message))));
@@ -122,12 +228,15 @@ document.getElementById('resetSeed').onclick = () => { const raw = prompt('New i
 document.getElementById('checkUpdate').onclick = () => refreshUpdateStatus(true);
 document.getElementById('installUpdate').onclick = installAvailableUpdate;
 document.getElementById('updateBadge').onclick = () => document.querySelector('.update-panel').scrollIntoView({behavior:'smooth'});
+document.getElementById('discoverModels').onclick = () => discoverModels(true);
+document.getElementById('saveLlmSettings').onclick = saveLlmSettings;
 
-document.querySelectorAll('.tab').forEach(btn => btn.onclick = () => { document.getElementById('checkUpdate').onclick = () => refreshUpdateStatus(true);
-document.getElementById('installUpdate').onclick = installAvailableUpdate;
-document.getElementById('updateBadge').onclick = () => document.querySelector('.update-panel').scrollIntoView({behavior:'smooth'});
-
-document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active')); btn.classList.add('active'); activeKnowledgeTab=btn.dataset.tab; renderKnowledge(); });
+document.querySelectorAll('.tab').forEach(btn => btn.onclick = () => {
+  document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+  btn.classList.add('active');
+  activeKnowledgeTab = btn.dataset.tab;
+  renderKnowledge();
+});
 
 function drawWorld() {
   if (!state || !staticTiles) return;
@@ -173,6 +282,17 @@ function render() {
 }
 function escapeHtml(text){ const d=document.createElement('div');d.textContent=text;return d.innerHTML; }
 
-async function initialize(){ refreshUpdateStatus(false); setInterval(()=>refreshUpdateStatus(false), 60000); const response=await fetch('/api/world'); const initial=await response.json(); staticTiles=initial.world.tiles; delete initial.world.tiles; state=initial;render();connect(); }
+async function initialize(){
+  refreshUpdateStatus(false);
+  setInterval(()=>refreshUpdateStatus(false), 60000);
+  loadLlmSettings();
+  const response=await fetch('/api/world');
+  const initial=await response.json();
+  staticTiles=initial.world.tiles;
+  delete initial.world.tiles;
+  state=initial;
+  render();
+  connect();
+}
 function connect(){ const protocol=location.protocol==='https:'?'wss':'ws'; const ws=new WebSocket(`${protocol}://${location.host}/ws`); const badge=document.getElementById('connection'); ws.onopen=()=>{badge.textContent='live';badge.className='pill ok';}; ws.onmessage=e=>{state=JSON.parse(e.data);render();}; ws.onclose=()=>{badge.textContent='reconnecting';badge.className='pill warning';setTimeout(connect,1500);}; ws.onerror=()=>{badge.textContent='socket error';badge.className='pill error';}; }
 initialize().catch(e=>{document.getElementById('connection').textContent=e.message;document.getElementById('connection').className='pill error';});
