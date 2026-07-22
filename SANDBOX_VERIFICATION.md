@@ -1,10 +1,15 @@
-# Sandbox verification
+# Verification record
 
-Verification date: 2026-07-22
+_Last updated: 2026-07-22_  
+_Current release at update: **v0.2.3**_
 
-## Verified in the sandbox
+This file preserves the original sandbox verification and records the real Windows deployment results that superseded its earlier limitations. For current operations, use [`WINDOWS_SETUP.md`](WINDOWS_SETUP.md) and [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
 
-Environment used:
+## Original sandbox verification
+
+The first packaged updater work was verified in a Linux sandbox before the GitHub repository and Windows release were available.
+
+Environment at that time:
 
 ```text
 Linux sandbox
@@ -18,95 +23,175 @@ pytest-asyncio 1.3.0
 Node.js available for JavaScript syntax checking
 ```
 
-Completed checks:
+Checks completed for the original v0.2.0 candidate included:
 
-- `python -m pytest -q` — **40 passed**.
-- `python -m compileall -q app tests scripts` — passed.
-- `node --check app/web/static/app.js` — passed.
-- `python -m json.tool appdock.json` — passed.
-- `bash -n start.sh` — passed.
-- `scripts/smoke_simulation.py` — passed a deterministic fallback run.
-- Real Uvicorn process launched through `python -m app.serve` on sandbox port `8798`.
-- `ss` confirmed the server listened on `0.0.0.0:8798`.
-- Live `GET /health` returned `status: ok`, version `0.2.0`, and explicit fallback mode.
-- Live dashboard HTML returned and contained the **Application updates** interface.
-- Live `GET /api/update/status` returned a disabled updater state when `UPDATE_ENABLED=false` was supplied for the smoke process.
-- Existing REST simulation controls, static files, and WebSocket state behavior remained covered by automated tests.
-- A mock OpenAI-compatible model accepted valid structured actions and explicitly fell back after malformed output.
-- Mock GitHub release API responses were used to verify update discovery, release metadata, package download, checksum download, SHA-256 verification, manifest validation, and staging.
-- Malicious ZIP path traversal was rejected.
-- A tampered worker manifest containing `../` was rejected before any file replacement.
-- Incorrect checksum filenames were rejected.
-- The update apply routine preserved `.env` and `data/`, removed an obsolete managed file, installed a new managed file, and wrote a backup.
-- A deliberately incomplete staged update triggered rollback and restored the pre-update managed file.
-- The update API rejected installation without the custom confirmation header.
-- `scripts/build_release.py` built a version `0.2.0` release package with 66 managed files.
-- The generated release ZIP passed integrity testing with `unzip -t`.
-- The generated release manifest was parsed and validated with the same runtime security code used by the updater.
+- Python test suite passed at that point in development.
+- Python compilation passed.
+- JavaScript syntax checking passed.
+- JSON and shell syntax checks passed.
+- Deterministic fallback smoke simulation passed.
+- A real Uvicorn process launched in the sandbox.
+- `/health`, dashboard HTML, REST routes, and WebSocket behavior worked.
+- Mock OpenAI-compatible responses validated structured actions and fallback behavior.
+- Mock GitHub release responses covered discovery, download, SHA-256 verification, manifest validation, and staging.
+- Malicious ZIP traversal and unsafe managed paths were rejected.
+- Update apply logic preserved protected state, removed obsolete managed files, created backups, and rolled back incomplete updates.
+- Release ZIP integrity and manifest validation passed.
 
-The automated suite covers:
+The automated suite covered the major simulation, action, persistence, memory, web, LLM-adapter, and updater-security components.
 
-- world ticks, day progression, needs, critical damage, temperature, and shelter effects
-- movement, pathfinding, collisions, reachability, and invalid actions
-- inventory, gathering, eating, drinking, sleeping, dropping, and building
-- deterministic seed reproducibility
-- objective truth versus agent beliefs
-- snapshots, serialization, and transient SQLite lock retry
-- deterministic fallback and mocked LLM behavior
-- memory validation, retrieval, duplicates, and sleep consolidation
-- REST, static dashboard, full-map versus limited-state APIs, and WebSockets
-- all-interface host propagation through `app.serve`
-- update discovery and status
-- mocked GitHub release assets and SHA-256 verification
-- ZIP traversal protection and manifest validation
-- protected local-state preservation
-- obsolete managed-file cleanup
-- failed-update rollback
-- update API confirmation behavior
+## Real repository and release verification completed afterward
 
-## Checks that could not be run in the sandbox
+The following items that were originally unverified were subsequently exercised against the real public repository `eWOOD29/embodied-alife`:
 
-### Windows updater process
+- GitHub repository creation and direct pushes to `main`
+- GitHub Actions test and release workflows
+- custom release assets:
+  - `embodied-alife-update.zip`
+  - `embodied-alife-update.zip.sha256`
+- installation through the GitHub-hosted PowerShell installer
+- project-local `.venv` creation and dependency installation
+- preservation of `.env`, `.venv`, and `data/` during repair/reinstallation
+- real update discovery through GitHub Releases
+- real update package download and staging
+- real Windows process shutdown/update/restart debugging
+- real browser dashboard and WebSocket behavior
+- real Tailscale remote access through Tailscale Serve
+- real LM Studio server availability at `127.0.0.1:1234`
 
-The sandbox is Linux and has neither Windows PowerShell nor `pwsh`. Therefore these Windows-specific paths were not executed:
+## Real-world issues found and resolved
 
-- `install-windows.ps1`
-- the Windows `ctypes` process-wait branch used by `scripts/apply_update.py`
-- detached Windows restart flags
-- Windows Defender prompts or file-lock behavior
+The live Windows installation found several issues that sandbox/unit coverage did not expose.
 
-The cross-platform file apply/backup/rollback logic used by the worker was directly tested. The actual Windows process handoff remains a local verification item.
+### Package validation lifecycle mismatch
 
-### Real GitHub repository and release
+Initial release validation rejected generated caches and runtime database files. Installed validation then rejected the `.venv` created by the installer and ordinary Python caches.
 
-At verification time, `eWOOD29/embodied-alife` did not exist among the repositories visible through the connected GitHub account. The sandbox therefore could not verify:
+Resolution:
 
-- pushing the project to that repository
-- the GitHub Actions test workflow
-- the tag-triggered release workflow
-- real GitHub Release creation
-- a real public or private release API response
-- real release-asset redirects/downloads
-- a complete one-click update from one published version to another
+- source and installed validation modes were separated
+- installed validation permits expected runtime artifacts
+- source validation remains strict
+- secret scanning skips the virtual environment
 
-Those network interactions were tested with an HTTPX mock server using GitHub-shaped release and asset responses.
+### False update badge
 
-### Project-local dependency installation and Ruff
+The dashboard showed **Update available** while the update API correctly reported current.
 
-The sandbox's package mirror previously returned HTTP 503 errors during isolated dependency installation. Tests used the sandbox's already-installed dependencies. Ruff was configured but unavailable and could not be run.
+Cause:
 
-## Not verified because the sandbox has no access to the target computer
+```css
+.pill { display: inline-block; }
+```
 
-- Windows 11 installation or Git Bash behavior
-- initial installation through the GitHub-hosted PowerShell installer
-- actual one-click shutdown/update/restart on Windows
-- AppDock state after an updater-managed restart
-- LM Studio connection and exact model identifier
-- RTX 5080 VRAM use, latency, throughput, and context limits
-- browser behavior/performance on the target computer
-- Windows Firewall helper execution
-- actual Tailscale connectivity, MagicDNS, or tailnet policy
-- private-repository token permissions
-- long-duration operation over hours or days
+overrode the HTML `hidden` attribute.
 
-Run the local checklist in `WINDOWS_SETUP.md` before treating those items as verified.
+Resolution:
+
+```css
+[hidden] { display: none !important; }
+```
+
+### Stale version assertion
+
+A release failed because a test asserted the literal version `0.2.0` after the application became `0.2.1`.
+
+Resolution: tests now use the runtime `__version__` value.
+
+### Windows environment and encoding behavior
+
+A stale inherited `HOST` environment value could override the project `.env`, and PowerShell's UTF-8 behavior risked writing a BOM.
+
+Resolution:
+
+- project `.env` loads authoritatively
+- helper scripts explicitly write UTF-8 without BOM
+
+### Tailscale access architecture
+
+Direct binding and Windows Firewall rules did not produce the expected remote behavior, even though the process listened on all interfaces and the desktop could reach its own Tailscale IP.
+
+The working design is:
+
+```powershell
+tailscale serve --bg --https=8797 http://127.0.0.1:8797
+```
+
+The resulting tailnet-only HTTPS URL works from the user's phone.
+
+### Updater WebSocket shutdown deadlock
+
+The pre-v0.2.3 updater returned `200 OK`, downloaded and staged the package, and started shutdown, but Uvicorn remained at:
+
+```text
+Waiting for background tasks to complete
+```
+
+Cause: the dashboard WebSocket waited indefinitely on its queue, keeping the server alive while the detached update worker waited for the parent PID to exit.
+
+Resolution in v0.2.3:
+
+- browser closes the socket before requesting installation
+- server closes sockets when shutdown begins
+- reconnection is suppressed during updates
+- Uvicorn graceful shutdown is bounded to five seconds
+- regression coverage was added
+
+The user repaired the old installation with the latest installer and confirmed v0.2.3 launched successfully.
+
+## Current verified working paths
+
+```text
+Local app:
+http://127.0.0.1:8797/
+
+Health:
+http://127.0.0.1:8797/health
+
+LM Studio:
+http://127.0.0.1:1234/v1
+
+Tailscale Serve:
+https://ethan-pc.tailce5cf1.ts.net:8797
+```
+
+The Tailscale endpoint has been confirmed from the user's phone. Laptop access remained unresolved at the time of this record and appears client-specific because the same server endpoint works from another tailnet device.
+
+## Still requiring local or long-duration verification
+
+- sustained operation over many hours or days
+- Qwen3-14B structured-decision reliability across varied states
+- latency, throughput, token use, and VRAM behavior on the RTX 5080
+- actual effect/semantics of the app's context-length setting
+- AppDock status after updater-managed restart
+- repeated in-app updates beyond the v0.2.3 handoff fix
+- backup/restore and future database migration paths
+- laptop-specific Tailscale Serve access
+- behavior with multiple simultaneously loaded LM Studio models
+- behavior with OpenAI-compatible servers other than LM Studio
+
+## Current validation checklist
+
+Before a release:
+
+```bash
+unset PYTHONPATH
+.venv/Scripts/python.exe -m pytest -q
+.venv/Scripts/python.exe -m compileall -q app tests scripts
+.venv/Scripts/python.exe scripts/validate_package.py
+.venv/Scripts/python.exe scripts/build_release.py --output dist/embodied-alife-update.zip
+.venv/Scripts/ruff.exe check app tests scripts
+```
+
+Then verify locally as appropriate:
+
+- `/health` reports the intended version
+- fallback mode still works
+- dashboard and WebSocket update normally
+- LM Studio model discovery works
+- a selected model completes a valid decision or produces a clear fallback reason
+- Tailscale Serve URL opens from a trusted peer
+- update check finds the intended GitHub Release
+- update installation preserves persistent state and reconnects after restart
+
+Do not treat the historical sandbox package count, test count, or v0.2.0 output as current release metadata.
