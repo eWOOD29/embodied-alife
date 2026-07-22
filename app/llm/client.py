@@ -5,6 +5,7 @@ import re
 import time
 from dataclasses import dataclass
 from typing import Any, Generic, TypeVar
+from urllib.parse import urlparse
 
 import httpx
 from pydantic import BaseModel, ValidationError
@@ -13,6 +14,7 @@ from app.config import Settings
 from app.llm.fallback import FallbackBrain
 from app.llm.prompts import consolidation_messages, decision_messages
 from app.llm.schemas import ActionDecision, ConsolidationResult
+from app.llm.settings import LLMSettingsStore
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -32,6 +34,8 @@ class BrainResult(Generic[T]):
 class LocalLLMClient:
     def __init__(self, settings: Settings, http_client: httpx.AsyncClient | None = None) -> None:
         self.settings = settings
+        self.store = LLMSettingsStore.for_settings(settings)
+        self.store.apply(settings)
         self._provided_client = http_client
         self.fallback = FallbackBrain()
         self.status: dict[str, Any] = {
@@ -45,15 +49,122 @@ class LocalLLMClient:
             "completion_tokens": None,
         }
 
+    def public_configuration(self) -> dict[str, Any]:
+        return {
+            "enabled": not self.settings.no_llm,
+            "base_url": self.settings.llm_base_url,
+            "model": self.settings.llm_model,
+            "context_length": self.settings.llm_context_length,
+            "timeout_seconds": self.settings.llm_timeout_seconds,
+            "temperature": self.settings.llm_temperature,
+            "max_tokens": self.settings.llm_max_tokens,
+            "api_key_configured": bool(self.settings.llm_api_key and self.settings.llm_api_key != "***"),
+            "status": dict(self.status),
+        }
+
+    async def discover_models(
+        self,
+        *,
+        base_url: str | None = None,
+        api_key: str | None = None,
+    ) -> list[str]:
+        resolved_url = self._validate_base_url(base_url or self.settings.llm_base_url)
+        resolved_key = self.settings.llm_api_key if api_key is None else api_key
+        headers = {
+            "Authorization": f"Bearer {resolved_key}",
+            "Content-Type": "application/json",
+        }
+        async with self._client_context() as client:
+            response = await client.get(f"{resolved_url}/models", headers=headers)
+            response.raise_for_status()
+            payload = response.json()
+        models = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(models, list):
+            raise ValueError("The model server returned an invalid /models response")
+        return sorted(
+            {
+                str(item.get("id", "")).strip()
+                for item in models
+                if isinstance(item, dict) and str(item.get("id", "")).strip()
+            }
+        )
+
+    async def configure(
+        self,
+        *,
+        enabled: bool,
+        base_url: str,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        timeout_seconds: float,
+        context_length: int,
+        api_key: str | None = None,
+    ) -> dict[str, Any]:
+        resolved_url = self._validate_base_url(base_url)
+        resolved_model = model.strip()
+        if len(resolved_model) > 300:
+            raise ValueError("Model ID is too long")
+        if not 0.0 <= temperature <= 2.0:
+            raise ValueError("Temperature must be between 0 and 2")
+        if not 32 <= max_tokens <= 32768:
+            raise ValueError("Maximum output tokens must be between 32 and 32768")
+        if not 5 <= timeout_seconds <= 600:
+            raise ValueError("Timeout must be between 5 and 600 seconds")
+        if not 1024 <= context_length <= 262144:
+            raise ValueError("Context length must be between 1024 and 262144")
+
+        self.settings.no_llm = not enabled
+        self.settings.llm_base_url = resolved_url
+        self.settings.llm_model = resolved_model
+        self.settings.llm_temperature = float(temperature)
+        self.settings.llm_max_tokens = int(max_tokens)
+        self.settings.llm_timeout_seconds = float(timeout_seconds)
+        self.settings.llm_context_length = int(context_length)
+        if api_key is not None and api_key.strip():
+            self.settings.llm_api_key = api_key.strip()
+
+        self.status.update(
+            mode="configured" if enabled else "fallback",
+            available=False,
+            model=resolved_model or None,
+            base_url=resolved_url,
+            last_error=None,
+            last_latency_ms=None,
+            prompt_tokens=None,
+            completion_tokens=None,
+        )
+        self.store.save(self.settings)
+        await self.check_status()
+        return self.public_configuration()
+
     async def check_status(self) -> dict[str, Any]:
-        if self.settings.no_llm or not self.settings.llm_model:
-            self.status.update(mode="fallback", available=False, last_error="LLM disabled or LLM_MODEL is empty")
+        self.status.update(model=self.settings.llm_model or None, base_url=self.settings.llm_base_url)
+        if self.settings.no_llm:
+            self.status.update(mode="fallback", available=False, last_error="Local LLM is disabled")
             return dict(self.status)
         try:
-            async with self._client_context() as client:
-                response = await client.get(f"{self.settings.llm_base_url}/models", headers=self._headers())
-                response.raise_for_status()
-            self.status.update(mode="llm", available=True, last_error=None)
+            models = await self.discover_models()
+            if not self.settings.llm_model and len(models) == 1:
+                self.settings.llm_model = models[0]
+                self.store.save(self.settings)
+            if not self.settings.llm_model:
+                self.status.update(
+                    mode="configured",
+                    available=bool(models),
+                    model=None,
+                    last_error="Choose a loaded model" if models else "No models are loaded",
+                )
+                return dict(self.status)
+            if self.settings.llm_model not in models:
+                self.status.update(
+                    mode="fallback",
+                    available=False,
+                    model=self.settings.llm_model,
+                    last_error=f"Model is not loaded: {self.settings.llm_model}",
+                )
+                return dict(self.status)
+            self.status.update(mode="llm", available=True, model=self.settings.llm_model, last_error=None)
         except Exception as exc:  # noqa: BLE001
             self.status.update(mode="fallback", available=False, last_error=f"{type(exc).__name__}: {exc}")
         return dict(self.status)
@@ -93,7 +204,7 @@ class LocalLLMClient:
             "response_format": {"type": "json_object"},
         }
         last_error: Exception | None = None
-        for attempt in range(2):
+        for _attempt in range(2):
             try:
                 async with self._client_context() as client:
                     response = await client.post(
@@ -110,6 +221,8 @@ class LocalLLMClient:
                 self.status.update(
                     mode="llm",
                     available=True,
+                    model=self.settings.llm_model,
+                    base_url=self.settings.llm_base_url,
                     last_error=None,
                     last_latency_ms=round(latency_ms, 1),
                     prompt_tokens=usage.get("prompt_tokens"),
@@ -137,6 +250,14 @@ class LocalLLMClient:
 
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.settings.llm_api_key}", "Content-Type": "application/json"}
+
+    @staticmethod
+    def _validate_base_url(value: str) -> str:
+        resolved = value.strip().rstrip("/")
+        parsed = urlparse(resolved)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("Base URL must be a valid HTTP or HTTPS URL")
+        return resolved
 
     @staticmethod
     def _extract_content(data: dict[str, Any]) -> str:
