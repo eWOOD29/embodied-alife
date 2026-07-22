@@ -41,7 +41,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--installed",
         action="store_true",
-        help="Validate an installed tree where .venv and runtime data are expected.",
+        help="Validate an installed tree where .venv, caches, and runtime data are expected.",
     )
     return parser.parse_args()
 
@@ -72,8 +72,9 @@ def main() -> None:
     if not project_match or not app_match or project_match.group(1) != app_match.group(1):
         raise SystemExit("package version declarations do not match")
 
-    forbidden_parts = set(CACHE_PARTS)
+    forbidden_parts: set[str] = set()
     if not installed:
+        forbidden_parts.update(CACHE_PARTS)
         forbidden_parts.update(SOURCE_ONLY_FORBIDDEN_PARTS)
 
     forbidden = [
