@@ -192,6 +192,7 @@ try {
     Write-Host "`nInstalled Embodied Artificial Life $($manifest.version) successfully." -ForegroundColor Green
     Write-Host "Location: $InstallPath"
     Write-Host "Local URL: http://127.0.0.1:8797/"
+    Write-Host "Tailscale: run scripts\enable-tailscale-access.ps1 once from an Administrator PowerShell window."
 
     if (-not $SkipLaunch) {
         Write-Step "Launching Embodied Artificial Life"
