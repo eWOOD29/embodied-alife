@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "embodied-alife"
-version = "0.2.0"
+version = "0.2.1"
 description = "A local deterministic artificial-life world with an optional OpenAI-compatible LLM brain"
 readme = "README.md"
 requires-python = ">=3.11"
