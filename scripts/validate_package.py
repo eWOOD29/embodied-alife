@@ -1,0 +1,81 @@
+from __future__ import annotations
+
+import json
+import re
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+REQUIRED = [
+    "README.md",
+    "WINDOWS_SETUP.md",
+    "SANDBOX_VERIFICATION.md",
+    "pyproject.toml",
+    ".env.example",
+    "appdock.json",
+    "start.sh",
+    "start-embodied-alife.bat",
+    "app/main.py",
+    "app/serve.py",
+    "app/version.py",
+    "app/updater/manager.py",
+    "app/updater/security.py",
+    "app/simulation/scheduler.py",
+    "app/web/templates/index.html",
+    "app/web/static/app.js",
+    "tests/test_api.py",
+    "scripts/enable-tailscale-access.ps1",
+    "scripts/disable-tailscale-access.ps1",
+    "scripts/apply_update.py",
+    "scripts/build_release.py",
+    "install-windows.ps1",
+    ".github/workflows/release.yml",
+    "tests/test_updater.py",
+]
+FORBIDDEN_PARTS = {".venv", "__pycache__", ".pytest_cache", ".ruff_cache"}
+
+
+def main() -> None:
+    missing = [path for path in REQUIRED if not (ROOT / path).is_file()]
+    empty = [path for path in REQUIRED if (ROOT / path).is_file() and (ROOT / path).stat().st_size == 0]
+    if missing or empty:
+        raise SystemExit(f"missing={missing}, empty={empty}")
+    manifest = json.loads((ROOT / "appdock.json").read_text(encoding="utf-8"))
+    if manifest.get("arguments") != ["-m", "app.serve"]:
+        raise SystemExit("appdock.json must launch app.serve so .env HOST and PORT are honored")
+    env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
+    if "HOST=0.0.0.0" not in env_example:
+        raise SystemExit(".env.example must default HOST to 0.0.0.0")
+    if "UPDATE_REPOSITORY=eWOOD29/embodied-alife" not in env_example:
+        raise SystemExit(".env.example must configure the GitHub release repository")
+    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    version_file = (ROOT / "app" / "version.py").read_text(encoding="utf-8")
+    project_match = re.search(r'^version = "([^"]+)"$', pyproject, re.MULTILINE)
+    app_match = re.search(r'^__version__ = "([^"]+)"$', version_file, re.MULTILINE)
+    if not project_match or not app_match or project_match.group(1) != app_match.group(1):
+        raise SystemExit("package version declarations do not match")
+    forbidden = [
+        str(path.relative_to(ROOT))
+        for path in ROOT.rglob("*")
+        if any(part in FORBIDDEN_PARTS for part in path.parts)
+    ]
+    generated = [
+        str(path.relative_to(ROOT))
+        for path in (ROOT / "data" / "runtime").glob("*")
+        if path.is_file() and path.name != ".gitkeep"
+    ]
+    secrets = []
+    for path in ROOT.rglob("*"):
+        if not path.is_file() or any(part in FORBIDDEN_PARTS for part in path.parts):
+            continue
+        if path.suffix.lower() in {".png", ".jpg", ".zip", ".db"}:
+            continue
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        if "sk-" in text and path.name != "validate_package.py":
+            secrets.append(str(path.relative_to(ROOT)))
+    if forbidden or generated or secrets:
+        raise SystemExit(f"forbidden={forbidden}, generated={generated}, possible_secrets={secrets}")
+    print(f"package validation passed: {len(REQUIRED)} required files present")
+
+
+if __name__ == "__main__":
+    main()

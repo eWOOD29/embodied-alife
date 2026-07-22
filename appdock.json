@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "appId": "embodied-alife",
+  "displayName": "Embodied Artificial Life",
+  "projectDirectory": "C:\\Users\\ethan\\workspace\\local-apps\\embodied-alife",
+  "command": ".venv\\Scripts\\python.exe",
+  "arguments": [
+    "-m",
+    "app.serve"
+  ],
+  "port": 8797,
+  "healthUrl": "http://127.0.0.1:8797/health",
+  "localUrl": "http://127.0.0.1:8797/",
+  "startPolicy": "manual",
+  "autoStart": false,
+  "workingDirectoryPolicy": "projectDirectory"
+}

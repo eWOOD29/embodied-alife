@@ -1,0 +1,22 @@
+{
+  "intent": "learn whether the nearby berries are useful before the light fades",
+  "action": "move_to",
+  "target_id": "berry_bush_003",
+  "direction": null,
+  "duration_seconds": 4,
+  "interrupt_if": [
+    "danger_detected",
+    "damage_taken",
+    "target_unreachable"
+  ],
+  "reason": "The object appears edible and hunger is rising.",
+  "plan": [
+    "approach the bush",
+    "inspect or eat only if it remains reachable",
+    "remember the location if the food is useful"
+  ],
+  "belief_updates": {
+    "berries": "The visible berries may be edible, but this is not confirmed until interaction."
+  },
+  "memory_write": null
+}

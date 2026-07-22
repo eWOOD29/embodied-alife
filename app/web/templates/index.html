@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Embodied Artificial Life</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Embodied Artificial Life</h1>
+      <p>One persistent body, partial perception, deterministic consequences.</p>
+    </div>
+    <div class="header-status"><button id="updateBadge" class="pill update-badge" hidden>Update available</button><div id="connection" class="pill warning">connecting</div></div>
+  </header>
+
+  <section class="controls panel">
+    <button data-action="pause">Pause</button>
+    <button data-action="resume">Resume</button>
+    <button data-speed="1">1×</button>
+    <button data-speed="10">10×</button>
+    <button data-speed="100">100×</button>
+    <button id="saveSnapshot">Save snapshot</button>
+    <button id="loadSnapshot">Load snapshot</button>
+    <button id="resetSeed" class="danger">Reset seed</button>
+    <button data-action="decide">Request decision</button>
+    <span id="clock"></span>
+    <span id="seed"></span>
+  </section>
+
+  <main class="dashboard">
+    <section class="panel map-panel">
+      <div class="panel-title"><h2>Observer: complete world truth</h2><span id="weather"></span></div>
+      <canvas id="worldCanvas" width="768" height="768"></canvas>
+      <div class="legend">
+        <span class="meadow">meadow</span><span class="forest">forest</span><span class="water">water</span>
+        <span class="rock">rock</span><span class="build">build area</span><span class="cave">cave</span>
+      </div>
+    </section>
+
+    <section class="panel local-panel">
+      <div class="panel-title"><h2>Agent: limited local perception</h2><span id="perceptionRadius"></span></div>
+      <canvas id="localCanvas" width="480" height="480"></canvas>
+      <p class="muted">Only currently visible, line-of-sight tiles and entities are rendered here.</p>
+    </section>
+
+    <section class="panel state-panel">
+      <h2>Body and drives</h2>
+      <div id="drives" class="drive-grid"></div>
+      <h3>Inventory</h3><div id="inventory" class="chips"></div>
+      <h3>Current action</h3><pre id="currentAction"></pre>
+      <h3>Current intention</h3><p id="intention"></p>
+      <h3>Active plan</h3><div id="activePlan"></div>
+    </section>
+
+    <section class="panel update-panel">
+      <div class="panel-title"><h2>Application updates</h2><span id="currentVersion" class="pill"></span></div>
+      <p id="updateSummary" class="muted">Checking GitHub Releases…</p>
+      <div id="updateActions" class="update-actions">
+        <button id="checkUpdate">Check now</button>
+        <button id="installUpdate" class="primary" hidden>Download and install</button>
+        <a id="releaseLink" target="_blank" rel="noopener noreferrer" hidden>Release notes</a>
+      </div>
+      <pre id="updateNotes" hidden></pre>
+      <p class="muted update-warning">Updates preserve <code>.env</code>, <code>.venv</code>, <code>data/</code>, and <code>.git</code>. The app briefly stops and restarts after verification.</p>
+    </section>
+
+    <section class="panel model-panel">
+      <h2>Brain and outcome boundary</h2>
+      <h3>What Ari decided</h3><pre id="decision"></pre>
+      <h3>What actually happened</h3><pre id="result"></pre>
+      <h3>Model/API status</h3><pre id="modelStatus"></pre>
+    </section>
+
+    <section class="panel knowledge-panel">
+      <div class="tabs">
+        <button class="tab active" data-tab="perception">Agent sees</button>
+        <button class="tab" data-tab="beliefs">Agent believes</button>
+        <button class="tab" data-tab="truth">Observer knows</button>
+      </div>
+      <pre id="knowledge"></pre>
+    </section>
+
+    <section class="panel memory-panel">
+      <h2>Long-term memory vault</h2>
+      <h3>Retrieved for this decision</h3><div id="retrievedMemories"></div>
+      <h3>Recent durable writes</h3><div id="memoryWrites"></div>
+    </section>
+
+    <section class="panel timeline-panel">
+      <h2>Event timeline</h2>
+      <div id="timeline"></div>
+    </section>
+
+    <section class="panel resources-panel">
+      <h2>Observer resource/NPC state</h2>
+      <div id="resourceSummary"></div>
+      <div id="npcSummary"></div>
+      <h3>Snapshots</h3><div id="snapshotList"></div>
+    </section>
+  </main>
+  <div id="toast"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

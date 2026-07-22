@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.env
+dist/
+*.zip
+*.bundle
+data/runtime/**
+!data/runtime/.gitkeep
+data/agent_memory/**/*.md
+!data/agent_memory/**/.gitkeep
