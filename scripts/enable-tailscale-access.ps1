@@ -7,6 +7,8 @@ param(
 $ErrorActionPreference = "Stop"
 $groupName = "Embodied Artificial Life"
 $rulePrefix = "Embodied Artificial Life (Tailscale)"
+$projectRoot = Split-Path -Parent $PSScriptRoot
+$envPath = Join-Path $projectRoot ".env"
 
 $principal = New-Object Security.Principal.WindowsPrincipal(
     [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -15,16 +17,33 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
     throw "Run this script from an Administrator PowerShell window."
 }
 
+if (-not (Test-Path -LiteralPath $envPath)) {
+    $examplePath = Join-Path $projectRoot ".env.example"
+    if (-not (Test-Path -LiteralPath $examplePath)) {
+        throw "Neither .env nor .env.example was found in $projectRoot."
+    }
+    Copy-Item -LiteralPath $examplePath -Destination $envPath
+}
+
+$envLines = @(Get-Content -LiteralPath $envPath)
+$hostFound = $false
+$envLines = @(
+    foreach ($line in $envLines) {
+        if ($line -match '^\s*HOST\s*=') {
+            'HOST=0.0.0.0'
+            $hostFound = $true
+        } else {
+            $line
+        }
+    }
+)
+if (-not $hostFound) {
+    $envLines = @('HOST=0.0.0.0') + $envLines
+}
+Set-Content -LiteralPath $envPath -Value $envLines -Encoding UTF8
+
 Get-NetFirewallRule -Group $groupName -ErrorAction SilentlyContinue |
     Remove-NetFirewallRule -ErrorAction SilentlyContinue
-
-$tailscaleAdapters = @(
-    Get-NetAdapter -ErrorAction SilentlyContinue |
-        Where-Object {
-            $_.Name -match "Tailscale" -or $_.InterfaceDescription -match "Tailscale"
-        } |
-        Select-Object -ExpandProperty Name -Unique
-)
 
 $common = @{
     Group        = $groupName
@@ -33,14 +52,8 @@ $common = @{
     Enabled      = "True"
     Protocol     = "TCP"
     LocalPort    = $Port
+    LocalAddress = "Any"
     Profile      = "Any"
-}
-
-if ($tailscaleAdapters.Count -gt 0) {
-    $common["InterfaceAlias"] = $tailscaleAdapters
-    Write-Host "Restricting rules to Tailscale adapter(s): $($tailscaleAdapters -join ', ')"
-} else {
-    Write-Warning "No Tailscale adapter was detected. Rules will still be restricted to Tailscale address ranges."
 }
 
 $ipv4 = $common.Clone()
@@ -53,6 +66,8 @@ $ipv6["DisplayName"] = "$rulePrefix IPv6"
 $ipv6["RemoteAddress"] = "fd7a:115c:a1e0::/48"
 New-NetFirewallRule @ipv6 | Out-Null
 
+Write-Host "Set HOST=0.0.0.0 in $envPath."
 Write-Host "Allowed inbound TCP $Port from Tailscale IPv4 and IPv6 addresses."
-Write-Host "The application must be running with HOST=0.0.0.0."
+Write-Host "Stop and restart Embodied Artificial Life before testing remote access."
+Write-Host "After restart, verify with: Get-NetTCPConnection -LocalPort $Port -State Listen"
 Write-Host "Remove these rules with: scripts\disable-tailscale-access.ps1"
