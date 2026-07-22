@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
+import httpx
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
@@ -21,6 +22,22 @@ class ControlRequest(BaseModel):
 
 class InstallUpdateRequest(BaseModel):
     version: str | None = Field(default=None, max_length=40)
+
+
+class LLMDiscoveryRequest(BaseModel):
+    base_url: str = Field(default="http://127.0.0.1:1234/v1", max_length=500)
+    api_key: str | None = Field(default=None, max_length=500)
+
+
+class LLMSettingsRequest(BaseModel):
+    enabled: bool = True
+    base_url: str = Field(default="http://127.0.0.1:1234/v1", max_length=500)
+    model: str = Field(default="", max_length=300)
+    api_key: str | None = Field(default=None, max_length=500)
+    temperature: float = Field(default=0.3, ge=0.0, le=2.0)
+    max_tokens: int = Field(default=900, ge=32, le=32768)
+    timeout_seconds: float = Field(default=60.0, ge=5.0, le=600.0)
+    context_length: int = Field(default=16384, ge=1024, le=262144)
 
 
 def _engine(request: Request):
@@ -65,6 +82,45 @@ def snapshots(request: Request) -> list[dict]:
 @router.get("/api/memories")
 def memories(request: Request) -> list[dict]:
     return [record.to_dict() for record in _engine(request).vault.list_records()]
+
+
+@router.get("/api/llm/settings")
+def llm_settings(request: Request) -> dict:
+    return _engine(request).brain.public_configuration()
+
+
+@router.post("/api/llm/models")
+async def llm_models(payload: LLMDiscoveryRequest, request: Request) -> dict:
+    brain = _engine(request).brain
+    try:
+        models = await brain.discover_models(base_url=payload.base_url, api_key=payload.api_key)
+        return {"models": models, "base_url": payload.base_url.rstrip("/")}
+    except (httpx.HTTPError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail=f"Could not read models from the local server: {exc}") from exc
+
+
+@router.put("/api/llm/settings")
+async def save_llm_settings(
+    payload: LLMSettingsRequest,
+    request: Request,
+    x_embodied_alife_settings: str | None = Header(default=None),
+) -> dict:
+    if x_embodied_alife_settings != "confirm":
+        raise HTTPException(status_code=403, detail="missing settings confirmation header")
+    brain = _engine(request).brain
+    try:
+        return await brain.configure(
+            enabled=payload.enabled,
+            base_url=payload.base_url,
+            model=payload.model,
+            api_key=payload.api_key,
+            temperature=payload.temperature,
+            max_tokens=payload.max_tokens,
+            timeout_seconds=payload.timeout_seconds,
+            context_length=payload.context_length,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/api/update/status")
