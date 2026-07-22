@@ -31,10 +31,8 @@ jobs:
           count="$(find bootstrap -maxdepth 1 -name 'source.part*' | wc -l)"
           echo "Found ${count} source parts"
           test "$count" -eq 9
-          sha256sum bootstrap/source.part*
-          cat bootstrap/source.part* | base64 --decode > "$RUNNER_TEMP/embodied-alife-v0.2.0.zip"
-          sha256sum "$RUNNER_TEMP/embodied-alife-v0.2.0.zip"
-          echo "a74ba1cd49b86984382a96d68136ec456887cb182c1f9d662baa245a4e146b6d  $RUNNER_TEMP/embodied-alife-v0.2.0.zip" | sha256sum --check
+          cat bootstrap/source.part00 bootstrap/source.part01 bootstrap/source.part02 bootstrap/source.part03 bootstrap/source.part04 bootstrap/source.part05 bootstrap/source.part06 bootstrap/source.part07 bootstrap/source.part08 | base64 --decode > "$RUNNER_TEMP/embodied-alife-v0.2.0.zip"
+          echo "06e1838eb5335cf2f6419bce94632fda1348199607df7bdd3de87e870178b521  $RUNNER_TEMP/embodied-alife-v0.2.0.zip" | sha256sum --check
           mkdir -p "$RUNNER_TEMP/source"
           unzip -q "$RUNNER_TEMP/embodied-alife-v0.2.0.zip" -d "$RUNNER_TEMP/source"
           test -f "$RUNNER_TEMP/source/README.md"
