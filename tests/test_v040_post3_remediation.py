@@ -1,0 +1,119 @@
+from __future__ import annotations
+
+import json
+import math
+import pytest
+
+from app.llm.prompts import decision_messages
+from app.llm.schemas import ActionDecision
+from app.simulation.actions import ARI_MAP_CELL_LIMIT, ARI_MAP_MARKER_LIMIT, ARI_NOTE_LIMIT, ARI_TASK_LIMIT, ActionController
+from app.simulation.agent import AgentState
+from app.simulation.cognition import MapMarker, NoteRecord, Provenance, TaskRecord
+from app.simulation.perception import build_perception
+from app.simulation.world import WorldState
+
+
+def complete(world, agent, action):
+    controller = ActionController()
+    decision = ActionDecision(intent='post3', action=action, duration_seconds=0.2, reason='test')
+    assert controller.start(decision, world, agent).success
+    done, result, _ = controller.step(1.0, world, agent)
+    assert done and result is not None
+    return result
+
+
+def recursive_text(value):
+    return json.dumps(value, sort_keys=True, allow_nan=False)
+
+
+@pytest.mark.parametrize('bad', [None, '', 'not-number', [], (), set(), {}, {'nested': 1}, True, math.nan, math.inf, -math.inf, 10**500, -(10**500)])
+def test_perception_satiety_uses_normalized_hunger_for_direct_mutation(bad):
+    world = WorldState.generate(7001, 48)
+    agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+    agent.hunger = bad
+    perception = build_perception(world, agent)
+    assert perception['body']['hunger_deficit'] == 0.0
+    assert perception['body']['satiety'] == 100.0
+    recursive_text(perception)
+
+
+def test_task_view_exact_serialized_fields_use_allowlist_and_preserve_observer_record():
+    world = WorldState.generate(7002, 48)
+    agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+    sentinel = 'FORBIDDEN_TASK_SENTINEL'
+    task = TaskRecord('t1', 'approved title', 'approved description', 'ari', 'active', 4, 1, 2, metadata={'cave_truth': sentinel}, provenance=Provenance('inference', sentinel, sentinel))
+    task.linked_marker_ids = [sentinel]
+    task.linked_note_ids = [sentinel]
+    task.parent_task_id = sentinel
+    task.priority = {'bad': sentinel}
+    task.created_at = math.nan
+    task.updated_at = math.inf
+    agent.tasks = {'t1': task}
+    result = complete(world, agent, 'view_task_journal')
+    text = recursive_text(result.to_dict())
+    assert sentinel not in text
+    assert 'approved title' in text and 'approved description' in text
+    assert set(result.data['tasks'][0]) <= {'task_id','title','description','status','priority','created_at','updated_at','provenance_category','parent_task_id','linked_marker_ids','linked_note_ids'}
+    assert agent.to_dict()['tasks']['t1']['metadata']['cave_truth'] == sentinel
+
+
+def test_note_view_exact_serialized_fields_use_allowlist_and_preserve_observer_record():
+    world = WorldState.generate(7003, 48)
+    agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+    sentinel = 'observer_id:FORBIDDEN_NOTE_SENTINEL'
+    note = NoteRecord('n1', 'approved note', 'approved content', ['safe', sentinel], 'active', 1, 2, provenance=Provenance('note', sentinel, sentinel))
+    note.linked_task_ids = [sentinel]
+    note.linked_marker_ids = [sentinel]
+    note.created_at = math.nan
+    note.updated_at = math.inf
+    agent.notes = {'n1': note}
+    result = complete(world, agent, 'view_notebook')
+    text = recursive_text(result.to_dict())
+    assert sentinel not in text
+    assert 'approved note' in text and 'approved content' in text
+    assert agent.to_dict()['notes']['n1']['provenance']['detail'] == sentinel
+
+
+@pytest.mark.parametrize('count', [10, 100, 1000])
+def test_task_and_note_immediate_results_have_fixed_record_and_text_bounds(count):
+    world = WorldState.generate(7004, 48)
+    agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+    for index in range(count):
+        token = f'UNIQUE_{index}_' + 'x' * 2000
+        agent.tasks[str(index)] = TaskRecord(str(index), token, token, 'ari', 'active', index, index, index, metadata={'truth': token}, provenance=Provenance('inference', token, token))
+        agent.notes[str(index)] = NoteRecord(str(index), token, token, [token] * 30, 'active', index, index, provenance=Provenance('note', token, token))
+    task_result = complete(world, agent, 'view_task_journal')
+    note_result = complete(world, agent, 'view_notebook')
+    assert task_result.data['total_tasks'] == count + 4
+    assert len(task_result.data['tasks']) <= ARI_TASK_LIMIT
+    assert note_result.data['total_notes'] == count
+    assert len(note_result.data['notes']) <= ARI_NOTE_LIMIT
+    assert len(recursive_text(task_result.to_dict())) < 30000
+    assert len(recursive_text(note_result.to_dict())) < 30000
+
+
+def test_view_map_immediate_result_has_fixed_counts_and_malformed_coordinates_are_controlled():
+    world = WorldState.generate(7005, 48)
+    agent = AgentState(x='bad', y=math.nan)
+    agent.known_terrain = {f'{i},{i}': 'terrain-' + 't' * 300 for i in range(1000)}
+    for index in range(100):
+        marker = MapMarker(str(index), 'marker', 'unknown', {'x': math.inf, 'y': None}, math.nan, 'active', '', 0, 0, provenance=Provenance('inference'))
+        agent.map_markers[str(index)] = marker
+    result = complete(world, agent, 'view_map')
+    assert len(result.data['known_cells']) == ARI_MAP_CELL_LIMIT
+    assert len(result.data['markers']) == ARI_MAP_MARKER_LIMIT
+    assert result.data['total_known_cells'] == 1000
+    assert result.data['total_markers'] == 100
+    recursive_text(result.to_dict())
+
+
+def test_action_results_remain_bounded_when_inserted_into_later_prompt():
+    world = WorldState.generate(7006, 48)
+    agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+    for index in range(1000):
+        token = f'SENTINEL_{index}_' + 'x' * 2000
+        agent.notes[str(index)] = NoteRecord(str(index), token, token, [token], 'active', index, index, provenance=Provenance('note', token, token))
+    outcome = complete(world, agent, 'view_notebook').to_dict()
+    prompt = decision_messages({'perception': build_perception(world, agent), 'active_plan': [], 'retrieved_memories': [], 'recent_outcomes': [outcome]})[-1]['content']
+    assert len(prompt) < 20000
+    assert 'SENTINEL_999_' not in prompt

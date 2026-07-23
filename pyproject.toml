@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "embodied-alife"
-version = "0.4.0.post2"
+version = "0.4.0.post3"
 description = "A local deterministic artificial-life world with an optional OpenAI-compatible LLM brain"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -19,9 +19,9 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-  "pytest>=8.4,<9",
-  "pytest-asyncio>=1.1,<2",
-  "ruff>=0.12,<1",
+  "pytest>=8.3,<9",
+  "pytest-asyncio>=0.25,<1",
+  "ruff>=0.11,<1",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -29,3 +29,8 @@ packages = ["app"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
