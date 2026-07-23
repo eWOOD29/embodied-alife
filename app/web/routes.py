@@ -8,6 +8,7 @@ from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from app.diagnostics import build_diagnostic_bundle
 from app.updater.manager import UpdateError
 from app.version import __version__
 
@@ -56,11 +57,15 @@ def _health_payload(request: Request) -> dict:
         "status": "ok",
         "app": "embodied-alife",
         "version": __version__,
+        "run_id": getattr(engine, "run_id", None),
+        "world_generation_id": getattr(engine, "world_generation_id", None),
         "paused": engine.paused,
         "alive": engine.agent.alive,
         "seed": engine.world.seed,
         "sim_time": round(engine.world.sim_time, 2),
         "model_mode": engine.brain.status.get("mode"),
+        "model_available": engine.brain.status.get("available"),
+        "generation_healthy": engine.brain.status.get("generation_healthy"),
         "update_state": _updater(request).status.state,
     }
 
@@ -82,56 +87,13 @@ def world(request: Request) -> dict:
 
 @router.get("/api/diagnostics/download")
 def download_diagnostics(request: Request) -> JSONResponse:
-    engine = _engine(request)
-    updater = _updater(request)
+    bundle = build_diagnostic_bundle(
+        engine=_engine(request),
+        updater=_updater(request),
+        health=_health_payload(request),
+        application_version=__version__,
+    )
     exported_at = datetime.now(UTC)
-    memories = [record.to_dict() for record in engine.vault.list_records()]
-    events = engine.database.list_events(limit=10000)
-    model_responses = engine.database.list_model_responses(limit=10000)
-    snapshots = engine.snapshots.list()
-
-    bundle = {
-        "diagnostic_bundle": {
-            "schema_version": 1,
-            "exported_at_utc": exported_at.isoformat(),
-            "application": "embodied-alife",
-            "application_version": __version__,
-            "privacy": {
-                "api_keys_included": False,
-                "environment_file_included": False,
-                "note": "Public runtime configuration is included; secrets and raw .env contents are excluded.",
-            },
-            "manifest": {
-                "health": "Concise process, simulation, model, and updater health.",
-                "observer_state": "Complete observer-facing world state, including map truth.",
-                "serialized_engine_state": "Persistable simulation state used for snapshots and restart recovery.",
-                "llm_configuration": "Non-secret local LLM settings and current model/API status.",
-                "update_status": "Current updater state and release metadata.",
-                "durable_memories": "Validated long-term memory vault records.",
-                "snapshots": "Named snapshot metadata.",
-                "persisted_events": "Up to 10,000 persisted timeline events in chronological order.",
-                "model_responses": "Up to 10,000 persisted model/fallback responses with usage, latency, and errors.",
-                "counts": "Section sizes for quick completeness checks.",
-            },
-        },
-        "health": _health_payload(request),
-        "observer_state": engine.observer_state(include_map=True),
-        "serialized_engine_state": engine.serialize(),
-        "llm_configuration": engine.brain.public_configuration(),
-        "update_status": updater.public_status(),
-        "durable_memories": memories,
-        "snapshots": snapshots,
-        "persisted_events": events,
-        "model_responses": model_responses,
-        "counts": {
-            "durable_memories": len(memories),
-            "snapshots": len(snapshots),
-            "persisted_events": len(events),
-            "model_responses": len(model_responses),
-            "in_memory_events": len(engine.events),
-            "recent_memory_writes": len(engine.memory_writes),
-        },
-    }
     timestamp = exported_at.strftime("%Y%m%dT%H%M%SZ")
     filename = f"embodied-alife-diagnostics-v{__version__}-{timestamp}.json"
     return JSONResponse(
