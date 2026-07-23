@@ -41,7 +41,7 @@ def _bounded(value: Any, default: float = 0.5) -> float:
 def _text(value: Any, default: str = "", limit: int = TEXT_ID_LIMIT) -> str:
     if not isinstance(value, (str, int, float, bool)):
         return default
-    text = str(value).replace("\n", " ").strip()
+    text = str(value).strip()
     if not text:
         return default
     return text if len(text) <= limit else text[:limit]

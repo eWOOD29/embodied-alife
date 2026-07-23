@@ -79,7 +79,7 @@ def _known_tile_summaries(agent: AgentState, ax: int, ay: int) -> list[dict[str,
         records.append((abs(world_x - ax) + abs(world_y - ay), world_x, world_y, _truncate(raw_terrain, 64)))
     records.sort(key=lambda item: (item[0], item[2], item[1], item[3]))
     return [
-        {"x": world_x - ax, "y": world_y - ay, "terrain": terrain}
+        {"offset_east": world_x - ax, "offset_south": world_y - ay, "terrain": terrain}
         for _, world_x, world_y, terrain in records[:KNOWN_TILE_SUMMARY_LIMIT]
     ]
 
@@ -178,7 +178,7 @@ def build_perception(world: WorldState, agent: AgentState, radius: int = 10) -> 
             if distance <= radius and has_line_of_sight(world, ax, ay, x, y):
                 terrain = world.tile(x, y).value
                 terrain_counts[terrain] = terrain_counts.get(terrain, 0) + 1
-                visible_tiles.append({"x": x - ax, "y": y - ay, "terrain": terrain})
+                visible_tiles.append({"offset_east": x - ax, "offset_south": y - ay, "terrain": terrain})
                 key = f"{x},{y}"
                 agent.explored.add(key)
                 agent.known_terrain[key] = terrain
