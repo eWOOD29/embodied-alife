@@ -14,6 +14,25 @@ The project uses semantic versioning pragmatically while it is still in early de
 - Added a copy-paste new-session bootstrap prompt.
 - Updated Windows setup guidance to reflect the working LM Studio UI and Tailscale Serve workflow.
 
+## [0.3.2] — 2026-07-23
+
+### Added
+
+- Added diagnostic schema v3 with a machine-readable multi-day soak-test readiness report.
+- Added scenario coverage for sleep/wake, memory consolidation, day/night cycles, weather, storms, temperature stress, danger encounters, interruptions, shelter construction/degradation, resource regeneration, snapshots, restart continuity, verified memories, memory filtering, and updater continuity.
+- Added quality gates for minimum world duration, decision volume, LLM success, final-action success, structural integrity, pending-memory resolution, and agent survival.
+- Added `/api/validation/readiness` for checking soak-test progress without downloading the full diagnostic bundle.
+- Added `docs/SOAK_TEST.md` with the exact clean-reset, runtime, snapshot, restart, and export procedure.
+
+### Changed
+
+- Diagnostic exports now state which long-horizon systems were actually exercised and list all missing required scenarios.
+- The death path is tracked separately from required healthy-run coverage.
+
+### Tests
+
+- Added regression coverage for readiness endpoint identity, scenario counts, quality gates, instructions, and diagnostic integration.
+
 ## [0.3.1] — 2026-07-23
 
 ### Added
