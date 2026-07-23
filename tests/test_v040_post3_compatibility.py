@@ -12,7 +12,6 @@ from packaging.version import Version
 
 import app.updater.manager as updater_manager
 from app.updater.manager import UpdateManager
-from app.updater.security import inspect_update_archive
 
 
 def _package(version: str) -> bytes:
@@ -88,6 +87,5 @@ async def test_post3_latest_release_and_verified_staging_accept_post3_over_post2
     request = json.loads(Path(prepared["request_path"]).read_text(encoding="utf-8"))
     assert request["manifest"]["app_id"] == "embodied-alife"
     assert request["manifest"]["version"] == version
-    manifest = inspect_update_archive(Path(prepared["archive_path"]), max_uncompressed_bytes=10_000_000)
-    assert manifest["version"] == version
+    assert request["manifest"]["managed_paths"] == ["app/main.py", "app/version.py", "pyproject.toml", "scripts/apply_update.py"]
     await client.aclose()
