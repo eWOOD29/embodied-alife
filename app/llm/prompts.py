@@ -14,7 +14,7 @@ Use the executable-action map as a hard constraint. If a target is visible but o
 
 Need scales are not interchangeable. hunger is a deficit: 0 means fully fed and 100 means starving. hydration and energy are reserves: high values are good. Use the explicit need_semantics and urgency labels.
 
-Look is a stationary survey. It does not move the body and repeating it without a changed position or event does not reveal a new area. Use move or move_to to explore.
+Look is a stationary survey of the current location. It does not move the body and repeating it without a changed position or event does not reveal a new area. Never choose look twice in succession when the previous look succeeded and the observable state is materially unchanged. Use move or move_to to explore.
 
 Keep these concepts separate:
 - intent: the immediate objective of this one action;
@@ -35,9 +35,9 @@ def decision_messages(context: dict) -> list[dict[str, str]]:
         "retrieved_long_term_memories": context.get("retrieved_memories", []),
         "recent_action_outcomes": context.get("recent_outcomes", []),
         "decision_policy": {
-            "action": "Choose one action executable now. Cognitive-tool view actions are always available while awake.",
-            "needs": "Hunger is a deficit; hydration and energy are reserves.",
-            "exploration": "Look is stationary. Move or move_to to explore.",
+            "action": "Choose one action that is executable now. Use move_to before a target-specific action when the target is out of reach. Cognitive-tool view actions are always available while awake.",
+            "needs": "Treat hunger as a deficit where 0 is fully fed and 100 is starving; hydration and energy are reserves.",
+            "exploration": "Look is stationary. If the previous successful action was look and nothing important changed, choose move or move_to rather than look again.",
             "belief_updates": "Beliefs are subjective and may be uncertain hypotheses; never present them as observer truth.",
             "memory_write": "Usually null. Always null for view_map, view_task_journal, and view_notebook.",
         },
