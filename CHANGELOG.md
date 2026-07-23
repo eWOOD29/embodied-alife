@@ -6,6 +6,28 @@ The project uses semantic versioning pragmatically while it is still in early de
 
 ## [Unreleased]
 
+## [0.3.4] — 2026-07-23
+
+### Added
+
+- Added explicit model-facing `hunger_deficit` and `satiety` values with unambiguous scale definitions.
+- Added food-policy metadata distinguishing immediate eating need from maintaining a small inventory reserve.
+- Added pre-execution policy corrections for unnecessary eating, excess food gathering, and consecutive stationary `look` actions.
+- Added regression coverage for fully-fed hunger semantics, eating thresholds, consecutive-look correction, and prompt wording.
+
+### Changed
+
+- Eating is now recommended and executable only when hunger deficit reaches the configured threshold; low hunger values correctly mean Ari is well-fed.
+- Body perception now labels health, energy, and hydration as reserves while hunger, sleep pressure, and pain are explicitly identified as deficits or pressures.
+- The decision prompt now states that `look` is stationary and cannot be used repeatedly as exploration without movement or a meaningful state change.
+- Repeated stationary observation is converted into directional movement before execution while preserving the raw model response for diagnostics.
+
+### Fixed
+
+- Fixed Qwen interpreting “low hunger” as an urgent need to eat when Ari was nearly fully satiated.
+- Fixed repeated berry consumption while hunger deficit was near zero.
+- Fixed indefinite successful `look` loops that produced no new spatial information.
+
 ## [0.3.3] — 2026-07-23
 
 ### Added
