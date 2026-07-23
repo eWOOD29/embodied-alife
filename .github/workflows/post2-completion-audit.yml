@@ -82,13 +82,42 @@ jobs:
         run: |
           set -o pipefail
           git worktree add /tmp/post1 v0.4.0.post1
-          cp tests/test_v040_remediation.py /tmp/post1/tests/test_v040_remediation.py
+          cat > /tmp/post1/tests/test_post2_marker_negative.py <<'PY'
+          import json
+          from app.llm.schemas import ActionDecision
+          from app.simulation.actions import ActionController
+          from app.simulation.agent import AgentState
+          from app.simulation.cognition import MapMarker, Provenance
+          from app.simulation.world import WorldState
+
+          def test_post1_leaks_exact_believed_location_branch():
+              world = WorldState.generate(991, 48)
+              agent = AgentState(x=17.0, y=23.0)
+              agent.map_markers['marker-safe'] = MapMarker(
+                  'marker-safe', 'possible landmark', 'subjective',
+                  {'relative_direction': 'northwest', 'cave_truth': 'POST1_CAVE_TRUTH_SENTINEL',
+                   'nested': [{'observerId': 'POST1_OBSERVER_SENTINEL'}]},
+                  0.55, 'active', 'POST1_NOTES_SENTINEL', 0, 0,
+                  provenance=Provenance('observer', detail='POST1_PROVENANCE_SENTINEL'),
+              )
+              controller = ActionController()
+              decision = ActionDecision(intent='test', action='view_map', duration_seconds=0.2, reason='test')
+              assert controller.start(decision, world, agent).success
+              completed, result, _ = controller.step(1.0, world, agent)
+              assert completed and result is not None
+              payload = json.dumps(result.to_dict(), sort_keys=True)
+              assert 'POST1_CAVE_TRUTH_SENTINEL' not in payload
+              assert 'POST1_OBSERVER_SENTINEL' not in payload
+              assert 'POST1_NOTES_SENTINEL' not in payload
+              assert 'POST1_PROVENANCE_SENTINEL' not in payload
+          PY
           set +e
-          (cd /tmp/post1 && python -m pytest -q tests/test_v040_remediation.py::test_exact_marker_branch_uses_allowlist_and_preserves_observer_cognition) > post2-post1-negative-control.txt 2>&1
+          (cd /tmp/post1 && python -m pytest -q tests/test_post2_marker_negative.py) > post2-post1-negative-control.txt 2>&1
           status=$?
           set -e
           cat post2-post1-negative-control.txt
           echo "POST1_NEGATIVE_CONTROL_EXIT=$status" | tee -a post2-completion-evidence.txt
+          grep -q 'POST1_CAVE_TRUTH_SENTINEL' post2-post1-negative-control.txt
           test "$status" -ne 0
       - name: Upload evidence
         uses: actions/upload-artifact@v4
