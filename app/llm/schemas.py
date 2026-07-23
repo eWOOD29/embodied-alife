@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -20,6 +20,20 @@ ActionName = Literal[
     "flee",
     "wait",
 ]
+
+
+class GrammarSafeOutput(BaseModel):
+    """Expose a minimal schema to model servers while retaining full Pydantic validation.
+
+    LM Studio's llama.cpp grammar compiler can reject otherwise-valid Pydantic JSON
+    Schema features such as nested refs, nullable unions, constrained dictionaries,
+    and array constraints. The prompt still describes the exact output fields, and
+    the returned object is validated against the complete Pydantic model in-process.
+    """
+
+    @classmethod
+    def model_json_schema(cls, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        return {"type": "object"}
 
 
 class MemoryWrite(BaseModel):
@@ -53,7 +67,7 @@ class MemoryWrite(BaseModel):
         return cleaned
 
 
-class ActionDecision(BaseModel):
+class ActionDecision(GrammarSafeOutput):
     model_config = ConfigDict(extra="forbid")
 
     intent: str = Field(min_length=1, max_length=240)
@@ -77,7 +91,7 @@ class ActionDecision(BaseModel):
     memory_write: MemoryWrite | None = None
 
 
-class ConsolidationResult(BaseModel):
+class ConsolidationResult(GrammarSafeOutput):
     model_config = ConfigDict(extra="forbid")
 
     summary: str = Field(min_length=10, max_length=2500)
