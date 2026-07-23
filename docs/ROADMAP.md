@@ -1,701 +1,497 @@
 # Embodied Artificial Life — Roadmap
 
-_Last updated: 2026-07-22_  
-_Current release at roadmap creation: **v0.2.3**_
+_Last updated: 2026-07-23_  
+_Current planning baseline: **v0.3.4**_
 
-This roadmap is intentionally ordered by dependency and learning value. The goal is not to add the largest number of features; it is to improve the quality, inspectability, and scientific usefulness of embodied behavior without weakening the deterministic world boundary.
+This roadmap defines the order of work after the v0.2.9–v0.3.4 stabilization cycle. It is intentionally organized around dependency, learning value, and player-like experience rather than feature count.
 
-## Guiding objective
+The project is no longer trying to improve a reactive LLM action selector one local correction at a time. The next objective is to build a durable cognitive and survival architecture in which Ari can guide an open-ended adventure while the deterministic world remains physically authoritative.
 
-Build a persistent artificial-life environment in which a local language model can develop behavior, beliefs, memories, plans, relationships, and eventually culture through constrained embodiment and real consequences.
+## Product vision
 
-The project should remain:
+Build a local, inspectable artificial-life and survival experience in which Ari:
 
-- local-first
-- inspectable
-- deterministic where possible
-- persistent
-- model-agnostic
-- useful in fallback mode
-- safe from arbitrary model-side execution
-- capable of controlled comparison across models, prompts, seeds, and versions
+- awakens without knowledge of the generated world;
+- experiences a vulnerable body, partial perception, uncertainty, and consequences;
+- chooses goals, takes risks, forms beliefs, makes mistakes, learns, and develops preferences;
+- uses in-world cognitive tools such as a map, task journal, and notebook;
+- can survive, stabilize, explore, understand, improve, and eventually thrive;
+- remains meaningfully guided by the local language model rather than becoming a scripted survival bot.
 
-## Priority legend
+The experience should feel closer to an unscripted single-character RPG or survival game than a benchmark loop, while remaining scientifically inspectable and reproducible.
 
-- **P0 — Stabilize now:** required before expanding scope
-- **P1 — High value:** next major product/research improvements
-- **P2 — Medium term:** meaningful expansion after core observability is solid
-- **P3 — Long term:** ambitious ALife capabilities
+## Non-negotiable design principles
 
----
+1. **Ari leads the adventure.** Qwen chooses goals, priorities, interpretations, interruptions, risk tolerance, and personal projects.
+2. **The world decides what physically happens.** The LLM cannot declare success, alter state directly, or bypass deterministic rules.
+3. **Structure supports agency rather than replacing it.** Deterministic systems store goals, track progress, execute bounded movement, detect pathological repetition, and preserve continuity.
+4. **Beliefs may be wrong.** Ari may form hypotheses or premature conclusions. Evidence can strengthen, weaken, contradict, or overturn them.
+5. **Ari and the observer see different worlds.** Ari receives only partial, uncertain knowledge; the observer retains complete truth for auditing.
+6. **Cognition is layered.** Immediate context, recent experience, notes, tasks, beliefs, maps, and sleep-consolidated memory have distinct roles and lifetimes.
+7. **Sixteen thousand tokens is the minimum design target.** Larger contexts may improve performance, but ordinary decisions must remain viable within a 16k window.
+8. **Failures should usually teach before they kill.** Early experimentation may cause injury, illness, lost time, or resource costs without routinely causing instant death.
+9. **Public-source hygiene is mandatory.** No personal paths, private hostnames, credentials, runtime data, or internal-only handoff material belongs in the public repository.
+10. **Every major behavior remains diagnosable.** Logs must distinguish perception, retrieved cognition, model proposal, policy transformation, controller execution, world outcome, and later learning.
 
-## Phase 0 — Stabilize the local-model and operations layer
+## Current baseline
 
-### P0.1 End-to-end Qwen3-14B verification
+The v0.2.9–v0.3.4 sequence established:
 
-**Goal:** Confirm the current loaded Qwen3-14B model can reliably serve as Ari's decision brain.
+- outcome-verified durable memory writes;
+- clean experiment resets;
+- stable run and world-generation identity;
+- executable-action and reachability guidance;
+- diagnostic bundles and soak-readiness reporting;
+- public-repository cleanup and hygiene checks;
+- resource-depletion and interaction-radius consistency;
+- hunger-scale clarification and unnecessary-eating prevention;
+- local loop detection for failed actions and stationary looking.
 
-Tasks:
-
-- discover the exact LM Studio model ID through the UI
-- save and apply the model
-- request a decision without advancing unrelated simulation time
-- verify LM Studio receives the request
-- verify the response validates against `ActionDecision`
-- confirm the dashboard reports `mode: llm`
-- record latency, prompt tokens, completion tokens, and fallback behavior
-- test at least several distinct world states, including danger and urgent bodily needs
-
-Acceptance criteria:
-
-- at least 20 requested decisions complete without crashing the app
-- schema-valid response rate is measured
-- fallback reasons are visible when validation fails
-- simulation behavior remains deterministic after the model's action is accepted
-
-### P0.2 Add a **Test model** workflow
-
-**Goal:** Separate model connectivity/schema testing from simulation decisions.
-
-The UI should offer a button that:
-
-1. checks `/v1/models`
-2. confirms the selected model is loaded
-3. sends a minimal schema-constrained test request
-4. validates the response
-5. reports:
-   - success/failure
-   - total latency
-   - prompt/completion tokens
-   - HTTP status
-   - validation error
-   - cleaned JSON
-   - whether fallback would have occurred
-
-The test must not mutate Ari or advance the world.
-
-Acceptance criteria:
-
-- users can distinguish “server is reachable” from “model can produce valid decisions”
-- raw model text is available behind an expandable diagnostic view
-- secrets are never included in the diagnostic output
-
-### P0.3 Improve model status and failure observability
-
-Replace the raw-only status presentation with a readable summary:
-
-- active model
-- base URL
-- connection state
-- last decision source
-- last latency
-- prompt/completion tokens
-- last failure category
-- retry count
-- fallback reason
-- timestamp of last successful LLM response
-
-Keep raw JSON available for debugging.
-
-### P0.4 Resolve context-length semantics
-
-Current behavior stores `context_length` but does not change LM Studio's loaded context window.
-
-Choose one of these designs:
-
-- rename it to **Expected model context** and use it only for prompt budgeting
-- query a server capability endpoint if LM Studio exposes one
-- remove it from the UI until it has an operational effect
-- use it to enforce an app-side prompt budget even though LM Studio remains authoritative
-
-Acceptance criteria:
-
-- UI wording accurately reflects what the setting controls
-- prompt construction cannot silently exceed the configured app-side budget
-
-### P0.5 First-class Tailscale Serve support
-
-The current working remote-access method is:
-
-```powershell
-tailscale serve --bg --https=8797 http://127.0.0.1:8797
-```
-
-Add a supported helper such as:
-
-```text
-scripts/configure-tailscale-serve.ps1
-scripts/remove-tailscale-serve.ps1
-```
-
-The helper should:
-
-- detect Tailscale installation
-- verify the daemon is connected
-- configure the exact Serve mapping
-- print the resulting MagicDNS URL
-- show `tailscale serve status`
-- avoid public Funnel exposure
-- leave unrelated Serve mappings untouched
-
-Optional UI status:
-
-- Serve configured/not configured
-- current HTTPS URL
-- local proxy target
-
-### P0.6 End-to-end updater integration test
-
-Unit tests caught many issues, but the v0.2.3 bug required a real server, live WebSocket, process shutdown, and detached worker.
-
-Build a Windows-oriented or cross-platform integration harness that:
-
-- launches the managed server in a temporary project
-- opens a WebSocket
-- stages a known test update
-- requests install
-- confirms the socket closes
-- confirms the server exits within the shutdown ceiling
-- confirms the worker begins after parent exit
-- confirms managed files are replaced
-- confirms protected paths survive
-- confirms the new process starts
-
-At minimum, add a CI-safe simulation of the process handoff and keep a local Windows checklist for the full path.
-
-### P0.7 Documentation consistency checks
-
-Add a lightweight test or maintenance checklist to prevent instructions from drifting:
-
-- README current version-neutral language
-- no manual-tag instructions after automatic releases
-- LM Studio guidance points to the UI
-- Tailscale guidance points to Serve
-- protected update paths remain consistent across docs and code
+The current limitation is architectural: Ari can make locally valid decisions but does not yet preserve goals, measure task progress, manage attention, or use spatial and cognitive tools well enough to sustain an adventure.
 
 ---
 
-## Phase 1 — Make cognition measurable and comparable
+# Phase 1 — Adventure foundation
 
-### P1.1 Deterministic experiment harness
+## v0.4.0 — Awakening, key items, and cognitive state foundations
 
-Create a reproducible evaluation runner that can compare:
+**Goal:** Establish Ari as a character with an in-world starting frame and durable external cognitive tools.
 
-- fallback brain
-- different local models
-- different quantizations
-- different prompts
-- different temperatures
-- different memory configurations
+### Scope
 
-The harness should run fixed seeds and scenarios and export structured results.
+- Add the agreed awakening narrative:
 
-Suggested metrics:
+  > I wake beneath an unfamiliar sky with no memory of how I arrived. My body feels real, vulnerable, and entirely my responsibility. I do not know this land, what lives here, or whether anyone else is nearby.
+  >
+  > I have only a few possessions: a blank map, a task journal, and a field notebook. The journal contains a handful of basic survival reminders—find water, secure food, and establish somewhere safe to rest—but what I do beyond that is up to me.
+  >
+  > If I am going to survive here, and perhaps eventually build a life worth living, I should begin by understanding my situation. The map and task journal may be the best place to start.
 
-- survival time
-- hydration/hunger crises
-- action validity rate
-- unreachable/illegal target rate
-- repeated-action loops
-- exploration coverage
-- resource efficiency
-- shelter completion
-- dangerous-NPC avoidance
-- memory retrieval usefulness
-- schema-valid response rate
-- average latency and token usage
-- fallback rate
+- Add non-droppable key items:
+  - blank field map;
+  - task journal;
+  - field notebook;
+  - implied writing implement.
+- Add starter tasks:
+  - assess immediate surroundings;
+  - find a reliable source of water;
+  - secure enough food for the near future;
+  - find or create a safe place to rest.
+- Add structured schemas and persistence for:
+  - notes;
+  - tasks and subtasks;
+  - map markers;
+  - beliefs with epistemic status;
+  - short-term episodic events.
+- Preserve all new state across restart and snapshots.
+- Clear all experiment-specific cognition on Reset seed.
 
-Outputs:
+### Acceptance criteria
 
-```text
-data/experiments/<run-id>/config.json
-data/experiments/<run-id>/events.jsonl
-data/experiments/<run-id>/metrics.json
-data/experiments/<run-id>/summary.md
-```
+- A clean reset creates the same starter key items and tasks but no prior-world cognition.
+- Ari can view each key item through an action without receiving observer truth.
+- Key items do not consume ordinary carrying capacity and cannot be accidentally dropped.
+- The first model context makes viewing the map or journal naturally attractive without hard-coding the first action.
+- Diagnostic export includes every cognitive store and its provenance.
 
-### P1.2 Prompt and schema versioning
+## v0.4.1 — Hybrid goal and task layer
 
-Record with every model response:
+**Goal:** Give Ari persistent intentions without making the deterministic system choose Ari's life.
 
-- app version
-- prompt template version/hash
-- schema version
-- model ID
-- runtime model settings
-- world seed
-- simulation time
-- retrieved memory IDs
+### Ari controls
 
-This makes behavioral changes attributable rather than anecdotal.
+- which goal matters;
+- why it matters;
+- task priority;
+- risk tolerance;
+- whether a discovery justifies interruption;
+- whether to continue, suspend, branch, abandon, or complete a task;
+- creation of personal goals beyond starter survival tasks.
 
-### P1.3 Decision inspector
+### System controls
 
-Add a dashboard view for each decision showing:
+- persistent storage and task lifecycle;
+- progress metrics;
+- task-to-map and task-to-note links;
+- interruption bookkeeping;
+- protection against accidental plan replacement;
+- bounded execution of a chosen task;
+- non-progress and circular-route detection.
 
-- permitted perception supplied to the model
-- retrieved memories
-- active plan
-- model output
-- parsed decision
-- controller validation
-- action execution timeline
-- final result
-- belief updates
-- memory-write request and validation outcome
+### Required task lifecycle
 
-The inspector should make it obvious where a poor outcome originated:
+- proposed;
+- active;
+- suspended;
+- blocked;
+- completed;
+- abandoned;
+- superseded.
 
-- perception limitation
-- model reasoning/action choice
-- schema conversion
-- controller rejection
-- environmental consequence
-- stale or misleading memory
+Each transition records the initiating model decision, reason, evidence, and timestamp.
 
-### P1.4 Named model profiles
+### Acceptance criteria
 
-Allow users to save profiles such as:
+- An active exploration task survives nearby low-relevance resource sightings.
+- Qwen may deliberately suspend that task, but must choose an explicit interruption disposition.
+- “Mark for later and continue” prevents the same object from repeatedly forcing deliberation.
+- The controller reports progress without deciding the objective.
+- Plans update the active task rather than silently replacing it every turn.
 
-```text
-Qwen3-14B Balanced
-Qwen3-14B Fast
-Qwen3.6-27B Remote
-Fallback Only
-```
+## v0.4.2 — Partial map and frontier exploration
 
-Each profile can include:
+**Goal:** Turn exploration into purposeful, Ari-guided navigation rather than repeated compass-direction selection.
 
-- base URL
-- model ID
-- temperature
-- max output tokens
-- timeout
-- prompt-budget target
-- response-format compatibility flags
+### Scope
 
-Do not duplicate secrets unnecessarily.
+- Add Ari's partial map as structured in-world knowledge.
+- Support uncertain markers, approximate locations, stale resource markers, confidence, notes, and named landmarks.
+- Add actions:
+  - view map;
+  - add, rename, annotate, archive, or remove marker;
+  - set or clear destination;
+  - link marker to task or note.
+- Compute deterministic exploration frontiers from Ari's known terrain.
+- Let Qwen choose which frontier or destination matters.
+- Allow the controller to execute bounded routes toward the chosen frontier and interrupt on meaningful changes.
+- Track net displacement, new tiles, revisits, circular routes, and progress per active task.
 
-### P1.5 Model compatibility modes
+### Acceptance criteria
 
-Some OpenAI-compatible servers/models may not support `response_format` or may use different model-list semantics.
+- Ari can distinguish explored, uncertain, and unknown space.
+- Exploration tasks select a destination or frontier instead of only “move north.”
+- A completed route produces measurable new-map progress.
+- Circular movement without new tiles triggers reflection or replanning.
+- The map never exposes unobserved observer coordinates or hidden entities.
 
-Add capability flags or automatic fallback strategies:
+## v0.4.3 — Informative inspection and object characterization
 
-- JSON response format supported
-- plain prompt-only JSON mode
-- model field required/ignored
-- usage fields available/unavailable
-- reasoning content separated from final content
+**Goal:** Make inspection a real epistemic action and remove it when it cannot reveal anything new.
 
-### P1.6 Cost/performance telemetry for local inference
+### Scope
 
-Track:
+- Define hidden and visible attributes for inspectable object classes.
+- Make inspection return deterministic evidence such as appearance, smell, texture, tracks, damage, ripeness, animal feeding signs, material quality, or change since last observation.
+- Track per-object and per-type characterization levels.
+- Track known attributes, unresolved questions, conflicting evidence, and last inspection conditions.
+- Remove `inspect` from affordances for already-characterized unchanged objects unless:
+  - the object changed;
+  - prior inspection was incomplete;
+  - Ari gained a relevant tool or knowledge;
+  - Ari deliberately rechecks a disputed belief.
+- Separate evidence from Ari's interpretation.
 
-- request frequency
-- tokens per simulated hour/day
-- average and percentile latency
-- GPU/model availability gaps
-- invalid-output retries
-- time spent waiting on inference versus simulation
+### Acceptance criteria
 
-This will help tune whether every decision should invoke the LLM or whether more behavior should be handled by lower-level policies.
-
----
-
-## Phase 2 — Deepen embodiment and world interaction
-
-### P2.1 Hierarchical action system
-
-Separate cognition into levels:
-
-```text
-long-term goal
-  → plan
-    → task
-      → validated atomic action
-```
-
-The LLM should not need to repeatedly micromanage every movement tile. The controller can execute bounded tasks and interrupt when perception, danger, needs, or feasibility changes.
-
-### P2.2 Richer resource and crafting graph
-
-Expand beyond basic gathering and shelter building:
-
-- tools
-- containers
-- fire
-- food preparation
-- water collection/purification
-- clothing
-- repair
-- storage
-- material quality
-- resource spoilage
-
-Keep every recipe and physical requirement deterministic and inspectable.
-
-### P2.3 More realistic bodily systems
-
-Potential additions:
-
-- injury location and severity
-- infection risk
-- fatigue versus sleep pressure
-- thermoregulation and insulation
-- food macronutrients and digestion timing
-- thirst and water quality
-- carrying capacity
-- movement speed and injury penalties
-
-Avoid adding complexity without corresponding decisions and observable consequences.
-
-### P2.4 Environmental hazards and seasons
-
-- terrain traversal costs
-- storms and shelter exposure
-- heat/cold waves
-- flooding/drought
-- seasonal resource changes
-- fire spread
-- darkness and visibility
-
-### P2.5 Better spatial knowledge
-
-Ari should maintain an imperfect internal map rather than receiving unexplained coordinates.
-
-Add:
-
-- landmarks
-- uncertain location estimates
-- route memory
-- map confidence
-- forgotten or outdated locations
-- discovered paths
-- navigation errors under stress or darkness
-
-### P2.6 Expanded NPC ecology
-
-- prey and predator routines
-- territorial behavior
-- resource competition
-- injury and death
-- migration
-- communication cues
-- individual recognition
-
-NPC behavior should remain deterministic or seed-controlled enough for reproducible experiments.
+- Inspection reveals information not already present in ordinary perception.
+- Repeated inspection of an unchanged characterized object is not offered by default.
+- Ari can form an incorrect interpretation from valid evidence.
+- Observer diagnostics show hidden truth, evidence revealed, Ari's belief, and later contradictions separately.
 
 ---
 
-## Phase 3 — Memory, learning, and identity
+# Phase 2 — Cognitive architecture
 
-### P2/P3.1 Memory taxonomy
+## v0.5.0 — Sixteen-k context budget and layered retrieval
 
-Split durable memory into clearer categories:
+**Goal:** Make ordinary cognition reliable within a 16k context window.
 
-- episodic — what happened
-- semantic — learned world facts
-- procedural — how to do something
-- social — knowledge about individuals
-- goals/commitments — promises and plans
-- self-model — beliefs about abilities, needs, and identity
+### Cognitive layers
 
-### P2/P3.2 Provenance and confidence
+1. Immediate working context
+2. Short-term episodic buffer
+3. Searchable field notes
+4. Task journal and prospective memory
+5. Beliefs and self-model
+6. Sleep-consolidated long-term memory
 
-Every belief/memory should optionally include:
+### Scope
 
-- source event or observation
-- confidence
-- first-seen time
-- last-confirmed time
-- contradiction links
-- whether it was directly perceived, inferred, or told by another agent
+- Add a hard application-side token budget with configurable allocations.
+- Target ordinary decision prompts of approximately 8k–12k tokens.
+- Reserve output and emergency headroom within 16k.
+- Compress local terrain into task-relevant summaries rather than sending raw large tile lists.
+- Retrieve a small, attributable set from each relevant cognitive store.
+- Record why each item was included or excluded.
+- Dynamically shift budget by decision type: danger, exploration, planning, crafting, social, or reflection.
 
-This enables false beliefs without losing observer auditability.
+### Acceptance criteria
 
-### P2/P3.3 Forgetting and interference
+- Ordinary decisions remain below the configured 16k limit.
+- No prompt silently exceeds the budget.
+- Diagnostics show token allocation by section and retrieval rationale.
+- Larger configured contexts improve breadth without being required for correctness.
 
-Add controlled forgetting rather than unlimited accumulation:
+## v0.5.1 — Notes and short-term episodic memory
 
-- salience decay
-- retrieval strengthening
-- interference between similar memories
-- sleep consolidation
-- emotional/need-based weighting
-- preservation of identity-defining memories
+**Goal:** Give Ari reliable recent continuity and intentional waking external memory.
 
-### P2/P3.4 Learning from outcomes
+### Scope
 
-Ari should update procedural expectations after success or failure:
+- Maintain a compact recent-experience buffer of meaningful events, interruptions, discoveries, decisions, and unfinished intentions.
+- Automatically summarize older short-term events while preserving source links.
+- Add notebook actions to create, edit, search, tag, link, archive, and delete notes.
+- Allow promotion from note to task, map marker, belief evidence, or sleep-consolidation candidate.
+- Keep notes searchable but out of ordinary context unless relevant.
 
-- “this route was blocked”
-- “these berries caused illness”
-- “the wolf is active near this landmark at night”
-- “a shelter of this material failed in a storm”
+### Acceptance criteria
 
-The world remains authoritative; learning changes future choice, not physical laws.
+- Ari can answer why they came to a location or what they were doing before interruption.
+- Notes survive restart and snapshots within an experiment.
+- Search returns relevant notes without dumping the entire notebook.
+- Temporary details do not automatically become permanent memory.
 
-### P3.5 Persistent identity development
+## v0.5.2 — Belief lifecycle and learning from contradiction
 
-Explore whether Ari develops stable:
+**Goal:** Allow uncertain, false, and evolving beliefs without confusing them with world truth.
 
-- preferences
-- habits
-- risk tolerance
-- routines
-- attachment to places/objects
-- self-narrative
-- values
+### Scope
 
-Make these inspectable and distinguish them from prompt-imposed personality.
+Beliefs include:
 
----
+- claim;
+- confidence;
+- basis;
+- status: hypothesis, working, confirmed, disputed, rejected;
+- first formed and last tested times;
+- supporting and contradicting evidence;
+- source type: perception, inference, memory, note, testimony, or bodily consequence.
 
-## Phase 4 — Social and multi-agent artificial life
+Qwen may create unsupported hypotheses. The system does not forbid them; it preserves provenance and presents later evidence.
 
-Do not begin this phase until single-agent cognition, persistence, and evaluation are reliable.
+### Acceptance criteria
 
-### P3.1 Multiple embodied agents
+- Ari may believe an unproven berry is safe.
+- Later illness can contradict and weaken that belief.
+- Belief revision is model-guided, not silently imposed by observer truth.
+- The dashboard clearly separates truth, evidence, and belief.
 
-Each agent should have:
+## v0.5.3 — Sleep consolidation and long-term memory
 
-- separate partial perception
-- separate body and inventory
-- separate memory vault
-- individual model/profile or fallback policy
-- independent beliefs about others
+**Goal:** Make sleep the primary gateway to durable autobiographical and semantic memory.
 
-### P3.2 Communication as action
+### Scope
 
-Speech should be:
+- Waking experiences enter episodic memory, notes, beliefs, and protected consolidation candidates.
+- Sleep reflection selects important episodes, lessons, questions, commitments, and self-model changes.
+- Consolidation can merge duplicates, strengthen or weaken beliefs, preserve contradictions, and create next-day tasks.
+- Critical events may receive protected pending status while awake but do not become ordinary durable memory until consolidation.
+- Long-term storage persists indefinitely within the experiment, while retrieval remains selective.
 
-- range-limited
-- interruptible
-- recorded as an event
-- perceived imperfectly where appropriate
-- distinguishable from truth
+### Acceptance criteria
 
-Agents should be able to lie, misunderstand, forget, and form beliefs based on testimony.
+- Ordinary waking actions no longer write long-term memory directly.
+- Important experiences survive until the next sleep.
+- Sleep produces a small number of high-value memories rather than event summaries.
+- Reset seed clears all experiment-specific long-term memory.
+- Restart and snapshot restore the entire consolidation state.
 
-### P3.3 Cooperation and conflict
+## v0.5.4 — Emerging personality and self-model
 
-- resource sharing
-- trade
-- task division
-- promises
-- reputation
-- theft
-- territorial conflict
-- rescue
-- coalition formation
+**Goal:** Let Ari's personality develop from experience rather than remain a fixed prompt costume.
 
-### P3.4 Culture and institutions
+### Scope
 
-Long-term research targets:
+Track inspectable tendencies such as:
 
-- shared conventions
-- teaching
-- rituals
-- norms
-- leadership
-- role specialization
-- symbolic artifacts
-- intergenerational knowledge
+- curiosity;
+- risk tolerance;
+- persistence;
+- novelty seeking;
+- resource conservatism;
+- attachment to places;
+- trust;
+- comfort with uncertainty;
+- social preference.
 
-### P3.5 Reproduction, inheritance, and evolution
+The model may also form explicit self-beliefs. Structured tendencies summarize repeated behavior and reflection but do not dictate individual choices.
 
-Only after ethical and technical design work:
+### Acceptance criteria
 
-- bounded reproduction rules
-- inherited traits or policies
-- mutation/variation
-- selection pressures
-- lifespan and generations
-- cultural versus genetic inheritance
-
-This phase should be treated as a research project, not a quick gameplay feature.
+- Personality changes require repeated evidence or explicit reflection.
+- One isolated action cannot silently rewrite identity.
+- Ari can disagree with or revise their own self-beliefs.
+- Observer diagnostics distinguish measured tendencies from Ari's self-narrative.
 
 ---
 
-## Phase 5 — User experience and visualization
+# Phase 3 — Richer survival world
 
-### P1/P2.1 Dashboard information architecture
+## v0.6.0 — Plant diversity, uncertain edibility, and poisoning
 
-The current dashboard is functional but dense. Improve it with:
+**Goal:** Create meaningful ecological uncertainty and recoverable learning.
 
-- collapsible panels
-- responsive mobile layout
-- readable model status
-- selected-agent focus
-- timeline filters
-- decision inspector
-- memory browser/search
-- snapshot management
-- experiment comparison
+### Initial plant set
 
-### P2.2 Time controls
+- safe berry bush;
+- visually similar poisonous berry bush;
+- edible leafy plant;
+- irritating or mildly toxic plant;
+- medicinal herb;
+- fibrous crafting plant;
+- thorny bush;
+- uncertain mushroom;
+- nut-bearing shrub or tree;
+- distinctive flowering landmark plant.
 
-- step one tick
-- step until next decision
-- step until action completion
-- run until a condition
-- pause on danger, injury, death, memory write, or model fallback
+### Scope
 
-### P2.3 Map inspection tools
+- Give related safe and unsafe species overlapping but distinguishable clues.
+- Add delayed, graded poisoning with nausea, pain, energy penalty, hydration drain, and slow health loss.
+- Track suspected cause and symptom timeline without revealing certainty to Ari.
+- Allow recovery through time, safe food, water, rest, sleep, shelter, and medicinal resources.
+- Avoid routine instant death from one reasonable experiment.
 
-- zoom/pan
-- hover details
-- perception overlay
-- known-versus-unknown overlay
-- path and planned-route overlay
-- event markers
-- resource history
-- observer-only debug layers
+### Acceptance criteria
 
-### P2.4 Replay and branching
+- Ari cannot identify every plant from ordinary perception.
+- Inspection reveals clues but not always certainty.
+- Eating a toxic plant produces delayed, auditable symptoms.
+- Ari has time to form hypotheses and respond.
+- Repeated reckless exposure can still become fatal.
 
-Use snapshots and deterministic seeds to support:
+## v0.6.1 — Recovery, rest, and bodily consequences
 
-- replay from a prior point
-- compare two model decisions from the same state
-- fork worlds with different prompts/models
-- side-by-side outcome timelines
+**Goal:** Make injury and recovery strategically meaningful.
 
-### P2.5 Exportable reports
+### Scope
 
-Generate experiment summaries suitable for sharing:
+- Safe food restores a small amount of health.
+- Rest restores more health when hydration, nutrition, temperature, and safety permit.
+- Sleep in shelter provides the strongest ordinary recovery.
+- Poisoning, exposure, dehydration, starvation, pain, and activity reduce healing.
+- Add qualitative model-facing symptoms while retaining exact observer values.
 
-- run configuration
-- key events
-- survival/behavior metrics
-- model performance
-- representative decisions
-- failure analysis
-- charts
+### Acceptance criteria
 
----
+- Health can recover without resetting.
+- Shelter and stabilization materially improve recovery.
+- Exact game-like values remain observer-facing; Ari receives embodied descriptions.
+- Recovery is slow enough that mistakes matter.
 
-## Phase 6 — Reliability, security, and packaging
+## v0.6.2 — Expanded animal ecology
 
-### P1.1 Application authentication
+**Goal:** Make animals sources of danger, opportunity, and environmental evidence rather than moving resource icons.
 
-Before exposing beyond a trusted tailnet:
+### Initial ecological roles
 
-- add an application token or local login
-- protect mutation endpoints
-- add CSRF/origin protections where appropriate
-- separate observer/read-only access from control access
+- harmless small animal;
+- prey animal;
+- scavenger;
+- territorial animal;
+- predator;
+- birds or insects that provide environmental cues.
 
-### P1.2 Secure secret storage
+### Scope
 
-Move API keys from plaintext runtime JSON to:
+- Add routines, territoriality, migration, fleeing, stalking, scavenging, and resource competition.
+- Let tracks, feeding behavior, calls, and flight behavior reveal clues.
+- Preserve seeded reproducibility.
+- Avoid exposing exact animal intent to Ari.
 
-- Windows Credential Manager
-- DPAPI-encrypted storage
-- or an external secret provider
+### Acceptance criteria
 
-### P1.3 Process management
-
-Evaluate:
-
-- Windows service mode
-- AppDock integration
-- tray application
-- startup-at-login option
-- health supervision
-- clean log rotation
-
-### P1.4 Backup and migration
-
-Add supported commands for:
-
-- exporting all persistent state
-- importing on another machine
-- schema migration
-- restoring a pre-update backup
-- validating database and memory integrity
-
-### P2.5 Signed releases
-
-Current updates use SHA-256 from GitHub release metadata/assets. Future hardening could add:
-
-- release signing
-- pinned signing key
-- signed manifests
-- reproducible build metadata
-
-### P2.6 Cross-platform packaging
-
-Possible later targets:
-
-- Linux installer/service
-- macOS launcher
-- containerized server mode
-
-Preserve local GPU/model-server interoperability.
+- Animal behavior can inform plant safety, nearby water, danger, or environmental change.
+- Ari can form beliefs about animal patterns from evidence.
+- Different species create materially different decisions.
 
 ---
 
-## Recommended next release sequence
+# Phase 4 — Stabilization, tools, and thriving
 
-### v0.2.4 — Model verification and documentation polish
+## v0.7.x — Shelter, crafting, storage, and routine
 
-Candidate scope:
+Planned systems:
 
-- Test model button
-- improved readable model status
-- context-length wording fix
-- Tailscale Serve helper script
-- laptop/client troubleshooting guidance
-- updater integration-test scaffolding
+- richer shelter choices and repair;
+- containers and food storage;
+- tools;
+- fire;
+- water collection and purification;
+- food preparation;
+- clothing and insulation;
+- spoilage and material quality;
+- repeatable routines and home-base attachment.
 
-### v0.3.0 — Experiment and decision observability
+These systems should be introduced only after goal persistence, mapping, inspection, and layered memory are reliable.
 
-Candidate scope:
+## v0.8.x — Social world and relationships
 
-- decision inspector
-- prompt/schema version metadata
-- deterministic scenario runner
-- metrics export
-- named model profiles
+Do not begin multi-agent work until single-agent cognition and long-duration testing are stable.
 
-### v0.4.0 — Richer embodiment
+Potential scope:
 
-Candidate scope:
-
-- hierarchical tasks
-- expanded crafting/resources
-- injuries and environmental exposure
-- improved spatial memory
-
-### v0.5.0 — Deeper learning and memory
-
-Candidate scope:
-
-- memory taxonomy
-- confidence/provenance
-- forgetting/interference
-- procedural learning from outcomes
-
-### v0.6.0+ — Multi-agent foundation
-
-Begin only after robust single-agent evaluation and persistence.
+- multiple separately embodied agents;
+- communication limited by distance and conditions;
+- individual recognition;
+- trust and reputation;
+- cooperation, conflict, promises, and deception;
+- social memory;
+- shared or conflicting maps and knowledge;
+- emergent groups, norms, and culture.
 
 ---
 
-## Definition of success for the next major milestone
+# Cross-cutting engineering work
 
-The next major milestone is reached when a user can load two different local models, run the same deterministic scenario, and clearly answer:
+These items may be delivered alongside the relevant feature releases rather than as separate product versions.
 
-- what each model perceived
-- what memories each model received
-- what each model chose
-- whether the choice was valid
-- what the deterministic world did
-- why a fallback occurred
-- how the behavioral outcomes differed
-- how much latency and token use each model required
+## Evaluation and observability
 
-That capability will turn the project from a compelling interactive prototype into a practical embodied-agent research environment.
+- deterministic experiment harness;
+- prompt, schema, and policy versioning;
+- decision inspector;
+- action, task, map, belief, note, and memory provenance;
+- loop and non-progress metrics;
+- context-budget telemetry;
+- fixed-seed model comparisons;
+- richer soak tests and scenario coverage.
+
+## Model and runtime support
+
+- non-mutating Test model workflow;
+- named local-model profiles;
+- compatibility modes for OpenAI-compatible servers;
+- app-side context budgeting;
+- latency and token telemetry;
+- fallback-mode parity where feasible.
+
+## Operations and public quality
+
+- updater integration testing;
+- documentation consistency checks;
+- public-repository hygiene tests;
+- migrations and rollback for cognitive-state schema changes;
+- portable installation and remote-access guidance.
+
+---
+
+# Explicitly out of scope for the next development cycle
+
+Until Phase 1 and Phase 2 are validated, do not prioritize:
+
+- multiple LLM agents;
+- procedural story quests authored by the system;
+- combat-heavy mechanics;
+- large crafting trees;
+- seasons or large-scale climate simulation;
+- persistent identity across Reset seed;
+- cloud-hosted multiplayer;
+- hidden monetization or service dependencies;
+- direct host-file, shell, browser, or arbitrary-code access for Ari.
+
+---
+
+# Release planning rule
+
+Before implementation begins for a milestone:
+
+1. break the milestone into explicit tasks and migrations;
+2. define acceptance tests and diagnostic additions;
+3. verify the change fits the 16k minimum context target;
+4. identify Ari-versus-observer knowledge boundaries;
+5. define what Qwen chooses and what the deterministic layer enforces;
+6. preserve clean experiment-reset semantics;
+7. keep each release independently installable and auditable.
+
+The immediate next action is **document review only**. Implementation remains paused until the project owner reviews and approves this roadmap and the canonical scope/architecture note.
