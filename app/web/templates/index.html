@@ -56,16 +56,19 @@
 
     <section class="panel llm-settings-panel">
       <div class="panel-title"><h2>Local LLM brain</h2><span id="llmState" class="pill warning">loading</span></div>
-      <p class="muted">Discover and switch models from LM Studio without editing <code>.env</code> or restarting the app.</p>
+      <p class="muted">Discover and switch models currently loaded in LM Studio without editing <code>.env</code> or restarting the app.</p>
       <div class="settings-form">
         <label class="toggle-row"><input id="llmEnabled" type="checkbox"> Use local LLM</label>
         <label>OpenAI-compatible base URL
           <input id="llmBaseUrl" type="url" value="http://127.0.0.1:1234/v1" spellcheck="false">
         </label>
-        <label>Model
-          <input id="llmModel" list="llmModelOptions" placeholder="Discover loaded models" spellcheck="false">
-          <datalist id="llmModelOptions"></datalist>
+        <label>Loaded model
+          <select id="llmModel">
+            <option value="">Discover loaded models</option>
+          </select>
+          <datalist id="llmModelOptions" hidden></datalist>
         </label>
+        <p id="llmModelDetails" class="muted model-details">LM Studio model state has not been checked yet.</p>
         <div class="settings-grid">
           <label>Temperature<input id="llmTemperature" type="number" min="0" max="2" step="0.05"></label>
           <label>Max output tokens<input id="llmMaxTokens" type="number" min="32" max="32768" step="1"></label>
@@ -76,7 +79,7 @@
           <input id="llmApiKey" type="password" autocomplete="off" placeholder="LM Studio does not require one by default">
         </label>
         <div class="update-actions">
-          <button id="discoverModels">Discover models</button>
+          <button id="discoverModels">Discover loaded models</button>
           <button id="saveLlmSettings" class="primary">Save and apply</button>
         </div>
         <p id="llmSettingsSummary" class="muted"></p>
@@ -131,5 +134,6 @@
   </main>
   <div id="toast"></div>
   <script src="/static/app.js"></script>
+  <script src="/static/llm-settings.js"></script>
 </body>
 </html>
