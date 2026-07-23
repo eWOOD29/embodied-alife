@@ -24,38 +24,50 @@ jobs:
           python-version: "3.11"
           cache: pip
           cache-dependency-path: pyproject.toml
-      - name: Install
-        run: python -m pip install -e '.[dev]'
       - name: Resolve release version
         shell: bash
         run: |
           PACKAGE_VERSION="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
-          echo "PACKAGE_VERSION=${PACKAGE_VERSION}" >> "$GITHUB_ENV"
-          echo "RELEASE_TAG=v${PACKAGE_VERSION}" >> "$GITHUB_ENV"
-      - name: Verify package versions match
-        shell: bash
-        run: |
           APP_VERSION="$(python -c 'from app.version import __version__; print(__version__)')"
-          test "$APP_VERSION" = "$PACKAGE_VERSION"
+          echo "PACKAGE_VERSION=${PACKAGE_VERSION}" >> "$GITHUB_ENV"
+          echo "APP_VERSION=${APP_VERSION}" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=v${PACKAGE_VERSION}" >> "$GITHUB_ENV"
+          if [ "$APP_VERSION" = "$PACKAGE_VERSION" ]; then
+            echo "SHOULD_RELEASE=true" >> "$GITHUB_ENV"
+          else
+            echo "SHOULD_RELEASE=false" >> "$GITHUB_ENV"
+            echo "Version update is staged: app=${APP_VERSION}, package=${PACKAGE_VERSION}. Skipping release until both files match."
+          fi
+      - name: Install
+        if: env.SHOULD_RELEASE == 'true'
+        run: python -m pip install -e '.[dev]'
       - name: Embed build identity
+        if: env.SHOULD_RELEASE == 'true'
         run: python scripts/write_build_info.py "$GITHUB_SHA" "$PACKAGE_VERSION"
       - name: Test
+        if: env.SHOULD_RELEASE == 'true'
         run: python -m pytest -q
       - name: Compile
+        if: env.SHOULD_RELEASE == 'true'
         run: python -m compileall -q app tests scripts
       - name: Clean generated validation files
+        if: env.SHOULD_RELEASE == 'true'
         shell: bash
         run: |
           find app tests scripts -type d -name __pycache__ -prune -exec rm -rf {} +
           rm -rf .pytest_cache .ruff_cache
           find data/runtime -maxdepth 1 -type f ! -name .gitkeep -delete
       - name: Validate package
+        if: env.SHOULD_RELEASE == 'true'
         run: python scripts/validate_package.py
       - name: Build update assets
+        if: env.SHOULD_RELEASE == 'true'
         run: python scripts/build_release.py --output dist/embodied-alife-update.zip
       - name: Build concise release notes
+        if: env.SHOULD_RELEASE == 'true'
         run: python scripts/release_notes.py "$PACKAGE_VERSION" dist/release-notes.md
       - name: Tag release commit
+        if: env.SHOULD_RELEASE == 'true'
         shell: bash
         run: |
           if git ls-remote --exit-code --tags origin "refs/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
@@ -71,6 +83,7 @@ jobs:
             git push origin "${RELEASE_TAG}"
           fi
       - name: Publish GitHub release
+        if: env.SHOULD_RELEASE == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
