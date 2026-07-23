@@ -97,10 +97,34 @@ class Database:
         row = self._retry(lambda: self._conn.execute("SELECT value FROM metadata WHERE key=?", (key,)).fetchone())
         return json.loads(row["value"]) if row else None
 
-    def add_event(self, event: dict[str, Any]) -> None:
+    def clear_memories(self) -> None:
         def op() -> None:
             with self._conn:
-                self._conn.execute(
+                self._conn.execute("DELETE FROM memories")
+
+        self._retry(op)
+
+    def clear_experiment(self) -> None:
+        """Clear world-specific history while preserving application/runtime configuration."""
+
+        def op() -> None:
+            with self._conn:
+                self._conn.executescript(
+                    """
+                    DELETE FROM events;
+                    DELETE FROM snapshots;
+                    DELETE FROM model_responses;
+                    DELETE FROM memories;
+                    DELETE FROM metadata WHERE key IN ('current_state', 'run_id', 'world_generation_id');
+                    """
+                )
+
+        self._retry(op)
+
+    def add_event(self, event: dict[str, Any]) -> int:
+        def op() -> int:
+            with self._conn:
+                cursor = self._conn.execute(
                     "INSERT INTO events(sim_time, kind, message, importance, data_json) VALUES(?,?,?,?,?)",
                     (
                         event["sim_time"],
@@ -110,8 +134,9 @@ class Database:
                         json.dumps(event.get("data", {}), separators=(",", ":")),
                     ),
                 )
+                return int(cursor.lastrowid)
 
-        self._retry(op)
+        return self._retry(op)
 
     def list_events(self, limit: int = 200) -> list[dict[str, Any]]:
         rows = self._retry(
@@ -159,12 +184,12 @@ class Database:
         )
         return [dict(row) for row in rows]
 
-    def add_model_response(self, sim_time: float, result: Any) -> None:
+    def add_model_response(self, sim_time: float, result: Any) -> int:
         response_json = result.value.model_dump_json() if hasattr(result.value, "model_dump_json") else json.dumps(result.value)
 
-        def op() -> None:
+        def op() -> int:
             with self._conn:
-                self._conn.execute(
+                cursor = self._conn.execute(
                     """INSERT INTO model_responses(sim_time, source, status, latency_ms, prompt_tokens,
                     completion_tokens, response_json, error) VALUES(?,?,?,?,?,?,?,?)""",
                     (
@@ -178,8 +203,9 @@ class Database:
                         result.error,
                     ),
                 )
+                return int(cursor.lastrowid)
 
-        self._retry(op)
+        return self._retry(op)
 
     def list_model_responses(self, limit: int = 2000) -> list[dict[str, Any]]:
         rows = self._retry(
