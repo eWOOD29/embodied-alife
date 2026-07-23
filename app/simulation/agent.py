@@ -95,6 +95,7 @@ class AgentState:
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["explored"] = sorted(self.explored)
+        data["beliefs"] = {key: value.to_dict() for key, value in self.beliefs.items()}
         return data
 
     @classmethod
