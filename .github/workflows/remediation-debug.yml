@@ -1,0 +1,39 @@
+name: v0.4.0 remediation debug
+
+on:
+  push:
+    branches:
+      - remediation/v0.4.0-post1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  debug:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install
+        run: python -m pip install -e '.[dev]'
+      - name: Run focused remediation tests
+        continue-on-error: true
+        run: python -m pytest -q tests/test_v040_cognitive_foundations.py tests/test_v040_remediation.py > remediation-test-output.txt 2>&1
+      - name: Record status and full suite
+        continue-on-error: true
+        run: |
+          cat remediation-test-output.txt
+          python -m pytest -q > remediation-full-output.txt 2>&1
+          cat remediation-full-output.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v040-remediation-debug
+          path: |
+            remediation-test-output.txt
+            remediation-full-output.txt
+          retention-days: 2
