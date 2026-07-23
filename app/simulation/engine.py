@@ -6,7 +6,7 @@ from typing import Any
 
 from app.config import Settings
 from app.llm.observed_client import ObservedLocalLLMClient
-from app.llm.schemas import MemoryWrite
+from app.llm.schemas import ActionDecision, MemoryWrite
 from app.memory.retrieval import retrieve_memories
 from app.memory.vault import MemoryValidationError, MemoryVault
 from app.simulation.actions import ActionResult
@@ -51,6 +51,148 @@ class SimulationEngine(BaseSimulationEngine):
             for instance in instances
             if Path(instance.database.path).resolve() == resolved
         )
+
+    def _recent_action_outcomes(self, limit: int = 8) -> list[dict[str, Any]]:
+        outcomes: list[dict[str, Any]] = []
+        current_decision: dict[str, Any] | None = None
+        for event in self.events:
+            if event.get("kind") == "decision":
+                current_decision = (event.get("data") or {}).get("decision") or {}
+                continue
+            if event.get("kind") != "action_result":
+                continue
+            result = event.get("data") or {}
+            if result.get("reason") == "started":
+                continue
+            outcomes.append(
+                {
+                    "sim_time": event.get("sim_time"),
+                    "action": result.get("action") or (current_decision or {}).get("action"),
+                    "target_id": (current_decision or {}).get("target_id"),
+                    "success": bool(result.get("success")),
+                    "reason": result.get("reason"),
+                    "details": result.get("details") or event.get("message"),
+                }
+            )
+        return outcomes[-limit:]
+
+    def _correct_decision(
+        self,
+        decision: ActionDecision,
+        action_affordances: dict[str, Any],
+        recent_outcomes: list[dict[str, Any]],
+    ) -> tuple[ActionDecision, dict[str, Any] | None]:
+        original = decision.model_dump()
+        action = decision.action
+        target_id = decision.target_id
+        target = (action_affordances.get("target_constraints") or {}).get(target_id or "")
+
+        same_failures = [
+            outcome
+            for outcome in recent_outcomes
+            if not outcome.get("success")
+            and outcome.get("action") == action
+            and outcome.get("target_id") == target_id
+        ]
+        repeated_inspections = [
+            outcome
+            for outcome in recent_outcomes
+            if outcome.get("success")
+            and outcome.get("action") == "inspect"
+            and outcome.get("target_id") == target_id
+        ]
+
+        replacement: dict[str, Any] | None = None
+        correction_reason: str | None = None
+
+        if len(same_failures) >= 2:
+            correction_reason = "repeated_recent_failure"
+            replacement = {
+                "intent": "Break the failed action loop and reassess the current surroundings.",
+                "action": "look",
+                "target_id": None,
+                "direction": None,
+                "duration_seconds": 1.0,
+            }
+        elif action in {"inspect", "pick_up", "eat"}:
+            if action == "eat" and target_id is None and action_affordances.get("can_eat_from_inventory"):
+                pass
+            elif not target or action not in target.get("executable_now", []):
+                if target and action in target.get("requires_move_to_for", []):
+                    correction_reason = "target_action_requires_approach"
+                    replacement = {
+                        "intent": f"Move within interaction range of {target_id} before attempting {action}.",
+                        "action": "move_to",
+                        "target_id": target_id,
+                        "direction": target.get("direction"),
+                        "duration_seconds": max(1.0, decision.duration_seconds),
+                    }
+                else:
+                    correction_reason = "target_action_not_currently_executable"
+                    replacement = {
+                        "intent": "Reassess because the proposed target is unavailable, depleted, or incompatible with the action.",
+                        "action": "look",
+                        "target_id": None,
+                        "direction": None,
+                        "duration_seconds": 1.0,
+                    }
+        elif action == "move_to" and target_id:
+            if target is None and target_id not in self.agent.known_locations:
+                correction_reason = "move_target_not_currently_known"
+                replacement = {
+                    "intent": "Reassess because the proposed destination is no longer visible or known.",
+                    "action": "look",
+                    "target_id": None,
+                    "direction": None,
+                    "duration_seconds": 1.0,
+                }
+            elif target and target.get("approach_action") is None:
+                executable = target.get("executable_now", [])
+                preferred = next((name for name in ("pick_up", "eat", "inspect") if name in executable), None)
+                correction_reason = "target_already_within_interaction_range"
+                if preferred:
+                    replacement = {
+                        "intent": f"Interact with {target_id}, which is already within range.",
+                        "action": preferred,
+                        "target_id": target_id,
+                        "direction": target.get("direction"),
+                        "duration_seconds": max(0.5, decision.duration_seconds),
+                    }
+                else:
+                    replacement = {
+                        "intent": "Reassess instead of repeating a no-op approach.",
+                        "action": "look",
+                        "target_id": None,
+                        "direction": None,
+                        "duration_seconds": 1.0,
+                    }
+        elif action == "inspect" and target_id and len(repeated_inspections) >= 2:
+            correction_reason = "repeated_inspection_without_new_evidence"
+            replacement = {
+                "intent": "Stop repeating the same inspection and survey for a new opportunity.",
+                "action": "look",
+                "target_id": None,
+                "direction": None,
+                "duration_seconds": 1.0,
+            }
+
+        if replacement is None:
+            return decision, None
+
+        replacement.update(
+            {
+                "reason": f"Deterministic correction: {correction_reason}.",
+                "plan": [],
+                "belief_updates": {},
+                "memory_write": None,
+            }
+        )
+        corrected = decision.model_copy(update=replacement)
+        return corrected, {
+            "reason": correction_reason,
+            "original_decision": original,
+            "executed_decision": corrected.model_dump(),
+        }
 
     def _verified_memory_request_from(
         self,
@@ -109,6 +251,18 @@ class SimulationEngine(BaseSimulationEngine):
 
         perception = build_perception(self.world, self.agent)
         action_affordances = build_action_affordances(self.world, self.agent, perception)
+        recent_outcomes = self._recent_action_outcomes(limit=8)
+        action_affordances["recent_authoritative_outcomes"] = recent_outcomes
+        action_affordances["blocked_recent_failures"] = [
+            {
+                "action": outcome.get("action"),
+                "target_id": outcome.get("target_id"),
+                "reason": outcome.get("reason"),
+            }
+            for outcome in recent_outcomes
+            if not outcome.get("success")
+        ]
+
         query_parts = [self.agent.current_intention]
         query_parts.extend(obj["kind"] for obj in perception["visible_objects"][:8])
         query_parts.extend(entity["classification"] for entity in perception["visible_entities"][:5])
@@ -126,14 +280,24 @@ class SimulationEngine(BaseSimulationEngine):
             "action_affordances": action_affordances,
             "active_plan": self.agent.active_plan,
             "retrieved_memories": memories,
-            "recent_outcomes": [self.last_action_result] if self.last_action_result else [],
+            "recent_outcomes": recent_outcomes,
         }
         result = await self.brain.decide(context)
         model_response_id = self.database.add_model_response(self.world.sim_time, result)
-        decision = result.value
+        proposed_decision = result.value
+        decision, correction = self._correct_decision(proposed_decision, action_affordances, recent_outcomes)
         self.agent.decision_source = result.source
+        if correction:
+            self._record(
+                "decision_corrected",
+                f"Controller corrected {proposed_decision.action} to {decision.action}: {correction['reason']}.",
+                0.65,
+                correction,
+            )
         if decision.plan:
             self.agent.active_plan = [step.strip()[:240] for step in decision.plan if step.strip()]
+        elif correction:
+            self.agent.active_plan = []
         for key, value in decision.belief_updates.items():
             safe_key = key.strip()[:100]
             safe_value = value.strip()[:500]
@@ -155,6 +319,8 @@ class SimulationEngine(BaseSimulationEngine):
             {
                 "source": result.source,
                 "decision": self.last_decision,
+                "proposed_decision": proposed_decision.model_dump() if correction else None,
+                "correction": correction,
                 "status": result.status,
                 "error": result.error,
                 "model_response_id": model_response_id,
