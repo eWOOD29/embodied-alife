@@ -11,6 +11,7 @@ Start here when continuing development or diagnosing a real installation:
 - [`docs/PROJECT_HANDOFF.md`](docs/PROJECT_HANDOFF.md) — canonical architecture, current state, history, lessons, risks, and continuation workflow
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — prioritized feature and research roadmap
 - [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) — Windows, LM Studio, Tailscale, updater, CI, recovery, and backup procedures
+- [`docs/SOAK_TEST.md`](docs/SOAK_TEST.md) — clean multi-day validation procedure and audit thresholds
 - [`docs/NEW_SESSION_PROMPT.md`](docs/NEW_SESSION_PROMPT.md) — copy-paste prompt for resuming the project in a new ChatGPT session
 - [`WINDOWS_SETUP.md`](WINDOWS_SETUP.md) — current Windows installation and operations guide
 - [`CHANGELOG.md`](CHANGELOG.md) — release history
@@ -41,6 +42,7 @@ The LLM interprets observations, proposes a plan and one structured action, upda
 - SQLite state, events, model responses, action results, memories, snapshots, loading, reset, and snapshot forking.
 - FastAPI/WebSocket dashboard with observer truth, agent perception, beliefs, decisions, outcomes, needs, NPCs, resources, controls, model settings, and update status.
 - GitHub Release updater with automatic checks, dashboard notification, SHA-256 verification, safe extraction, rollback, dependency synchronization, coordinated WebSocket shutdown, and restart.
+- Diagnostic schema v3 with model/action/memory metrics, anomaly checks, and machine-readable multi-day scenario coverage.
 
 ## Install directly from GitHub
 
@@ -82,6 +84,12 @@ Health endpoint:
 
 ```text
 http://127.0.0.1:8797/health
+```
+
+Soak-test readiness endpoint:
+
+```text
+http://127.0.0.1:8797/api/validation/readiness
 ```
 
 Use `app.serve`, `start-embodied-alife.bat`, or a compatible process manager rather than invoking raw Uvicorn. The managed launcher provides the graceful shutdown hook required by one-click updates.
