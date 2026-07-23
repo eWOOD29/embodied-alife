@@ -1,18 +1,47 @@
 from __future__ import annotations
 
+import weakref
 from typing import Any
 
+from app.config import Settings
+from app.llm.observed_client import ObservedLocalLLMClient
 from app.llm.schemas import MemoryWrite
 from app.memory.retrieval import retrieve_memories
-from app.memory.vault import MemoryValidationError
+from app.memory.vault import MemoryValidationError, MemoryVault
 from app.simulation.actions import ActionResult
 from app.simulation.affordances import build_action_affordances
 from app.simulation.perception import build_perception
 from app.simulation.scheduler import SimulationEngine as BaseSimulationEngine
+from app.storage.database import Database
 
 
 class SimulationEngine(BaseSimulationEngine):
-    """Production engine with cognition guidance and authoritative memory commits."""
+    """Production engine with cognition guidance, observability, and authoritative memory commits."""
+
+    _instances: weakref.WeakSet = weakref.WeakSet()
+
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        database: Database | None = None,
+        brain=None,
+        vault: MemoryVault | None = None,
+        load_existing: bool = True,
+    ) -> None:
+        resolved_brain = brain or ObservedLocalLLMClient(settings)
+        super().__init__(
+            settings,
+            database=database,
+            brain=resolved_brain,
+            vault=vault,
+            load_existing=load_existing,
+        )
+        self._instances.add(self)
+
+    @classmethod
+    def live_instance_count(cls) -> int:
+        return len(cls._instances)
 
     def _verified_memory_request_from(
         self,
@@ -102,6 +131,14 @@ class SimulationEngine(BaseSimulationEngine):
             if safe_key and safe_value:
                 self.agent.beliefs[safe_key] = safe_value
         self.last_decision = decision.model_dump()
+        provider = {
+            "finish_reason": getattr(result, "finish_reason", None),
+            "provider_response_id": getattr(result, "provider_response_id", None),
+            "request_attempts": getattr(result, "request_attempts", None),
+            "latency_ms": result.latency_ms,
+            "prompt_tokens": result.prompt_tokens,
+            "completion_tokens": result.completion_tokens,
+        }
         decision_event = self._record(
             "decision",
             f"Ari chose {decision.action}: {decision.reason}",
@@ -112,6 +149,7 @@ class SimulationEngine(BaseSimulationEngine):
                 "status": result.status,
                 "error": result.error,
                 "model_response_id": model_response_id,
+                "provider": provider,
                 "action_affordances": action_affordances,
             },
         )
