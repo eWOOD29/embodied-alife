@@ -57,7 +57,7 @@ def test_diagnostic_bundle_is_complete_and_excludes_secrets(engine) -> None:
     assert "snapshots" in bundle
     assert bundle["persisted_events"]
     assert "model_responses" in bundle
-    assert "soak_test_readiness" in bundle
+    assert "soak_readiness" in bundle
     assert bundle["counts"]["persisted_events"] == len(bundle["persisted_events"])
     assert "diagnostic-secret-must-not-leak" not in response.text
 
