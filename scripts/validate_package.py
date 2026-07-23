@@ -9,7 +9,9 @@ ROOT = Path(__file__).resolve().parents[1]
 REQUIRED = [
     "README.md",
     "WINDOWS_SETUP.md",
-    "SANDBOX_VERIFICATION.md",
+    "docs/ARCHITECTURE.md",
+    "docs/TROUBLESHOOTING.md",
+    "docs/SOAK_TEST.md",
     "pyproject.toml",
     ".env.example",
     "appdock.json",
