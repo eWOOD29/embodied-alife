@@ -1,0 +1,222 @@
+............F.......FF.......................F....................F..... [ 98%]
+.                                                                        [100%]
+=================================== FAILURES ===================================
+_______ test_affordance_map_distinguishes_reachable_and_approach_targets _______
+
+engine = <app.simulation.engine.SimulationEngine object at 0x7efe6cd65f90>
+
+    def test_affordance_map_distinguishes_reachable_and_approach_targets(engine) -> None:
+        perception = {
+            "available_actions": ["move", "move_to", "inspect", "pick_up", "eat"],
+            "visible_objects": [
+                {
+                    "id": "near_food",
+                    "kind": "edible_plant",
+                    "distance": 1.2,
+                    "direction": "north",
+                    "portable": True,
+                    "appears_edible": True,
+                },
+                {
+                    "id": "far_branch",
+                    "kind": "branch",
+                    "distance": 4.0,
+                    "direction": "east",
+                    "portable": True,
+                    "appears_edible": False,
+                },
+            ],
+            "visible_entities": [],
+        }
+        summary = build_action_affordances(engine.world, engine.agent, perception)
+>       assert set(summary["target_constraints"]["near_food"]["executable_now"]) == {"inspect", "pick_up", "eat"}
+E       AssertionError: assert {'inspect', 'pick_up'} == {'eat', 'inspect', 'pick_up'}
+E         
+E         Extra items in the right set:
+E         'eat'
+E         
+E         Full diff:
+E           {
+E         -     'eat',
+E               'inspect',
+E               'pick_up',
+E           }
+
+tests/test_cognition_guidance.py:34: AssertionError
+_ test_diagnostic_bundle_v3_contains_runtime_metrics_soak_readiness_and_no_secrets _
+
+engine = <app.simulation.engine.SimulationEngine object at 0x7efe6ccffe10>
+
+    def test_diagnostic_bundle_v3_contains_runtime_metrics_soak_readiness_and_no_secrets(engine) -> None:
+        engine.database.add_model_response(
+            engine.world.sim_time,
+            ObservedBrainResult(
+                _decision(),
+                "llm",
+                "ok",
+                latency_ms=10.0,
+                prompt_tokens=50,
+                completion_tokens=10,
+                finish_reason="stop",
+                provider_response_id="chatcmpl-test",
+                request_attempts=1,
+            ),
+        )
+        engine._record(
+            "decision",
+            "Ari chose wait: test",
+            0.5,
+            {"decision": _decision().model_dump(), "provider": {"finish_reason": "stop"}},
+        )
+        engine._record(
+            "action_result",
+            "wait: completed",
+            0.5,
+            {"success": True, "action": "wait", "reason": "completed", "details": "Action wait completed."},
+        )
+    
+        bundle = build_diagnostic_bundle(
+            engine=engine,
+            updater=DummyUpdater(),
+            health={"status": "ok", "version": __version__},
+            application_version=__version__,
+        )
+    
+        header = bundle["diagnostic_bundle"]
+        assert header["schema_version"] == 3
+        assert header["run_id"] == engine.run_id
+        assert header["world_generation_id"] == engine.world_generation_id
+        assert header["privacy"]["api_keys_included"] is False
+        assert header["privacy"]["raw_prompts_included"] is False
+    
+        runtime = bundle["build_and_runtime"]
+        assert runtime["python_version"]
+        assert runtime["process_id"] > 0
+        assert runtime["database_path"] == str(engine.database.path)
+        assert "fastapi" in runtime["dependency_versions"]
+    
+        metrics = bundle["metrics"]
+        assert metrics["model"]["total"] == 1
+        assert metrics["model"]["finish_reason_counts"]["stop"] == 1
+        assert metrics["events"]["decisions"] == 1
+        assert metrics["events"]["final_action_success_rate"] == 1.0
+        assert bundle["anomaly_checks"]["multiple_live_engines_detected"] is False
+        assert bundle["model_responses"][0]["provider"]["finish_reason"] == "stop"
+    
+        readiness = bundle["soak_readiness"]
+>       assert readiness["protocol_version"] == 1
+E       assert 2 == 1
+
+tests/test_diagnostics_v2.py:112: AssertionError
+______________ test_failed_action_does_not_create_durable_memory _______________
+
+settings = Settings(host='0.0.0.0', port=8797, data_dir=PosixPath('/tmp/pytest-of-runner/pytest-0/test_failed_action_does_not_cr0...te_max_extract_bytes=262144000, update_max_release_notes_chars=12000, update_auto_restart=True, update_github_token='')
+
+    async def test_failed_action_does_not_create_durable_memory(settings) -> None:
+        database = Database(settings.database_path)
+        vault = MemoryVault(settings.memory_dir)
+        engine = SimulationEngine(
+            settings,
+            database=database,
+            vault=vault,
+            brain=StubBrain(_decision("pick_up", target_id="missing_resource")),
+            load_existing=False,
+        )
+        try:
+            await engine.make_decision()
+            assert vault.list_records() == []
+            assert engine.pending_memory is None
+>           assert any(event["kind"] == "memory_rejected" for event in engine.events)
+E           assert False
+E            +  where False = any(<generator object test_failed_action_does_not_create_durable_memory.<locals>.<genexpr> at 0x7efe6ef03b90>)
+
+tests/test_integrity.py:57: AssertionError
+__________ test_public_tree_contains_no_known_private_machine_markers __________
+
+    def test_public_tree_contains_no_known_private_machine_markers() -> None:
+        findings: list[str] = []
+        for path in _public_text_files():
+            text = path.read_text(encoding="utf-8", errors="replace").lower()
+            for marker in FORBIDDEN_MARKERS:
+                if marker in text:
+                    findings.append(f"{path.relative_to(ROOT)} contains {marker!r}")
+>       assert findings == []
+E       assert ["SANDBOX_VER...ce5cf1'", ...] == []
+E         
+E         Left contains 7 more items, first extra item: "SANDBOX_VERIFICATION.md contains 'ethan-pc'"
+E         
+E         Full diff:
+E         - []
+E         + [
+E         +     "SANDBOX_VERIFICATION.md contains 'ethan-pc'",
+E         +     "SANDBOX_VERIFICATION.md contains 'tailce5cf1'",
+E         +     "tests/test_public_repository_hygiene.py contains 'ethan-pc'",
+E         +     "tests/test_public_repository_hygiene.py contains '/c/users/ethan'",
+E         +     'tests/test_public_repository_hygiene.py contains '
+E         +     "'docs/project_handoff.md'",
+E         +     "tests/test_public_repository_hygiene.py contains 'tailce5cf1'",
+E         +     'tests/test_public_repository_hygiene.py contains '
+E         +     "'docs/new_session_prompt.md'",
+E         + ]
+
+tests/test_public_repository_hygiene.py:41: AssertionError
+________ test_validation_readiness_endpoint_reports_clean_run_identity _________
+
+settings = Settings(host='0.0.0.0', port=8797, data_dir=PosixPath('/tmp/pytest-of-runner/pytest-0/test_validation_readiness_endp0...te_max_extract_bytes=262144000, update_max_release_notes_chars=12000, update_auto_restart=True, update_github_token='')
+engine = <app.simulation.engine.SimulationEngine object at 0x7efe6ccf1a50>
+
+    def test_validation_readiness_endpoint_reports_clean_run_identity(settings, engine) -> None:
+        app = create_app(
+            settings,
+            engine=engine,
+            updater=UpdateManager(settings),
+            start_background=False,
+        )
+        with TestClient(app) as client:
+            response = client.get("/api/validation/readiness")
+        assert response.status_code == 200
+        payload = response.json()
+>       assert payload["protocol_version"] == 1
+E       assert 2 == 1
+
+tests/test_validation_readiness.py:20: AssertionError
+=============================== warnings summary ===============================
+../../../../../opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/fastapi/testclient.py:1
+  /opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_cognition_guidance.py::test_affordance_map_distinguishes_reachable_and_approach_targets - AssertionError: assert {'inspect', 'pick_up'} == {'eat', 'inspect', 'pick_up'}
+  
+  Extra items in the right set:
+  'eat'
+  
+  Full diff:
+    {
+  -     'eat',
+        'inspect',
+        'pick_up',
+    }
+FAILED tests/test_diagnostics_v2.py::test_diagnostic_bundle_v3_contains_runtime_metrics_soak_readiness_and_no_secrets - assert 2 == 1
+FAILED tests/test_integrity.py::test_failed_action_does_not_create_durable_memory - assert False
+ +  where False = any(<generator object test_failed_action_does_not_create_durable_memory.<locals>.<genexpr> at 0x7efe6ef03b90>)
+FAILED tests/test_public_repository_hygiene.py::test_public_tree_contains_no_known_private_machine_markers - assert ["SANDBOX_VER...ce5cf1'", ...] == []
+  
+  Left contains 7 more items, first extra item: "SANDBOX_VERIFICATION.md contains 'ethan-pc'"
+  
+  Full diff:
+  - []
+  + [
+  +     "SANDBOX_VERIFICATION.md contains 'ethan-pc'",
+  +     "SANDBOX_VERIFICATION.md contains 'tailce5cf1'",
+  +     "tests/test_public_repository_hygiene.py contains 'ethan-pc'",
+  +     "tests/test_public_repository_hygiene.py contains '/c/users/ethan'",
+  +     'tests/test_public_repository_hygiene.py contains '
+  +     "'docs/project_handoff.md'",
+  +     "tests/test_public_repository_hygiene.py contains 'tailce5cf1'",
+  +     'tests/test_public_repository_hygiene.py contains '
+  +     "'docs/new_session_prompt.md'",
+  + ]
+FAILED tests/test_validation_readiness.py::test_validation_readiness_endpoint_reports_clean_run_identity - assert 2 == 1
+5 failed, 68 passed, 1 warning in 1.66s
