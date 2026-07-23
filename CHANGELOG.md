@@ -14,6 +14,46 @@ The project uses semantic versioning pragmatically while it is still in early de
 - Added a copy-paste new-session bootstrap prompt.
 - Updated Windows setup guidance to reflect the working LM Studio UI and Tailscale Serve workflow.
 
+## [0.2.7] — 2026-07-23
+
+### Fixed
+
+- Disabled Qwen3 thinking for short structured control and memory-consolidation requests using `/no_think`, preventing the model from consuming its output budget without emitting final JSON.
+- Separated the minimal LM Studio grammar schema from the complete schema embedded in Ari's prompt.
+- Restored the full field-by-field action and consolidation contract in prompts while retaining strict Pydantic validation after generation.
+
+### Tests
+
+- Added regression coverage ensuring server grammars remain minimal, prompt schemas remain complete, and structured prompts disable thinking.
+
+## [0.2.6] — 2026-07-23
+
+### Fixed
+
+- Added deterministic repair for missing descriptive `intent` or `reason` fields when the other field is present.
+- Continued rejecting unknown actions, malformed directions, unsafe values, and invalid memory writes.
+
+## [0.2.5] — 2026-07-23
+
+### Fixed
+
+- Replaced the full Pydantic response grammar sent to LM Studio with a grammar-safe top-level JSON object schema.
+- Kept complete in-process Pydantic validation so invalid model actions remain blocked.
+
+## [0.2.4] — 2026-07-23
+
+### Added
+
+- Added LM Studio native model discovery with loaded-state metadata.
+- Replaced free-text model entry with a loaded-model selector.
+- Added model metadata such as state, publisher, quantization, and context length when available.
+
+### Fixed
+
+- Prevented saved but unloaded models from being reported as loaded.
+- Corrected stale or mistyped model IDs when LM Studio reports exactly one loaded model.
+- Improved LM Studio HTTP errors to include the provider response body.
+
 ## [0.2.3] — 2026-07-22
 
 ### Fixed
@@ -78,15 +118,8 @@ The project uses semantic versioning pragmatically while it is still in early de
 
 Before the first packaged release, the project established:
 
-- seeded deterministic world generation
-- Ari's body and internal needs
-- partial line-of-sight perception
-- deterministic movement, pathfinding, actions, interruptions, and outcomes
-- fallback and OpenAI-compatible LLM brains
-- structured Pydantic decision schemas
-- persistent SQLite runtime state
-- durable Markdown memories and consolidation
-- snapshots and forks
-- FastAPI REST endpoints
-- live WebSocket dashboard
-- observer truth versus agent perception/belief views
+- A deterministic wilderness simulation.
+- Ari's body, needs, perception, beliefs, plans, and memories.
+- A constrained local-LLM boundary with deterministic fallback behavior.
+- Persistent SQLite and Markdown state.
+- A FastAPI observer dashboard with REST and WebSocket interfaces.
