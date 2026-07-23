@@ -6,15 +6,7 @@ from app.llm.prompts import decision_messages
 from app.llm.schemas import ActionDecision
 from app.simulation.actions import ActionController
 from app.simulation.agent import AgentState
-from app.simulation.cognition import (
-    AWAKENING_NARRATIVE,
-    BeliefRecord,
-    BeliefStatus,
-    EpisodeRecord,
-    MapMarker,
-    NoteRecord,
-    Provenance,
-)
+from app.simulation.cognition import AWAKENING_NARRATIVE, BeliefRecord, BeliefStatus, EpisodeRecord, MapMarker, NoteRecord, Provenance
 from app.simulation.perception import build_perception
 from app.simulation.world import WorldState
 from app.storage.database import Database
@@ -101,8 +93,7 @@ def test_snapshot_restart_and_reset_round_trip_all_cognitive_stores(engine, sett
     engine.agent.short_term_episodes["e1"] = EpisodeRecord("e1", 1, 1, "episode", "test", 0.5, "recent", provenance=Provenance("test"))
     expected = _cognition(AgentState.from_dict(engine.agent.to_dict()))
     engine.save_snapshot("cognition")
-    snapshot_agent = AgentState.from_dict(engine.snapshots.load("cognition")["agent"])
-    assert _cognition(snapshot_agent) == expected
+    assert _cognition(AgentState.from_dict(engine.snapshots.load("cognition")["agent"])) == expected
     engine.agent.notes.clear()
     engine.load_snapshot("cognition")
     assert _cognition(engine.agent) == expected
@@ -118,7 +109,9 @@ def test_snapshot_restart_and_reset_round_trip_all_cognitive_stores(engine, sett
     engine.reset(999)
     assert engine.run_id != old_run and engine.world_generation_id != old_world
     assert len(engine.agent.key_items) == 3 and len(engine.agent.tasks) == 4
-    assert not engine.agent.notes and not engine.agent.map_markers and not engine.agent.beliefs and not engine.agent.short_term_episodes
+    assert not engine.agent.notes and not engine.agent.map_markers and not engine.agent.short_term_episodes
+    assert "b1" not in engine.agent.beliefs
+    assert set(engine.agent.beliefs) == {"self", "world"}
     assert engine.agent.awakening.presented is False
 
 
