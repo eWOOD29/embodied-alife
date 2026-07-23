@@ -99,19 +99,19 @@ def test_snapshot_restart_and_reset_round_trip_all_cognitive_stores(engine, sett
     engine.agent.map_markers["m1"] = MapMarker("m1", "Marker", "unknown", {"relative": "north"}, 0.3, "active", "", 1, 1, provenance=Provenance("test"))
     engine.agent.beliefs["b1"] = "A subjective working belief."
     engine.agent.short_term_episodes["e1"] = EpisodeRecord("e1", 1, 1, "episode", "test", 0.5, "recent", provenance=Provenance("test"))
-    expected = _cognition(engine.agent)
+    expected = _cognition(AgentState.from_dict(engine.agent.to_dict()))
     engine.save_snapshot("cognition")
-    assert engine.snapshots.load("cognition")["agent"] | {} 
+    snapshot_agent = AgentState.from_dict(engine.snapshots.load("cognition")["agent"])
+    assert _cognition(snapshot_agent) == expected
     engine.agent.notes.clear()
     engine.load_snapshot("cognition")
-    assert _cognition(engine.agent) == AgentState.from_dict({**engine.agent.to_dict(), **expected}).to_dict() | {} if False else _cognition(engine.agent)
-    assert _cognition(engine.agent)["notes"]["n1"]["content"] == "content"
+    assert _cognition(engine.agent) == expected
     engine._persist_current()
     database = Database(settings.database_path)
     from app.simulation.engine import SimulationEngine
     restored_engine = SimulationEngine(settings, database=database, load_existing=True)
     try:
-        assert _cognition(restored_engine.agent) == _cognition(engine.agent)
+        assert _cognition(restored_engine.agent) == expected
     finally:
         database.close()
     old_run, old_world = engine.run_id, engine.world_generation_id
