@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from app.llm.client import BrainResult
 from app.llm.schemas import ActionDecision, MemoryWrite
-from app.simulation.scheduler import SimulationEngine
-from app.storage.database import Database
 from app.memory.vault import MemoryVault
+from app.simulation.engine import SimulationEngine
+from app.storage.database import Database
 
 
 class StubBrain:
