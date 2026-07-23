@@ -26,7 +26,7 @@ def project_version() -> str:
 
 
 def source_files() -> list[Path]:
-    command = ["git", "ls-files", "--cached", "--others", "--exclude-standard"]
+    command = ["git", "ls-files", "--cached"]
     result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, check=False)
     if result.returncode == 0:
         candidates = [ROOT / line for line in result.stdout.splitlines() if line.strip()]
