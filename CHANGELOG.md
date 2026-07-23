@@ -14,6 +14,25 @@ The project uses semantic versioning pragmatically while it is still in early de
 - Added a copy-paste new-session bootstrap prompt.
 - Updated Windows setup guidance to reflect the working LM Studio UI and Tailscale Serve workflow.
 
+## [0.3.0] — 2026-07-23
+
+### Added
+
+- Added a deterministic executable-action map describing which visible targets can be inspected, picked up, or eaten immediately and which require `move_to` first.
+- Added inventory-edible, drinking, building, material, reachability, and target-distance guidance to every LLM decision context.
+- Added explicit prompt distinctions between immediate intent, conditional multi-step plans, evidence-backed belief updates, and durable memories.
+
+### Changed
+
+- Routine movement, looking, waiting, resting, and speaking memories are filtered before outcome staging.
+- Inspection memories now require higher importance than other candidates.
+- The decision prompt now instructs Ari to use the executable-action map as a hard constraint and to avoid target actions that the deterministic controller cannot currently execute.
+- Memory requests are now described as usually null and reserved for surprising, safety-critical, location-specific, or broadly reusable learning.
+
+### Tests
+
+- Added regression coverage for reachability guidance, prompt policy fields, and routine-memory filtering.
+
 ## [0.2.9] — 2026-07-23
 
 ### Added
