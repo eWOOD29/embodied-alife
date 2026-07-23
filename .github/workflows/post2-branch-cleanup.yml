@@ -21,7 +21,8 @@ jobs:
           for branch in \
             audit/v0.4.0-post2-completion \
             audit/v0.4.0-post2-published \
-            remediation/v0.4.0-post2
+            remediation/v0.4.0-post2 \
+            audit/post2-cleanup-trigger
           do
             encoded="${branch//\//%2F}"
             gh api -X DELETE "repos/eWOOD29/embodied-alife/git/refs/heads/${encoded}" || true
