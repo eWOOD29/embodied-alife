@@ -3,18 +3,16 @@ from __future__ import annotations
 from typing import Any
 
 from app.llm.schemas import MemoryWrite
+from app.memory.retrieval import retrieve_memories
 from app.memory.vault import MemoryValidationError
 from app.simulation.actions import ActionResult
+from app.simulation.affordances import build_action_affordances
+from app.simulation.perception import build_perception
 from app.simulation.scheduler import SimulationEngine as BaseSimulationEngine
 
 
 class SimulationEngine(BaseSimulationEngine):
-    """Production engine with authoritative outcome-verified memory commits.
-
-    The base scheduler owns deterministic simulation timing and persistence. This layer
-    keeps proposed LLM memories pending until the matching action has reached a final
-    authoritative outcome.
-    """
+    """Production engine with cognition guidance and authoritative memory commits."""
 
     def _verified_memory_request_from(
         self,
@@ -44,6 +42,115 @@ class SimulationEngine(BaseSimulationEngine):
             importance=float(candidate.get("importance", 0.5)),
             tags=tags,
         )
+
+    def _memory_candidate_policy(self, decision) -> tuple[bool, str]:
+        candidate = decision.memory_write
+        if candidate is None:
+            return False, "no_candidate"
+        if candidate.importance < 0.65:
+            return False, "importance_below_0.65"
+        routine_actions = {"move", "move_to", "look", "wait", "rest", "speak"}
+        if decision.action in routine_actions:
+            return False, "routine_action_not_durable"
+        if decision.action == "inspect" and candidate.importance < 0.75:
+            return False, "inspection_memory_requires_0.75_importance"
+        return True, "eligible_pending_outcome"
+
+    async def make_decision(self) -> None:
+        if not self.agent.alive or self.controller.execution or self.agent.sleeping:
+            return
+        due_consolidation = next(
+            (event for event in self.agent.recent_events[-4:] if event.get("kind") == "consolidation_due"),
+            None,
+        )
+        if due_consolidation:
+            await self._consolidate("wake")
+            self.agent.recent_events = [
+                event for event in self.agent.recent_events if event.get("kind") != "consolidation_due"
+            ]
+
+        perception = build_perception(self.world, self.agent)
+        action_affordances = build_action_affordances(self.world, self.agent, perception)
+        query_parts = [self.agent.current_intention]
+        query_parts.extend(obj["kind"] for obj in perception["visible_objects"][:8])
+        query_parts.extend(entity["classification"] for entity in perception["visible_entities"][:5])
+        tags = {item for item in self.agent.inventory}
+        memories = retrieve_memories(
+            self.vault.list_records(),
+            " ".join(query_parts),
+            tags=tags,
+            sim_time=self.world.sim_time,
+            limit=6,
+        )
+        self.agent.retrieved_memories = memories
+        context = {
+            "perception": perception,
+            "action_affordances": action_affordances,
+            "active_plan": self.agent.active_plan,
+            "retrieved_memories": memories,
+            "recent_outcomes": [self.last_action_result] if self.last_action_result else [],
+        }
+        result = await self.brain.decide(context)
+        model_response_id = self.database.add_model_response(self.world.sim_time, result)
+        decision = result.value
+        self.agent.decision_source = result.source
+        if decision.plan:
+            self.agent.active_plan = [step.strip()[:240] for step in decision.plan if step.strip()]
+        for key, value in decision.belief_updates.items():
+            safe_key = key.strip()[:100]
+            safe_value = value.strip()[:500]
+            if safe_key and safe_value:
+                self.agent.beliefs[safe_key] = safe_value
+        self.last_decision = decision.model_dump()
+        decision_event = self._record(
+            "decision",
+            f"Ari chose {decision.action}: {decision.reason}",
+            0.55,
+            {
+                "source": result.source,
+                "decision": self.last_decision,
+                "status": result.status,
+                "error": result.error,
+                "model_response_id": model_response_id,
+                "action_affordances": action_affordances,
+            },
+        )
+
+        self.pending_memory = None
+        eligible, policy_reason = self._memory_candidate_policy(decision)
+        if decision.memory_write and eligible:
+            self.pending_memory = {
+                "candidate": decision.memory_write.model_dump(),
+                "decision_event_id": decision_event["id"],
+                "model_response_id": model_response_id,
+                "decision": self.last_decision,
+                "run_id": self.run_id,
+                "world_generation_id": self.world_generation_id,
+                "policy_reason": policy_reason,
+            }
+            self._record(
+                "memory_candidate",
+                f"Ari proposed a durable memory pending outcome verification: {decision.memory_write.title}",
+                0.35,
+                self.pending_memory,
+            )
+        elif decision.memory_write:
+            self._record(
+                "memory_candidate_rejected",
+                f"Memory candidate filtered before execution: {policy_reason}.",
+                0.3,
+                {
+                    "reason": policy_reason,
+                    "candidate": decision.memory_write.model_dump(),
+                    "decision_event_id": decision_event["id"],
+                },
+            )
+
+        action_result = self.controller.start(decision, self.world, self.agent)
+        self._handle_action_result(action_result)
+        self._decision_pending = not action_result.success
+        if action_result.success and decision.action == "sleep":
+            await self._consolidate("sleep_start")
 
     def _resolve_pending_memory(self, result: ActionResult, action_event: dict[str, Any]) -> None:
         if result.reason == "started" or not self.pending_memory:
