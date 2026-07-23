@@ -24,6 +24,8 @@ jobs:
           gh api repos/${{ github.repository }}/releases/latest > post3-audit/latest.json
           gh release download v0.4.0.post3 --dir post3-audit --pattern 'embodied-alife-update.zip*'
       - name: Audit published bytes
+        id: audit
+        continue-on-error: true
         run: python scripts/post3_release_audit.py
       - name: Upload durable evidence artifact
         uses: actions/upload-artifact@v4
@@ -40,3 +42,6 @@ jobs:
           git add post3-release-audit.json post3-release-members.txt
           git commit -m 'Capture post3 published release audit evidence'
           git push origin HEAD:audit/v0.4.0-post3-final
+      - name: Propagate audit failure
+        if: steps.audit.outcome == 'failure'
+        run: exit 1
