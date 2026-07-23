@@ -3,12 +3,14 @@ from __future__ import annotations
 import asyncio
 import math
 import time
+import uuid
 from collections import deque
 from contextlib import suppress
 from typing import Any
 
 from app.config import Settings
 from app.llm.client import LocalLLMClient
+from app.llm.schemas import MemoryWrite
 from app.memory.consolidation import consolidate_sleep
 from app.memory.retrieval import retrieve_memories
 from app.memory.vault import MemoryValidationError, MemoryVault
@@ -21,6 +23,8 @@ from app.simulation.perception import build_perception
 from app.simulation.world import WorldState
 from app.storage.database import Database
 from app.storage.snapshots import SnapshotStore
+
+MEMORY_INTEGRITY_VERSION = 1
 
 
 class SimulationEngine:
@@ -52,7 +56,11 @@ class SimulationEngine:
         self.last_action_result: dict[str, Any] | None = None
         self.last_decision: dict[str, Any] | None = None
         self.memory_writes: deque[dict[str, Any]] = deque(maxlen=60)
+        self.pending_memory: dict[str, Any] | None = None
+        self.run_id = uuid.uuid4().hex
+        self.world_generation_id = uuid.uuid4().hex
 
+        self._migrate_memory_integrity()
         existing = self.database.get_metadata("current_state") if load_existing else None
         if existing:
             self._restore(existing)
@@ -60,7 +68,22 @@ class SimulationEngine:
         else:
             self._new_world(settings.world_seed)
 
-    def _new_world(self, seed: int) -> None:
+    def _migrate_memory_integrity(self) -> None:
+        if self.database.get_metadata("memory_integrity_version") == MEMORY_INTEGRITY_VERSION:
+            return
+        moved = self.vault.quarantine_all("pre-v0.2.9-unverified")
+        self.database.clear_memories()
+        self.database.set_metadata("memory_integrity_version", MEMORY_INTEGRITY_VERSION)
+        self.database.set_metadata("quarantined_pre_integrity_memories", moved)
+
+    def _new_world(self, seed: int, *, clean_experiment: bool = False) -> None:
+        if clean_experiment:
+            self.database.clear_experiment()
+            self.vault.clear()
+        self.run_id = uuid.uuid4().hex
+        self.world_generation_id = uuid.uuid4().hex
+        self.database.set_metadata("run_id", self.run_id)
+        self.database.set_metadata("world_generation_id", self.world_generation_id)
         self.world = WorldState.generate(seed, self.settings.world_size)
         self.agent = AgentState(x=float(self.world.spawn[0]), y=float(self.world.spawn[1]))
         self.agent.beliefs = {
@@ -72,12 +95,18 @@ class SimulationEngine:
         self.memory_writes.clear()
         self.last_action_result = None
         self.last_decision = None
+        self.pending_memory = None
         self._decision_pending = True
         self._record(
             "awakening",
             "Ari wakes in an unfamiliar world with minimal knowledge.",
             0.9,
-            {"seed": seed, "position": list(self.world.spawn)},
+            {
+                "seed": seed,
+                "position": list(self.world.spawn),
+                "run_id": self.run_id,
+                "world_generation_id": self.world_generation_id,
+            },
         )
         self._persist_current()
 
@@ -141,7 +170,6 @@ class SimulationEngine:
         for event in npc_events:
             self._record(event["kind"], event["message"], event.get("importance", 0.5), event.get("data", {}))
 
-        # Weather can slowly damage exposed shelters, while the world continues during sleep.
         if self.world.weather == "storm":
             for shelter in self.world.shelters.values():
                 if self.world._coord_value(self.world.seed, int(self.world.sim_time), shelter.x + shelter.y, shelter.id) > 0.985:
@@ -160,7 +188,6 @@ class SimulationEngine:
             self._handle_action_result(result)
             self._decision_pending = True
             if result.reason == "woke":
-                # Consolidation is deferred to the async decision boundary.
                 self.agent.recent_events.append(
                     {
                         "sim_time": self.world.sim_time,
@@ -224,7 +251,7 @@ class SimulationEngine:
             "recent_outcomes": [self.last_action_result] if self.last_action_result else [],
         }
         result = await self.brain.decide(context)
-        self.database.add_model_response(self.world.sim_time, result)
+        model_response_id = self.database.add_model_response(self.world.sim_time, result)
         decision = result.value
         self.agent.decision_source = result.source
         if decision.plan:
@@ -235,32 +262,116 @@ class SimulationEngine:
             if safe_key and safe_value:
                 self.agent.beliefs[safe_key] = safe_value
         self.last_decision = decision.model_dump()
-        self._record(
+        decision_event = self._record(
             "decision",
             f"Ari chose {decision.action}: {decision.reason}",
             0.55,
-            {"source": result.source, "decision": self.last_decision, "status": result.status, "error": result.error},
+            {
+                "source": result.source,
+                "decision": self.last_decision,
+                "status": result.status,
+                "error": result.error,
+                "model_response_id": model_response_id,
+            },
         )
 
+        self.pending_memory = None
         if decision.memory_write:
-            try:
-                record = self.vault.write(decision.memory_write, self.world.sim_time)
-                self.database.add_memory(record)
-                self.memory_writes.append(record.to_dict())
-                self._record("memory_write", f"Ari wrote memory: {record.title}", 0.65, record.to_dict())
-            except MemoryValidationError as exc:
-                self._record(
-                    "memory_rejected",
-                    f"Memory write rejected: {exc}",
-                    0.6,
-                    {"request": decision.memory_write.model_dump(), "reason": str(exc)},
-                )
+            self.pending_memory = {
+                "candidate": decision.memory_write.model_dump(),
+                "decision_event_id": decision_event["id"],
+                "model_response_id": model_response_id,
+                "decision": self.last_decision,
+                "run_id": self.run_id,
+                "world_generation_id": self.world_generation_id,
+            }
+            self._record(
+                "memory_candidate",
+                f"Ari proposed a memory pending outcome verification: {decision.memory_write.title}",
+                0.35,
+                self.pending_memory,
+            )
 
         action_result = self.controller.start(decision, self.world, self.agent)
         self._handle_action_result(action_result)
         self._decision_pending = not action_result.success
         if action_result.success and decision.action == "sleep":
             await self._consolidate("sleep_start")
+
+    def _verified_memory_request(self, result: ActionResult, action_event_id: int) -> MemoryWrite | None:
+        pending = self.pending_memory
+        if not pending or not result.success:
+            return None
+        candidate = pending["candidate"]
+        decision = pending["decision"]
+        target = decision.get("target_id") or "current situation"
+        tags = list(candidate.get("tags", [])) + ["verified-outcome", result.action.replace("_", "-")]
+        content = (
+            f"Authoritative outcome: {result.details}\n\n"
+            f"Action: {result.action}\n"
+            f"Target: {target}\n"
+            f"Intent at decision time: {decision.get('intent', '')}\n"
+            f"Outcome reason: {result.reason}\n"
+            f"Run ID: {self.run_id}\n"
+            f"World generation ID: {self.world_generation_id}\n"
+            f"Source decision event ID: {pending['decision_event_id']}\n"
+            f"Source action-result event ID: {action_event_id}"
+        )
+        return MemoryWrite(
+            category=candidate["category"],
+            title=f"Verified {result.action.replace('_', ' ')} outcome: {target}"[:120],
+            content=content,
+            importance=float(candidate.get("importance", 0.5)),
+            tags=tags,
+        )
+
+    def _resolve_pending_memory(self, result: ActionResult, action_event: dict[str, Any]) -> None:
+        if result.reason == "started" or not self.pending_memory:
+            return
+        pending = self.pending_memory
+        self.pending_memory = None
+        if not result.success:
+            self._record(
+                "memory_rejected",
+                "Proposed memory rejected because the authoritative action outcome was unsuccessful.",
+                0.65,
+                {
+                    "reason": "action_outcome_not_successful",
+                    "candidate": pending["candidate"],
+                    "action_result": result.to_dict(),
+                    "decision_event_id": pending["decision_event_id"],
+                    "action_result_event_id": action_event["id"],
+                },
+            )
+            return
+        request = self._verified_memory_request(result, action_event["id"])
+        if request is None:
+            return
+        try:
+            record = self.vault.write(request, self.world.sim_time)
+            self.database.add_memory(record)
+            payload = record.to_dict()
+            payload["provenance"] = {
+                "run_id": self.run_id,
+                "world_generation_id": self.world_generation_id,
+                "decision_event_id": pending["decision_event_id"],
+                "action_result_event_id": action_event["id"],
+                "model_response_id": pending["model_response_id"],
+            }
+            self.memory_writes.append(payload)
+            self._record("memory_write", f"Ari wrote verified memory: {record.title}", 0.65, payload)
+        except MemoryValidationError as exc:
+            self._record(
+                "memory_rejected",
+                f"Verified memory write rejected: {exc}",
+                0.6,
+                {
+                    "request": request.model_dump(),
+                    "reason": str(exc),
+                    "decision_event_id": pending["decision_event_id"],
+                    "action_result_event_id": action_event["id"],
+                },
+            )
 
     async def _consolidate(self, phase: str) -> None:
         outcome = await consolidate_sleep(
@@ -289,23 +400,29 @@ class SimulationEngine:
     def _handle_action_result(self, result: ActionResult) -> None:
         payload = result.to_dict()
         self.last_action_result = payload
-        self._record(
+        event = self._record(
             "action_result",
             f"{result.action}: {result.details}",
             0.5 if result.success else 0.7,
             payload,
         )
+        self._resolve_pending_memory(result, event)
 
-    def _record(self, kind: str, message: str, importance: float = 0.3, data: dict[str, Any] | None = None) -> None:
+    def _record(self, kind: str, message: str, importance: float = 0.3, data: dict[str, Any] | None = None) -> dict[str, Any]:
         event = Event(self.world.sim_time if hasattr(self, "world") else 0.0, kind, message, data or {}, importance).to_dict()
+        event["id"] = self.database.add_event(event)
+        event["run_id"] = self.run_id
+        event["world_generation_id"] = self.world_generation_id
         self.events.append(event)
         if hasattr(self, "agent"):
             self.agent.recent_events.append(event)
             self.agent.recent_events = self.agent.recent_events[-50:]
-        self.database.add_event(event)
+        return event
 
     def serialize(self) -> dict[str, Any]:
         return {
+            "run_id": self.run_id,
+            "world_generation_id": self.world_generation_id,
             "world": self.world.to_dict(),
             "agent": self.agent.to_dict(),
             "controller": self.controller.execution.to_dict() if self.controller.execution else None,
@@ -315,11 +432,14 @@ class SimulationEngine:
             "last_action_result": self.last_action_result,
             "last_decision": self.last_decision,
             "memory_writes": list(self.memory_writes),
+            "pending_memory": self.pending_memory,
         }
 
     def _restore(self, state: dict[str, Any]) -> None:
         from app.simulation.body import ActionExecution
 
+        self.run_id = state.get("run_id") or uuid.uuid4().hex
+        self.world_generation_id = state.get("world_generation_id") or uuid.uuid4().hex
         self.world = WorldState.from_dict(state["world"])
         self.agent = AgentState.from_dict(state["agent"])
         self.controller = ActionController()
@@ -332,8 +452,11 @@ class SimulationEngine:
         self.last_action_result = state.get("last_action_result")
         self.last_decision = state.get("last_decision")
         self.memory_writes = deque(state.get("memory_writes", []), maxlen=60)
+        self.pending_memory = state.get("pending_memory")
         self._decision_pending = not bool(self.controller.execution)
         self._last_persist_time = self.world.sim_time
+        self.database.set_metadata("run_id", self.run_id)
+        self.database.set_metadata("world_generation_id", self.world_generation_id)
 
     def _persist_current(self) -> None:
         self.database.set_metadata("current_state", self.serialize())
@@ -366,9 +489,18 @@ class SimulationEngine:
 
     def reset(self, seed: int | None = None) -> dict[str, Any]:
         self.paused = True
-        self._new_world(seed if seed is not None else int(time.time()) % 2_147_483_647)
+        self._new_world(
+            seed if seed is not None else int(time.time()) % 2_147_483_647,
+            clean_experiment=True,
+        )
         self.paused = False
-        return {"ok": True, "seed": self.world.seed}
+        return {
+            "ok": True,
+            "seed": self.world.seed,
+            "run_id": self.run_id,
+            "world_generation_id": self.world_generation_id,
+            "clean_experiment": True,
+        }
 
     def set_paused(self, paused: bool) -> dict[str, Any]:
         self.paused = paused
@@ -385,6 +517,8 @@ class SimulationEngine:
         perception = build_perception(self.world, self.agent)
         state = {
             "version": self._state_version,
+            "run_id": self.run_id,
+            "world_generation_id": self.world_generation_id,
             "paused": self.paused,
             "speed": self.speed,
             "world": {
@@ -406,6 +540,7 @@ class SimulationEngine:
             "agent_beliefs": dict(self.agent.beliefs),
             "last_decision": self.last_decision,
             "last_action_result": self.last_action_result,
+            "pending_memory": self.pending_memory,
             "events": list(self.events)[-120:],
             "memory_writes": list(self.memory_writes),
             "memories": [record.to_dict() for record in self.vault.list_records()[-60:]],
