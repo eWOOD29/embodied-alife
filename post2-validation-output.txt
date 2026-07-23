@@ -1,0 +1,28 @@
+$ python -m pytest -q tests/test_v040_remediation.py
+...........                                                              [100%]
+11 passed in 0.37s
+
+exit=0
+
+$ python -m pytest -q
+........................................................................ [ 75%]
+........................                                                 [100%]
+=============================== warnings summary ===============================
+../../../../../opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/fastapi/testclient.py:1
+  /opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+96 passed, 1 warning in 2.06s
+
+exit=0
+
+$ python -m compileall -q app tests scripts
+
+exit=0
+
+$ python scripts/clean_generated.py
+python: can't open file '/home/runner/work/embodied-alife/embodied-alife/scripts/clean_generated.py': [Errno 2] No such file or directory
+
+exit=2
+
