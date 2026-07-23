@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any, TypeVar
+from dataclasses import dataclass
+from typing import Any, Generic, TypeVar
 
 import httpx
 from pydantic import BaseModel, ValidationError
@@ -13,6 +14,13 @@ from app.llm.prompts import consolidation_messages, decision_messages
 from app.llm.schemas import ActionDecision, ConsolidationResult
 
 T = TypeVar("T", bound=BaseModel)
+
+
+@dataclass(slots=True)
+class ObservedBrainResult(BrainResult[T], Generic[T]):
+    finish_reason: str | None = None
+    provider_response_id: str | None = None
+    request_attempts: int | None = None
 
 
 class ObservedLocalLLMClient(LocalLLMClient):
@@ -46,7 +54,7 @@ class ObservedLocalLLMClient(LocalLLMClient):
     async def decide(self, context: dict[str, Any]) -> BrainResult[ActionDecision]:
         if self.settings.no_llm or not self.settings.llm_model:
             decision = self.fallback.decide(context["perception"])
-            return BrainResult(decision, "fallback", "LLM disabled or unconfigured")
+            return ObservedBrainResult(decision, "fallback", "LLM disabled or unconfigured")
         try:
             return await self._request(decision_messages(context), ActionDecision)
         except Exception as exc:  # noqa: BLE001
@@ -59,12 +67,12 @@ class ObservedLocalLLMClient(LocalLLMClient):
                 generation_healthy=False,
                 last_error=error,
             )
-            return BrainResult(decision, "fallback", "LLM request failed", error=error)
+            return ObservedBrainResult(decision, "fallback", "LLM request failed", error=error)
 
     async def consolidate(self, context: dict[str, Any]) -> BrainResult[ConsolidationResult]:
         if self.settings.no_llm or not self.settings.llm_model:
             value = self.fallback.consolidate(context)
-            return BrainResult(value, "fallback", "LLM disabled or unconfigured")
+            return ObservedBrainResult(value, "fallback", "LLM disabled or unconfigured")
         try:
             return await self._request(consolidation_messages(context), ConsolidationResult)
         except Exception as exc:  # noqa: BLE001
@@ -77,9 +85,9 @@ class ObservedLocalLLMClient(LocalLLMClient):
                 generation_healthy=False,
                 last_error=error,
             )
-            return BrainResult(value, "fallback", "LLM reflection failed", error=error)
+            return ObservedBrainResult(value, "fallback", "LLM reflection failed", error=error)
 
-    async def _request(self, messages: list[dict[str, str]], model_type: type[T]) -> BrainResult[T]:
+    async def _request(self, messages: list[dict[str, str]], model_type: type[T]) -> ObservedBrainResult[T]:
         started = time.perf_counter()
         payload = {
             "model": self.settings.llm_model,
@@ -128,7 +136,7 @@ class ObservedLocalLLMClient(LocalLLMClient):
                     provider_response_id=provider_response_id,
                     request_attempts=attempt,
                 )
-                result = BrainResult(
+                return ObservedBrainResult(
                     parsed,
                     "llm",
                     "ok",
@@ -136,11 +144,10 @@ class ObservedLocalLLMClient(LocalLLMClient):
                     prompt_tokens=usage.get("prompt_tokens"),
                     completion_tokens=usage.get("completion_tokens"),
                     raw_content=content,
+                    finish_reason=finish_reason,
+                    provider_response_id=provider_response_id,
+                    request_attempts=attempt,
                 )
-                result.finish_reason = finish_reason
-                result.provider_response_id = provider_response_id
-                result.request_attempts = attempt
-                return result
             except (httpx.HTTPError, ValueError, KeyError, IndexError, ValidationError, json.JSONDecodeError) as exc:
                 last_error = exc
                 payload["messages"] = messages + [
