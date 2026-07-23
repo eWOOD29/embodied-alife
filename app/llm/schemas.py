@@ -5,33 +5,14 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 ActionName = Literal[
-    "move",
-    "move_to",
-    "look",
-    "inspect",
-    "pick_up",
-    "drop",
-    "eat",
-    "drink",
-    "sleep",
-    "rest",
-    "build",
-    "speak",
-    "flee",
-    "wait",
+    "move", "move_to", "look", "inspect", "pick_up", "drop", "eat", "drink", "sleep", "rest", "build", "speak", "flee", "wait",
+    "view_map", "view_task_journal", "view_notebook",
 ]
+VIEW_ACTIONS = {"view_map", "view_task_journal", "view_notebook"}
 
 
 class GrammarSafeOutput(BaseModel):
-    """Use a minimal server grammar while retaining the complete validation schema.
-
-    LM Studio's llama.cpp grammar compiler can reject otherwise-valid Pydantic JSON
-    Schema features such as nested refs, nullable unions, constrained dictionaries,
-    and array constraints. `model_json_schema()` is therefore intentionally minimal
-    for the API response grammar. Prompts must use `full_json_schema()` so the model
-    still sees the exact field contract. Returned objects are always validated against
-    the complete Pydantic model in-process.
-    """
+    """Use a minimal server grammar while retaining the complete validation schema."""
 
     @classmethod
     def model_json_schema(cls, *args: Any, **kwargs: Any) -> dict[str, Any]:
@@ -44,19 +25,8 @@ class GrammarSafeOutput(BaseModel):
 
 class MemoryWrite(BaseModel):
     model_config = ConfigDict(extra="forbid")
-
     operation: Literal["remember"] = "remember"
-    category: Literal[
-        "survival",
-        "locations",
-        "affordances",
-        "environment",
-        "entities",
-        "projects",
-        "beliefs",
-        "reflections",
-        "daily",
-    ]
+    category: Literal["survival", "locations", "affordances", "environment", "entities", "projects", "beliefs", "reflections", "daily"]
     title: str = Field(min_length=3, max_length=120)
     content: str = Field(min_length=5, max_length=4000)
     importance: float = Field(ge=0.0, le=1.0)
@@ -75,22 +45,12 @@ class MemoryWrite(BaseModel):
 
 class ActionDecision(GrammarSafeOutput):
     model_config = ConfigDict(extra="forbid")
-
     intent: str = Field(min_length=1, max_length=240)
     action: ActionName
     target_id: str | None = Field(default=None, max_length=120)
     direction: Literal["north", "northeast", "east", "southeast", "south", "southwest", "west", "northwest"] | None = None
     duration_seconds: float = Field(default=2.0, ge=0.2, le=120.0)
-    interrupt_if: list[
-        Literal[
-            "danger_detected",
-            "damage_taken",
-            "energy_critical",
-            "hydration_critical",
-            "target_unreachable",
-            "weather_worsens",
-        ]
-    ] = Field(default_factory=list, max_length=6)
+    interrupt_if: list[Literal["danger_detected", "damage_taken", "energy_critical", "hydration_critical", "target_unreachable", "weather_worsens"]] = Field(default_factory=list, max_length=6)
     reason: str = Field(min_length=1, max_length=500)
     plan: list[str] = Field(default_factory=list, max_length=6)
     belief_updates: dict[str, str] = Field(default_factory=dict)
@@ -98,7 +58,7 @@ class ActionDecision(GrammarSafeOutput):
 
     @model_validator(mode="before")
     @classmethod
-    def repair_descriptive_omissions(cls, value: Any) -> Any:
+    def repair_and_restrain(cls, value: Any) -> Any:
         if not isinstance(value, dict):
             return value
         repaired = dict(value)
@@ -108,12 +68,13 @@ class ActionDecision(GrammarSafeOutput):
             repaired["intent"] = reason.strip()[:240]
         if (not isinstance(reason, str) or not reason.strip()) and isinstance(intent, str) and intent.strip():
             repaired["reason"] = intent.strip()[:500]
+        if repaired.get("action") in VIEW_ACTIONS:
+            repaired["memory_write"] = None
         return repaired
 
 
 class ConsolidationResult(GrammarSafeOutput):
     model_config = ConfigDict(extra="forbid")
-
     summary: str = Field(min_length=10, max_length=2500)
     memories: list[MemoryWrite] = Field(default_factory=list, max_length=5)
     belief_updates: dict[str, str] = Field(default_factory=dict)

@@ -6,6 +6,35 @@ The project uses semantic versioning pragmatically while it is still in early de
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-07-23
+
+### Added
+
+- Added the approved one-time awakening context for clean experiments.
+- Added protected Blank Field Map, Task Journal, and Field Notebook key items outside ordinary carrying capacity.
+- Added four stable starter tasks as broad proposed reminders rather than mandatory quests.
+- Added versioned, provenance-bearing schemas for tasks, notes, subjective map markers, epistemic beliefs, short-term episodes, and awakening state.
+- Added `view_map`, `view_task_journal`, and `view_notebook` actions that return only Ari-known information.
+- Added backward-compatible v0.3.4 state migration plus snapshot, restart, reset, privacy, and compact-context acceptance tests.
+- Added public cognitive-state architecture documentation.
+
+### Changed
+
+- Agent state and snapshots now persist every foundational cognitive store.
+- Legacy belief dictionaries migrate into structured subjective beliefs without becoming observer truth.
+- Normal decision context includes compact cognitive-tool summaries rather than complete cognitive stores.
+- Reset seed clears prior-world cognition and awakening presentation state before recreating exactly one starter set.
+- Package secret scanning now identifies plausible API-key tokens without flagging ordinary hyphenated words.
+
+### Security
+
+- Ari-facing map, journal, notebook, belief, and prompt paths remain separated from hidden observer truth.
+- Public package validation continues to reject secrets, private runtime artifacts, and generated local state.
+
+### Tests
+
+- Added coverage for initialization, non-capacity key items, non-droppability, migration idempotence, unsupported hypotheses, view-action truth boundaries, snapshot/restart fidelity, clean reset, and prompt restraint.
+
 ## [0.3.4] — 2026-07-23
 
 ### Added

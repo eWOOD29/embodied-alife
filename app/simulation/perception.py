@@ -32,11 +32,7 @@ def _line_points(x0: int, y0: int, x1: int, y1: int) -> list[tuple[int, int]]:
 
 
 def has_line_of_sight(world: WorldState, x0: int, y0: int, x1: int, y1: int) -> bool:
-    points = _line_points(x0, y0, x1, y1)
-    for x, y in points[1:-1]:
-        if world.tile(x, y) in BLOCKING_TERRAIN:
-            return False
-    return True
+    return all(world.tile(x, y) not in BLOCKING_TERRAIN for x, y in _line_points(x0, y0, x1, y1)[1:-1])
 
 
 def _direction(dx: float, dy: float) -> str:
@@ -64,8 +60,8 @@ def build_perception(world: WorldState, agent: AgentState, radius: int = 10) -> 
                 elif terrain == Terrain.BUILD_AREA.value:
                     agent.known_locations["stable_clearing"] = {"x": x, "y": y, "certainty": 0.9, "last_seen": world.sim_time}
                 elif terrain in {Terrain.SHALLOW_WATER.value, Terrain.DEEP_WATER.value}:
-                    key = f"water_near_{x // 8}_{y // 8}"
-                    agent.known_locations[key] = {"x": x, "y": y, "certainty": 0.8, "last_seen": world.sim_time}
+                    water_key = f"water_near_{x // 8}_{y // 8}"
+                    agent.known_locations[water_key] = {"x": x, "y": y, "certainty": 0.8, "last_seen": world.sim_time}
 
     objects: list[dict[str, Any]] = []
     for resource in world.resources.values():
@@ -73,43 +69,42 @@ def build_perception(world: WorldState, agent: AgentState, radius: int = 10) -> 
             continue
         distance = math.hypot(resource.x - agent.x, resource.y - agent.y)
         if distance <= radius and has_line_of_sight(world, ax, ay, resource.x, resource.y):
-            objects.append(
-                {
-                    "id": resource.id,
-                    "kind": resource.kind,
-                    "distance": round(distance, 1),
-                    "direction": _direction(resource.x - agent.x, resource.y - agent.y),
-                    "quantity": resource.quantity,
-                    "portable": resource.portable,
-                    "appears_edible": resource.edible,
-                }
-            )
+            objects.append({
+                "id": resource.id,
+                "kind": resource.kind,
+                "distance": round(distance, 1),
+                "direction": _direction(resource.x - agent.x, resource.y - agent.y),
+                "quantity": resource.quantity,
+                "portable": resource.portable,
+                "appears_edible": resource.edible,
+            })
 
     entities: list[dict[str, Any]] = []
     for npc in world.npcs.values():
         distance = math.hypot(npc.x - agent.x, npc.y - agent.y)
         if distance <= radius and has_line_of_sight(world, ax, ay, int(npc.x), int(npc.y)):
             classification = npc.kind if distance <= 4 else ("large animal" if npc.kind in {"deer", "wolf"} else "small moving creature")
-            entities.append(
-                {
-                    "id": npc.id,
-                    "classification": classification,
-                    "distance": round(distance, 1),
-                    "direction": _direction(npc.x - agent.x, npc.y - agent.y),
-                    "behavior": npc.state,
-                    "danger_signs": npc.dangerous and distance <= 5,
-                }
-            )
+            entities.append({
+                "id": npc.id,
+                "classification": classification,
+                "distance": round(distance, 1),
+                "direction": _direction(npc.x - agent.x, npc.y - agent.y),
+                "behavior": npc.state,
+                "danger_signs": npc.dangerous and distance <= 5,
+            })
 
     shelter = world.nearby_shelter(agent.x, agent.y, 3.0)
-    affordances = ["look", "move", "move_to", "inspect", "wait", "rest", "speak", "flee"]
+    affordances = [
+        "look", "move", "move_to", "inspect", "wait", "rest", "speak", "flee",
+        "view_map", "view_task_journal", "view_notebook",
+    ]
     if any(obj["distance"] <= INTERACTION_RADIUS and (obj["portable"] or obj["kind"] == "berry_bush") for obj in objects):
         affordances.append("pick_up")
     if any(obj["distance"] <= INTERACTION_RADIUS and obj["appears_edible"] for obj in objects) or any(
         key in agent.inventory for key in ("berry", "berry_bush", "edible_plant")
     ):
         affordances.append("eat")
-    if any(world.is_water(x, y) for x, y in _line_points(ax, ay, ax + 1, ay + 1)) or any(
+    if any(
         world.is_water(x, y)
         for y in range(max(0, ay - 1), min(world.size, ay + 2))
         for x in range(max(0, ax - 1), min(world.size, ax + 2))
@@ -137,21 +132,32 @@ def build_perception(world: WorldState, agent: AgentState, radius: int = 10) -> 
         "pain": round(agent.pain, 1),
         "inventory": dict(agent.inventory),
         "inventory_capacity": agent.inventory_capacity,
+        "key_items": [item.display_name for item in agent.key_items.values()],
         "scale_explanation": {
             "hunger_deficit": "0 is fully fed; 100 is starving",
             "satiety": "100 is fully fed; 0 is starving",
             "health_energy_hydration": "100 is best; 0 is critical",
             "sleep_pressure_and_pain": "0 is best; 100 is critical",
         },
-        # Backward-compatible numeric aliases for the observer and older integrations.
         "health": round(agent.health, 1),
         "energy": round(agent.energy, 1),
         "hunger": hunger_deficit,
         "hydration": round(agent.hydration, 1),
     }
+    cognition_summary = {
+        "key_item_ids": sorted(agent.key_items),
+        "task_count": len(agent.tasks),
+        "proposed_task_titles": [task.title for task in sorted(agent.tasks.values(), key=lambda item: item.priority)[:4]],
+        "note_count": len(agent.notes),
+        "map_marker_count": len(agent.map_markers),
+        "belief_count": len(agent.beliefs),
+        "recent_episode_count": len(agent.short_term_episodes),
+    }
 
     return {
+        "awakening": agent.awakening.narrative if not agent.awakening.presented else None,
         "body": body,
+        "cognitive_tools": cognition_summary,
         "drive_labels": drive_labels(agent),
         "visible_objects": sorted(objects, key=lambda item: item["distance"])[:30],
         "visible_entities": sorted(entities, key=lambda item: item["distance"])[:12],
@@ -176,7 +182,7 @@ def build_perception(world: WorldState, agent: AgentState, radius: int = 10) -> 
                 )[:250]
             ],
         },
-        "beliefs": agent.beliefs,
+        "beliefs": {key: belief.to_dict() for key, belief in agent.beliefs.items()},
         "personality_traits": agent.personality_traits,
         "recent_events": agent.recent_events[-10:],
         "last_action_result": agent.recent_events[-1] if agent.recent_events else None,

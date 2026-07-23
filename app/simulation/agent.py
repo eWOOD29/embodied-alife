@@ -3,6 +3,18 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from app.simulation.belief_store import BeliefStore
+from app.simulation.cognition import (
+    AwakeningState,
+    EpisodeRecord,
+    KeyItem,
+    MapMarker,
+    NoteRecord,
+    TaskRecord,
+    starter_key_items,
+    starter_tasks,
+)
+
 
 @dataclass(slots=True)
 class InventoryItem:
@@ -28,11 +40,18 @@ class AgentState:
     injury: str | None = None
     inventory: dict[str, int] = field(default_factory=dict)
     inventory_capacity: int = 8
+    key_items: dict[str, KeyItem] = field(default_factory=starter_key_items)
+    tasks: dict[str, TaskRecord] = field(default_factory=starter_tasks)
+    notes: dict[str, NoteRecord] = field(default_factory=dict)
+    map_markers: dict[str, MapMarker] = field(default_factory=dict)
+    beliefs: BeliefStore = field(default_factory=BeliefStore)
+    short_term_episodes: dict[str, EpisodeRecord] = field(default_factory=dict)
+    awakening: AwakeningState = field(default_factory=AwakeningState)
+    cognition_schema_version: int = 1
     current_action: dict[str, Any] | None = None
     current_intention: str = "Understand what is around me."
     active_plan: list[str] = field(default_factory=list)
     known_locations: dict[str, dict[str, Any]] = field(default_factory=dict)
-    beliefs: dict[str, str] = field(default_factory=dict)
     explored: set[str] = field(default_factory=set)
     known_terrain: dict[str, str] = field(default_factory=dict)
     recent_events: list[dict[str, Any]] = field(default_factory=list)
@@ -47,6 +66,11 @@ class AgentState:
     last_decision_reason: str = ""
     decision_source: str = "fallback"
 
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name == "beliefs" and not isinstance(value, BeliefStore):
+            value = BeliefStore(value)
+        object.__setattr__(self, name, value)
+
     @property
     def inventory_used(self) -> int:
         return sum(self.inventory.values())
@@ -55,13 +79,13 @@ class AgentState:
         return self.inventory_used + quantity <= self.inventory_capacity
 
     def add_item(self, kind: str, quantity: int = 1) -> bool:
-        if not self.can_add(quantity):
+        if kind in self.key_items or not self.can_add(quantity):
             return False
         self.inventory[kind] = self.inventory.get(kind, 0) + quantity
         return True
 
     def remove_item(self, kind: str, quantity: int = 1) -> bool:
-        if self.inventory.get(kind, 0) < quantity:
+        if kind in self.key_items or self.inventory.get(kind, 0) < quantity:
             return False
         self.inventory[kind] -= quantity
         if self.inventory[kind] <= 0:
@@ -71,10 +95,38 @@ class AgentState:
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["explored"] = sorted(self.explored)
+        data["beliefs"] = {key: value.to_dict() for key, value in self.beliefs.items()}
         return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "AgentState":
         copied = dict(data)
         copied["explored"] = set(copied.get("explored", []))
+        raw_key_items = copied.get("key_items")
+        copied["key_items"] = (
+            {key: KeyItem.from_dict({"key_item_id": key, **value}) for key, value in raw_key_items.items()}
+            if isinstance(raw_key_items, dict) and raw_key_items
+            else starter_key_items()
+        )
+        raw_tasks = copied.get("tasks")
+        copied["tasks"] = (
+            {key: TaskRecord.from_dict({"task_id": key, **value}) for key, value in raw_tasks.items()}
+            if isinstance(raw_tasks, dict) and raw_tasks
+            else starter_tasks()
+        )
+        copied["notes"] = {
+            key: NoteRecord.from_dict({"note_id": key, **value})
+            for key, value in (copied.get("notes") or {}).items()
+        }
+        copied["map_markers"] = {
+            key: MapMarker.from_dict({"marker_id": key, **value})
+            for key, value in (copied.get("map_markers") or {}).items()
+        }
+        copied["beliefs"] = BeliefStore(copied.get("beliefs"))
+        copied["short_term_episodes"] = {
+            key: EpisodeRecord.from_dict({"episode_id": key, **value})
+            for key, value in (copied.get("short_term_episodes") or {}).items()
+        }
+        copied["awakening"] = AwakeningState.from_dict(copied.get("awakening"))
+        copied["cognition_schema_version"] = int(copied.get("cognition_schema_version", 1))
         return cls(**copied)
