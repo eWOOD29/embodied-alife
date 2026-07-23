@@ -37,3 +37,4 @@ jobs:
           git add CHANGELOG.md docs/COGNITIVE_STATE.md pyproject.toml app/version.py
           git commit -m "Document and version v0.4.0.post1 remediation"
           git push origin HEAD:remediation/v0.4.0-post1
+# trigger
