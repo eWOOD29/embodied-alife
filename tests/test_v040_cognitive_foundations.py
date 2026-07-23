@@ -61,9 +61,12 @@ def test_view_actions_return_only_agent_knowledge_and_do_not_create_inventory_it
     agent.notes["n1"] = NoteRecord("n1", "Test", "Ari-authored note", [], "active", 0, 0, provenance=Provenance("test"))
     agent.map_markers["m1"] = MapMarker("m1", "Possible water", "water", {"relative": "west"}, 0.4, "active", "uncertain", 0, 0, provenance=Provenance("inference"))
     controller = ActionController()
+    agent.known_terrain["41,7"] = "known meadow"
     map_result = _complete(controller, world, agent, "view_map")
-    assert map_result.data["observer_truth_included"] is False
+    assert "observer_truth_included" not in map_result.data
+    assert "known_terrain" not in map_result.data
     serialized = json.dumps(map_result.data)
+    assert "41,7" not in serialized
     assert "wolf" not in serialized and world.truth_notes["cave"] not in serialized
     assert len(_complete(controller, world, agent, "view_task_journal").data["tasks"]) == 4
     assert _complete(controller, world, agent, "view_notebook").data["notes"][0]["content"] == "Ari-authored note"

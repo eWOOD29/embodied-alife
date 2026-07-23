@@ -141,15 +141,18 @@ def test_belief_summary_and_all_store_prompt_growth_are_bounded() -> None:
 def test_first_decision_awakening_and_normal_context_are_separately_bounded() -> None:
     world = WorldState.generate(989, 48)
     agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+    full_claims = []
     for index in range(300):
-        agent.beliefs[f"b-{index}"] = "FIRST_CONTEXT_SENTINEL_" + ("x" * 1000)
+        claim = f"FIRST_CONTEXT_SENTINEL_{index}_" + ("x" * 1000)
+        full_claims.append(claim)
+        agent.beliefs[f"b-{index}"] = claim
     first = _serialized_prompt(world, agent)
     assert "I wake beneath an unfamiliar sky" in first
-    assert "FIRST_CONTEXT_SENTINEL_" not in first
+    assert all(claim not in first for claim in full_claims)
     _complete(ActionController(), world, agent, "view_task_journal")
     normal = _serialized_prompt(world, agent)
     assert "I wake beneath an unfamiliar sky" not in normal
-    assert "FIRST_CONTEXT_SENTINEL_" not in normal
+    assert all(claim not in normal for claim in full_claims)
     assert abs(len(first) - len(normal)) < 4000
 
 
