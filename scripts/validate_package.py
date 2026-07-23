@@ -36,6 +36,7 @@ REQUIRED = [
 ]
 CACHE_PARTS = {"__pycache__", ".pytest_cache", ".ruff_cache"}
 SOURCE_ONLY_FORBIDDEN_PARTS = {".venv"}
+API_KEY_PATTERN = re.compile(r"(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{20,}")
 
 
 def parse_args() -> argparse.Namespace:
@@ -100,7 +101,7 @@ def main() -> None:
         if path.suffix.lower() in {".png", ".jpg", ".zip", ".db"}:
             continue
         text = path.read_text(encoding="utf-8", errors="ignore")
-        if "sk-" in text and path.name != "validate_package.py":
+        if API_KEY_PATTERN.search(text) and path.name != "validate_package.py":
             secrets.append(str(path.relative_to(ROOT)))
 
     if forbidden or generated or secrets:
