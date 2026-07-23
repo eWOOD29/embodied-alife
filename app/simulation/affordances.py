@@ -5,6 +5,8 @@ from typing import Any
 from app.simulation.agent import AgentState
 from app.simulation.world import Terrain, WorldState
 
+INTERACTION_RADIUS = 2.2
+
 
 def build_action_affordances(
     world: WorldState,
@@ -16,18 +18,32 @@ def build_action_affordances(
     for obj in perception.get("visible_objects", []):
         distance = float(obj.get("distance", 999.0))
         executable: list[str] = []
-        if distance <= 2.2:
+        if distance <= INTERACTION_RADIUS:
             executable.append("inspect")
-        if distance <= 1.6 and (obj.get("portable") or obj.get("kind") == "berry_bush"):
+        if distance <= INTERACTION_RADIUS and (obj.get("portable") or obj.get("kind") == "berry_bush"):
             executable.append("pick_up")
-        if distance <= 1.6 and obj.get("appears_edible"):
+        if distance <= INTERACTION_RADIUS and obj.get("appears_edible") and int(obj.get("quantity", 0)) > 0:
             executable.append("eat")
         targets[obj["id"]] = {
             "kind": obj.get("kind"),
             "distance": distance,
             "direction": obj.get("direction"),
+            "quantity": int(obj.get("quantity", 0)),
+            "portable": bool(obj.get("portable")),
+            "appears_edible": bool(obj.get("appears_edible")),
+            "depleted": int(obj.get("quantity", 0)) <= 0,
             "executable_now": executable,
-            "approach_action": None if executable else "move_to",
+            "requires_move_to_for": [
+                action
+                for action in ("inspect", "pick_up", "eat")
+                if action not in executable
+                and (
+                    action == "inspect"
+                    or (action == "pick_up" and (obj.get("portable") or obj.get("kind") == "berry_bush"))
+                    or (action == "eat" and obj.get("appears_edible") and int(obj.get("quantity", 0)) > 0)
+                )
+            ],
+            "approach_action": "move_to" if distance > INTERACTION_RADIUS else None,
         }
 
     for entity in perception.get("visible_entities", []):
@@ -37,8 +53,9 @@ def build_action_affordances(
             "distance": distance,
             "direction": entity.get("direction"),
             "danger_signs": bool(entity.get("danger_signs")),
-            "executable_now": ["inspect"] if distance <= 2.2 else [],
-            "approach_action": None if distance <= 2.2 else "move_to",
+            "executable_now": ["inspect"] if distance <= INTERACTION_RADIUS else [],
+            "requires_move_to_for": ["inspect"] if distance > INTERACTION_RADIUS else [],
+            "approach_action": "move_to" if distance > INTERACTION_RADIUS else None,
         }
 
     inventory = dict(agent.inventory)
@@ -57,6 +74,7 @@ def build_action_affordances(
     )
 
     return {
+        "interaction_radius": INTERACTION_RADIUS,
         "currently_available_action_names": perception.get("available_actions", []),
         "target_constraints": targets,
         "inventory": inventory,
@@ -69,8 +87,10 @@ def build_action_affordances(
             "underfoot": underfoot.value,
         },
         "guidance": [
-            "Choose inspect, pick_up, eat, drink, or build only when this map says it is executable now.",
-            "Use move_to first for a visible target whose approach_action is move_to.",
-            "Do not assume a proposed action succeeds; the deterministic controller remains authoritative.",
+            "Treat executable_now as a hard constraint for target-specific actions.",
+            "Use move_to only when the requested target action appears under requires_move_to_for.",
+            "A missing target ID is unavailable or depleted; do not act on stale beliefs about it.",
+            "Do not repeat an action/target pair that recently failed unless new world evidence changes its availability.",
+            "The deterministic controller remains authoritative and may correct an invalid proposal.",
         ],
     }
