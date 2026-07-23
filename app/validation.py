@@ -4,15 +4,25 @@ from collections import Counter
 from typing import Any
 
 
-def _matching_events(events: list[dict[str, Any]], *, kinds: set[str] | None = None, tokens: tuple[str, ...] = ()) -> list[dict[str, Any]]:
+def _matching_events(
+    events: list[dict[str, Any]],
+    *,
+    kinds: set[str] | None = None,
+    tokens: tuple[str, ...] = (),
+    require_kind_for_tokens: bool = False,
+) -> list[dict[str, Any]]:
     matches: list[dict[str, Any]] = []
+    normalized_kinds = {kind.lower() for kind in kinds or set()}
     for event in events:
         kind = str(event.get("kind") or "").lower()
         message = str(event.get("message") or "").lower()
         data = str(event.get("data") or "").lower()
-        if kinds and kind in kinds:
-            matches.append(event)
-        elif tokens and any(token in message or token in data for token in tokens):
+        kind_matches = bool(normalized_kinds and kind in normalized_kinds)
+        token_matches = bool(tokens and any(token in message or token in data for token in tokens))
+        if require_kind_for_tokens:
+            if kind_matches and token_matches:
+                matches.append(event)
+        elif kind_matches or token_matches:
             matches.append(event)
     return matches
 
@@ -41,28 +51,50 @@ def build_soak_readiness(
     agent = engine.agent
     event_kinds = Counter(str(event.get("kind") or "unknown") for event in events)
 
-    sleep = _matching_events(events, tokens=("action sleep began", "already asleep"))
-    wake = _matching_events(events, tokens=("ari woke", "reason': 'woke", '"reason": "woke"'))
+    sleep = _matching_events(events, kinds={"action_result"}, tokens=("action sleep began", "already asleep"), require_kind_for_tokens=True)
+    wake = _matching_events(events, kinds={"action_result"}, tokens=("ari woke", "reason': 'woke", '"reason": "woke"'), require_kind_for_tokens=True)
     consolidation = _matching_events(events, kinds={"consolidation"})
-    weather = _matching_events(events, kinds={"weather"}, tokens=("weather", "storm", "rain", "fog"))
-    storm = _matching_events(events, tokens=("storm",))
-    temperature = _matching_events(events, tokens=("hypother", "overheat", "temperature", "too cold", "too hot"))
-    wolf = _matching_events(events, tokens=("wolf", "danger_detected"))
+    weather = _matching_events(events, kinds={"weather"})
+    storm = _matching_events(events, kinds={"weather"}, tokens=("storm",), require_kind_for_tokens=True)
+    temperature = _matching_events(
+        events,
+        kinds={"physiology", "damage", "temperature"},
+        tokens=("hypother", "overheat", "temperature", "too cold", "too hot"),
+        require_kind_for_tokens=True,
+    )
+    wolf = _matching_events(
+        events,
+        kinds={"npc", "danger", "encounter", "action_result"},
+        tokens=("wolf", "danger_detected"),
+        require_kind_for_tokens=True,
+    )
     interruption = [
-        event for event in events
+        event
+        for event in events
         if event.get("kind") == "action_result" and event.get("data", {}).get("reason") == "interrupted"
     ]
     shelter_built = [
-        event for event in events
+        event
+        for event in events
         if event.get("kind") == "action_result"
         and event.get("data", {}).get("action") == "build"
         and event.get("data", {}).get("success")
         and event.get("data", {}).get("reason") == "built"
     ]
-    shelter_damage = _matching_events(events, kinds={"shelter"}, tokens=("shelter", "durability", "destroyed"))
-    regeneration = _matching_events(events, tokens=("regenerat", "regrew", "replenish"))
+    shelter_damage = _matching_events(
+        events,
+        kinds={"shelter"},
+        tokens=("durability", "destroyed", "damaged"),
+        require_kind_for_tokens=True,
+    )
+    regeneration = _matching_events(
+        events,
+        kinds={"resource", "regeneration"},
+        tokens=("regenerat", "regrew", "replenish"),
+        require_kind_for_tokens=True,
+    )
     death = _matching_events(events, kinds={"death"}, tokens=("ari died", "agent died"))
-    restart = _matching_events(events, kinds={"system"}, tokens=("restored the latest local runtime state",))
+    restart = _matching_events(events, kinds={"system"}, tokens=("restored the latest local runtime state",), require_kind_for_tokens=True)
     snapshot_events = _matching_events(events, kinds={"snapshot"})
     verified_memory = _matching_events(events, kinds={"memory_write"})
     memory_rejected = _matching_events(events, kinds={"memory_rejected", "memory_candidate_rejected"})
@@ -78,10 +110,10 @@ def build_soak_readiness(
         "sleep_and_wake": _scenario(bool(sleep and wake), sleep + wake, "A complete sleep action and authoritative waking outcome are required."),
         "memory_consolidation": _scenario(bool(consolidation), consolidation, "At least one sleep-related consolidation pass is required."),
         "multiple_day_night_cycles": _scenario(world.day >= 3, [], f"Current world day is {world.day}; target is day 3 or later."),
-        "weather_transition": _scenario(bool(weather), weather, "At least one recorded weather transition is required."),
-        "storm_exposure": _scenario(bool(storm), storm, "At least one storm should occur during the run."),
-        "temperature_stress": _scenario(bool(temperature), temperature, "Evidence of a meaningful hot/cold body response is required."),
-        "wolf_or_danger_encounter": _scenario(bool(wolf), wolf, "At least one wolf/danger encounter should be observed."),
+        "weather_transition": _scenario(bool(weather), weather, "At least one authoritative weather event is required."),
+        "storm_exposure": _scenario(bool(storm), storm, "At least one authoritative storm event should occur during the run."),
+        "temperature_stress": _scenario(bool(temperature), temperature, "Evidence of an authoritative hot/cold body response is required."),
+        "wolf_or_danger_encounter": _scenario(bool(wolf), wolf, "At least one authoritative wolf/danger event should be observed."),
         "action_interruption": _scenario(bool(interruption), interruption, "At least one action should be interrupted by a declared condition."),
         "shelter_construction": _scenario(bool(shelter_built or world.shelters), shelter_built, "Ari should construct at least one shelter."),
         "shelter_degradation": _scenario(bool(shelter_damage), shelter_damage, "A shelter should experience weather damage or destruction."),
@@ -114,7 +146,7 @@ def build_soak_readiness(
 
     ready_for_full_audit = all(quality_gates.values()) and len(covered_required) == len(required)
     return {
-        "protocol_version": 1,
+        "protocol_version": 2,
         "run_id": getattr(engine, "run_id", None),
         "world_generation_id": getattr(engine, "world_generation_id", None),
         "current_world_day": world.day,
