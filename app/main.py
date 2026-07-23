@@ -13,6 +13,7 @@ from app.simulation.engine import SimulationEngine
 from app.updater.manager import UpdateManager
 from app.version import __version__
 from app.web.routes import router as api_router
+from app.web.validation_routes import router as validation_router
 from app.web.websocket import router as websocket_router
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -55,6 +56,7 @@ def create_app(
     app.state.updater = resolved_updater
     app.state.shutdown_callback = shutdown_callback
     app.include_router(api_router)
+    app.include_router(validation_router)
     app.include_router(websocket_router)
     app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
 
