@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import json
 
+from app.llm.fallback import FallbackBrain
 from app.llm.prompts import decision_messages
 from app.llm.schemas import ActionDecision
 from app.simulation.actions import ActionController
@@ -240,3 +241,75 @@ def test_realistic_legacy_and_malformed_state_normalizes_without_truth_promotion
     assert restored.short_term_episodes["good"].salience == 1.0
     assert restored.short_term_episodes["good"].status == "recent"
     assert AgentState.from_dict(restored.to_dict()).to_dict() == restored.to_dict()
+
+
+
+def test_exact_marker_branch_uses_allowlist_and_preserves_observer_cognition() -> None:
+    world = WorldState.generate(991, 48)
+    agent = AgentState(x=17.0, y=23.0)
+    forbidden_values = {
+        "CAVE_TRUTH_SENTINEL", "RECIPE_SENTINEL", "HIDDEN_ENTITY_SENTINEL", "HIDDEN_RESOURCE_SENTINEL",
+        "OBSERVER_ID_SENTINEL", "OBSERVER_CAMEL_SENTINEL", "INTERNAL_METADATA_SENTINEL", "TRUTH_SENTINEL",
+        "COORDINATES_SENTINEL", "ABSOLUTE_POSITION_SENTINEL", "PRIVATE_PATH_SENTINEL", "NOTES_SENTINEL",
+        "PROVENANCE_SENTINEL", "LINKED_METADATA_SENTINEL",
+    }
+    believed_location = {
+        "relative_direction": "northwest",
+        "distance_band": "near",
+        "uncertainty": 0.3,
+        "cave_truth": "CAVE_TRUTH_SENTINEL",
+        "recipe": "RECIPE_SENTINEL",
+        "hidden_entity": "HIDDEN_ENTITY_SENTINEL",
+        "hidden_resource": "HIDDEN_RESOURCE_SENTINEL",
+        "observer_id": "OBSERVER_ID_SENTINEL",
+        "observerId": "OBSERVER_CAMEL_SENTINEL",
+        "internal_metadata": {"truth": "INTERNAL_METADATA_SENTINEL"},
+        "truth": "TRUTH_SENTINEL",
+        "coordinates": "COORDINATES_SENTINEL",
+        "absolute_position": "ABSOLUTE_POSITION_SENTINEL",
+        "nested": [{"private_path": "PRIVATE_PATH_SENTINEL"}],
+    }
+    marker = MapMarker(
+        "marker-safe", "possible landmark", "subjective", believed_location, 0.55, "active",
+        "NOTES_SENTINEL", 0, 0,
+        linked_task_ids=["LINKED_METADATA_SENTINEL"],
+        linked_note_ids=["LINKED_METADATA_SENTINEL"],
+        provenance=Provenance("observer", "OBSERVER_ID_SENTINEL", "PROVENANCE_SENTINEL"),
+    )
+    believed_location["extension"] = {"metadata": ["LINKED_METADATA_SENTINEL"]}
+    agent.map_markers[marker.marker_id] = marker
+
+    result = _complete(ActionController(), world, agent, "view_map")
+    result_payload = result.to_dict()
+    normal_prompt = decision_messages({
+        "perception": build_perception(world, agent),
+        "active_plan": [],
+        "retrieved_memories": [],
+        "recent_outcomes": [result_payload],
+    })[-1]["content"]
+    first_agent = AgentState.from_dict(agent.to_dict())
+    first_agent.awakening.presented = False
+    first_prompt = _serialized_prompt(world, first_agent)
+    fallback = FallbackBrain().decide(build_perception(world, agent)).model_dump()
+
+    forbidden_keys = {
+        "x", "y", "world_x", "world_y", "coordinates", "absolute_position", "cave_truth", "recipe",
+        "hidden_entity", "hidden_resource", "observer_id", "observerid", "internal_metadata", "truth",
+        "nested", "extension", "private_path", "notes", "provenance", "source_id", "detail",
+    }
+    for payload in (result_payload, json.loads(normal_prompt), json.loads(first_prompt), fallback):
+        _assert_forbidden(payload, forbidden_keys, forbidden_values)
+    projected = result.data["markers"][0]
+    assert projected == {
+        "marker_id": "marker-safe",
+        "label": "possible landmark",
+        "marker_type": "subjective",
+        "status": "active",
+        "confidence": 0.55,
+        "provenance_category": "subjective",
+        "believed_location": {"direction": "northwest", "distance_band": "near", "uncertainty": 0.3},
+    }
+    observer = agent.to_dict()
+    assert observer["map_markers"]["marker-safe"]["believed_location"]["cave_truth"] == "CAVE_TRUTH_SENTINEL"
+    assert observer["map_markers"]["marker-safe"]["notes"] == "NOTES_SENTINEL"
+    assert observer["map_markers"]["marker-safe"]["provenance"]["detail"] == "PROVENANCE_SENTINEL"
