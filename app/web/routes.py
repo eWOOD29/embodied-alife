@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Literal
 
 import httpx
 from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from app.updater.manager import UpdateError
@@ -48,8 +50,7 @@ def _updater(request: Request):
     return request.app.state.updater
 
 
-@router.get("/health")
-def health(request: Request) -> dict:
+def _health_payload(request: Request) -> dict:
     engine = _engine(request)
     return {
         "status": "ok",
@@ -64,6 +65,11 @@ def health(request: Request) -> dict:
     }
 
 
+@router.get("/health")
+def health(request: Request) -> dict:
+    return _health_payload(request)
+
+
 @router.get("/api/state")
 def state(request: Request) -> dict:
     return _engine(request).observer_state()
@@ -72,6 +78,69 @@ def state(request: Request) -> dict:
 @router.get("/api/world")
 def world(request: Request) -> dict:
     return _engine(request).observer_state(include_map=True)
+
+
+@router.get("/api/diagnostics/download")
+def download_diagnostics(request: Request) -> JSONResponse:
+    engine = _engine(request)
+    updater = _updater(request)
+    exported_at = datetime.now(UTC)
+    memories = [record.to_dict() for record in engine.vault.list_records()]
+    events = engine.database.list_events(limit=10000)
+    model_responses = engine.database.list_model_responses(limit=10000)
+    snapshots = engine.snapshots.list()
+
+    bundle = {
+        "diagnostic_bundle": {
+            "schema_version": 1,
+            "exported_at_utc": exported_at.isoformat(),
+            "application": "embodied-alife",
+            "application_version": __version__,
+            "privacy": {
+                "api_keys_included": False,
+                "environment_file_included": False,
+                "note": "Public runtime configuration is included; secrets and raw .env contents are excluded.",
+            },
+            "manifest": {
+                "health": "Concise process, simulation, model, and updater health.",
+                "observer_state": "Complete observer-facing world state, including map truth.",
+                "serialized_engine_state": "Persistable simulation state used for snapshots and restart recovery.",
+                "llm_configuration": "Non-secret local LLM settings and current model/API status.",
+                "update_status": "Current updater state and release metadata.",
+                "durable_memories": "Validated long-term memory vault records.",
+                "snapshots": "Named snapshot metadata.",
+                "persisted_events": "Up to 10,000 persisted timeline events in chronological order.",
+                "model_responses": "Up to 10,000 persisted model/fallback responses with usage, latency, and errors.",
+                "counts": "Section sizes for quick completeness checks.",
+            },
+        },
+        "health": _health_payload(request),
+        "observer_state": engine.observer_state(include_map=True),
+        "serialized_engine_state": engine.serialize(),
+        "llm_configuration": engine.brain.public_configuration(),
+        "update_status": updater.public_status(),
+        "durable_memories": memories,
+        "snapshots": snapshots,
+        "persisted_events": events,
+        "model_responses": model_responses,
+        "counts": {
+            "durable_memories": len(memories),
+            "snapshots": len(snapshots),
+            "persisted_events": len(events),
+            "model_responses": len(model_responses),
+            "in_memory_events": len(engine.events),
+            "recent_memory_writes": len(engine.memory_writes),
+        },
+    }
+    timestamp = exported_at.strftime("%Y%m%dT%H%M%SZ")
+    filename = f"embodied-alife-diagnostics-v{__version__}-{timestamp}.json"
+    return JSONResponse(
+        content=bundle,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @router.get("/api/snapshots")
