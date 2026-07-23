@@ -474,8 +474,12 @@ class SimulationEngine:
         if not state:
             raise KeyError(name)
         self._restore(state)
-        self.paused = True
-        self._record("snapshot", f"Snapshot '{name}' loaded; simulation paused.", 0.5, {"name": name})
+        self.database.set_metadata("last_snapshot_load_audit", {
+            "name": name,
+            "sim_time": self.world.sim_time,
+            "run_id": self.run_id,
+            "world_generation_id": self.world_generation_id,
+        })
         self._persist_current()
         return {"ok": True, "name": name, "sim_time": self.world.sim_time}
 

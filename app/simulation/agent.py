@@ -22,6 +22,23 @@ class InventoryItem:
     quantity: int = 1
 
 
+def _load_records(value: Any, record_type: Any, id_field: str) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        return {}
+    records: dict[str, Any] = {}
+    for key, raw in value.items():
+        if not isinstance(raw, dict):
+            continue
+        try:
+            record = record_type.from_dict({id_field: str(raw.get(id_field) or key), **raw})
+        except (KeyError, TypeError, ValueError):
+            continue
+        records[str(getattr(record, id_field))] = record
+    return records
+
+
 @dataclass(slots=True)
 class AgentState:
     name: str = "Ari"
@@ -102,31 +119,14 @@ class AgentState:
     def from_dict(cls, data: dict[str, Any]) -> "AgentState":
         copied = dict(data)
         copied["explored"] = set(copied.get("explored", []))
-        raw_key_items = copied.get("key_items")
-        copied["key_items"] = (
-            {key: KeyItem.from_dict({"key_item_id": key, **value}) for key, value in raw_key_items.items()}
-            if isinstance(raw_key_items, dict) and raw_key_items
-            else starter_key_items()
-        )
-        raw_tasks = copied.get("tasks")
-        copied["tasks"] = (
-            {key: TaskRecord.from_dict({"task_id": key, **value}) for key, value in raw_tasks.items()}
-            if isinstance(raw_tasks, dict) and raw_tasks
-            else starter_tasks()
-        )
-        copied["notes"] = {
-            key: NoteRecord.from_dict({"note_id": key, **value})
-            for key, value in (copied.get("notes") or {}).items()
-        }
-        copied["map_markers"] = {
-            key: MapMarker.from_dict({"marker_id": key, **value})
-            for key, value in (copied.get("map_markers") or {}).items()
-        }
+        raw_key_items = copied.get("key_items") if "key_items" in copied else None
+        copied["key_items"] = starter_key_items() if "key_items" not in copied else _load_records(raw_key_items, KeyItem, "key_item_id")
+        raw_tasks = copied.get("tasks") if "tasks" in copied else None
+        copied["tasks"] = starter_tasks() if "tasks" not in copied else _load_records(raw_tasks, TaskRecord, "task_id")
+        copied["notes"] = _load_records(copied.get("notes"), NoteRecord, "note_id")
+        copied["map_markers"] = _load_records(copied.get("map_markers"), MapMarker, "marker_id")
         copied["beliefs"] = BeliefStore(copied.get("beliefs"))
-        copied["short_term_episodes"] = {
-            key: EpisodeRecord.from_dict({"episode_id": key, **value})
-            for key, value in (copied.get("short_term_episodes") or {}).items()
-        }
+        copied["short_term_episodes"] = _load_records(copied.get("short_term_episodes"), EpisodeRecord, "episode_id")
         copied["awakening"] = AwakeningState.from_dict(copied.get("awakening"))
         copied["cognition_schema_version"] = int(copied.get("cognition_schema_version", 1))
         return cls(**copied)
