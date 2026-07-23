@@ -109,7 +109,7 @@ def test_diagnostic_bundle_v3_contains_runtime_metrics_soak_readiness_and_no_sec
     assert bundle["model_responses"][0]["provider"]["finish_reason"] == "stop"
 
     readiness = bundle["soak_readiness"]
-    assert readiness["protocol_version"] == 1
+    assert readiness["protocol_version"] == 2
     assert readiness["run_id"] == engine.run_id
     assert readiness["ready_for_full_audit"] is False
     assert "multiple_day_night_cycles" in readiness["missing_required_scenarios"]
