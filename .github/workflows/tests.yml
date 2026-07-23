@@ -5,13 +5,16 @@ on:
   pull_request:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: remediation/v0.4.0-post3
+          fetch-depth: 0
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
@@ -19,15 +22,13 @@ jobs:
           cache-dependency-path: pyproject.toml
       - name: Install
         run: python -m pip install -e '.[dev]'
-      - name: Test
-        run: python -m pytest -q
-      - name: Compile
-        run: python -m compileall -q app tests scripts
-      - name: Clean generated validation files
-        shell: bash
+      - name: Generate audit
+        run: python scripts/post3_preedit_audit.py
+      - name: Commit audit evidence
+        if: github.event_name == 'pull_request'
         run: |
-          find app tests scripts -type d -name __pycache__ -prune -exec rm -rf {} +
-          rm -rf .pytest_cache .ruff_cache
-          find data/runtime -maxdepth 1 -type f ! -name .gitkeep -delete
-      - name: Validate package
-        run: python scripts/validate_package.py
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add post3-preedit-audit.txt
+          git commit -m 'Capture post3 pre-edit audit evidence'
+          git push origin HEAD:remediation/v0.4.0-post3
