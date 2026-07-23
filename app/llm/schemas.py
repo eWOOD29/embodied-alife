@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 ActionName = Literal[
     "move",
@@ -89,6 +89,32 @@ class ActionDecision(GrammarSafeOutput):
     plan: list[str] = Field(default_factory=list, max_length=6)
     belief_updates: dict[str, str] = Field(default_factory=dict)
     memory_write: MemoryWrite | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def repair_minor_omissions(cls, value: Any) -> Any:
+        """Repair descriptive omissions without inventing executable action data."""
+        if not isinstance(value, dict):
+            return value
+        repaired = dict(value)
+        intent = repaired.get("intent")
+        reason = repaired.get("reason")
+        action = repaired.get("action")
+        target = repaired.get("target_id")
+
+        if not isinstance(intent, str) or not intent.strip():
+            if isinstance(reason, str) and reason.strip():
+                repaired["intent"] = reason.strip()[:240]
+            elif isinstance(action, str) and action.strip():
+                suffix = f" toward {target}" if isinstance(target, str) and target.strip() else ""
+                repaired["intent"] = f"Attempt to {action.strip()}{suffix}."[:240]
+
+        if not isinstance(reason, str) or not reason.strip():
+            inferred_intent = repaired.get("intent")
+            if isinstance(inferred_intent, str) and inferred_intent.strip():
+                repaired["reason"] = inferred_intent.strip()[:500]
+
+        return repaired
 
 
 class ConsolidationResult(GrammarSafeOutput):
