@@ -12,11 +12,76 @@ BELIEF_SUMMARY_LIMIT = 6
 BELIEF_TEXT_LIMIT = 160
 KNOWN_TILE_SUMMARY_LIMIT = 64
 KNOWN_LOCATION_SUMMARY_LIMIT = 12
+KEY_ITEM_SUMMARY_LIMIT = 8
+KEY_ITEM_ID_LIMIT = 96
+TASK_TITLE_SUMMARY_LIMIT = 4
+TASK_TITLE_TEXT_LIMIT = 160
+PERSONALITY_TRAIT_LIMIT = 12
+PERSONALITY_KEY_LIMIT = 64
+PERSONALITY_VALUE_LIMIT = 120
+INVENTORY_SUMMARY_LIMIT = 24
+ACTIVE_TEXT_LIMIT = 240
 
 
 def _truncate(value: Any, limit: int = BELIEF_TEXT_LIMIT) -> str:
-    text = str(value or "").replace("\n", " ").strip()
+    if not isinstance(value, (str, int, float, bool)):
+        return ""
+    text = str(value).replace("\n", " ").strip()
     return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _safe_number(value: Any, default: float = 0.0, *, minimum: float | None = None, maximum: float | None = None) -> float:
+    if isinstance(value, bool):
+        number = default
+    else:
+        try:
+            number = float(value)
+        except (TypeError, ValueError, OverflowError):
+            number = default
+    if not math.isfinite(number):
+        number = default
+    if minimum is not None:
+        number = max(minimum, number)
+    if maximum is not None:
+        number = min(maximum, number)
+    return number
+
+
+def _bounded_pairs(value: Any, *, count_limit: int, key_limit: int, value_limit: int) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, Any] = {}
+    for raw_key in sorted(value, key=lambda item: str(item)):
+        key = _truncate(raw_key, key_limit)
+        if not key:
+            continue
+        raw_value = value[raw_key]
+        if isinstance(raw_value, (int, float, bool)):
+            projected: Any = _safe_number(raw_value) if not isinstance(raw_value, bool) else raw_value
+        else:
+            projected = _truncate(raw_value, value_limit)
+        result[key] = projected
+        if len(result) >= count_limit:
+            break
+    return result
+
+
+def _known_tile_summaries(agent: AgentState, ax: int, ay: int) -> list[dict[str, Any]]:
+    records: list[tuple[int, int, int, str]] = []
+    for raw_key, raw_terrain in agent.known_terrain.items():
+        if not isinstance(raw_key, str):
+            continue
+        try:
+            x_text, y_text = raw_key.split(",", 1)
+            world_x, world_y = int(x_text), int(y_text)
+        except (AttributeError, TypeError, ValueError):
+            continue
+        records.append((abs(world_x - ax) + abs(world_y - ay), world_x, world_y, _truncate(raw_terrain, 64)))
+    records.sort(key=lambda item: (item[0], item[2], item[1], item[3]))
+    return [
+        {"offset_east": world_x - ax, "offset_south": world_y - ay, "terrain": terrain}
+        for _, world_x, world_y, terrain in records[:KNOWN_TILE_SUMMARY_LIMIT]
+    ]
 
 
 def _belief_summary(agent: AgentState) -> dict[str, Any]:
@@ -25,14 +90,14 @@ def _belief_summary(agent: AgentState) -> dict[str, Any]:
     for key, belief in agent.beliefs.items():
         status = str(belief.get("status", "hypothesis"))
         counts[status] = counts.get(status, 0) + 1
-        timestamp = float(belief.get("last_tested_at") or belief.get("first_formed_at") or 0.0)
+        timestamp = _safe_number(belief.get("last_tested_at") or belief.get("first_formed_at") or 0.0)
         records.append((timestamp, str(key), belief))
     records.sort(key=lambda item: (-item[0], item[1]))
     selected = [
         {
-            "belief_id": key,
-            "status": str(belief.get("status", "hypothesis")),
-            "confidence": round(float(belief.get("confidence", 0.5)), 3),
+            "belief_id": _truncate(key, 96),
+            "status": _truncate(belief.get("status", "hypothesis"), 32),
+            "confidence": round(_safe_number(belief.get("confidence", 0.5), 0.5, minimum=0.0, maximum=1.0), 3),
             "claim": _truncate(belief.get("claim")),
             "basis": _truncate(belief.get("basis")),
         }
@@ -46,15 +111,15 @@ def _known_location_summaries(agent: AgentState) -> list[dict[str, Any]]:
     for label, raw in sorted(agent.known_locations.items()):
         if not isinstance(raw, dict):
             continue
-        x, y = raw.get("x"), raw.get("y")
-        if not isinstance(x, (int, float)) or not isinstance(y, (int, float)):
+        x, y = _safe_number(raw.get("x"), math.nan), _safe_number(raw.get("y"), math.nan)
+        if not math.isfinite(x) or not math.isfinite(y):
             continue
-        dx, dy = float(x) - agent.x, float(y) - agent.y
+        dx, dy = x - _safe_number(agent.x), y - _safe_number(agent.y)
         result.append({
             "label": _truncate(label, 80),
             "direction": _direction(dx, dy),
             "distance": round(math.hypot(dx, dy), 1),
-            "certainty": round(max(0.0, min(1.0, float(raw.get("certainty", 0.0)))), 3),
+            "certainty": round(_safe_number(raw.get("certainty", 0.0), 0.0, minimum=0.0, maximum=1.0), 3),
         })
     result.sort(key=lambda item: (item["distance"], item["label"]))
     return result[:KNOWN_LOCATION_SUMMARY_LIMIT]
@@ -64,10 +129,10 @@ def _safe_event_summary(event: Any) -> dict[str, Any]:
     if not isinstance(event, dict):
         return {"message": _truncate(event, 200)}
     return {
-        "sim_time": event.get("sim_time"),
+        "sim_time": _safe_number(event.get("sim_time"), 0.0),
         "kind": _truncate(event.get("kind"), 60),
         "message": _truncate(event.get("message"), 240),
-        "importance": event.get("importance"),
+        "importance": round(_safe_number(event.get("importance"), 0.0, minimum=0.0, maximum=1.0), 3),
     }
 
 
@@ -103,7 +168,8 @@ def _direction(dx: float, dy: float) -> str:
 
 
 def build_perception(world: WorldState, agent: AgentState, radius: int = 10) -> dict[str, Any]:
-    ax, ay = int(round(agent.x)), int(round(agent.y))
+    agent_x, agent_y = _safe_number(agent.x), _safe_number(agent.y)
+    ax, ay = int(round(agent_x)), int(round(agent_y))
     visible_tiles: list[dict[str, Any]] = []
     terrain_counts: dict[str, int] = {}
     for y in range(max(0, ay - radius), min(world.size, ay + radius + 1)):
@@ -112,7 +178,7 @@ def build_perception(world: WorldState, agent: AgentState, radius: int = 10) -> 
             if distance <= radius and has_line_of_sight(world, ax, ay, x, y):
                 terrain = world.tile(x, y).value
                 terrain_counts[terrain] = terrain_counts.get(terrain, 0) + 1
-                visible_tiles.append({"x": x - ax, "y": y - ay, "terrain": terrain})
+                visible_tiles.append({"offset_east": x - ax, "offset_south": y - ay, "terrain": terrain})
                 key = f"{x},{y}"
                 agent.explored.add(key)
                 agent.known_terrain[key] = terrain
@@ -178,37 +244,37 @@ def build_perception(world: WorldState, agent: AgentState, radius: int = 10) -> 
     if world.tile(ax, ay) == Terrain.BUILD_AREA:
         affordances.append("build")
 
-    hunger_deficit = round(agent.hunger, 1)
+    hunger_deficit = round(_safe_number(agent.hunger), 1)
     body = {
         "position": {"subjective_origin": "self"},
-        "facing": agent.facing,
+        "facing": _truncate(agent.facing, 32),
         "movement": "sleeping" if agent.sleeping else ("active" if agent.current_action else "stationary"),
-        "health_reserve": round(agent.health, 1),
-        "energy_reserve": round(agent.energy, 1),
+        "health_reserve": round(_safe_number(agent.health), 1),
+        "energy_reserve": round(_safe_number(agent.energy), 1),
         "hunger_deficit": hunger_deficit,
         "satiety": round(100.0 - agent.hunger, 1),
-        "hydration_reserve": round(agent.hydration, 1),
-        "sleep_pressure": round(agent.sleep_pressure, 1),
-        "temperature_c": round(agent.body_temperature_c, 2),
-        "pain": round(agent.pain, 1),
-        "inventory": dict(agent.inventory),
-        "inventory_capacity": agent.inventory_capacity,
-        "key_items": [item.display_name for item in agent.key_items.values()],
+        "hydration_reserve": round(_safe_number(agent.hydration), 1),
+        "sleep_pressure": round(_safe_number(agent.sleep_pressure), 1),
+        "temperature_c": round(_safe_number(agent.body_temperature_c), 2),
+        "pain": round(_safe_number(agent.pain), 1),
+        "inventory": _bounded_pairs(agent.inventory, count_limit=INVENTORY_SUMMARY_LIMIT, key_limit=80, value_limit=40),
+        "inventory_capacity": int(_safe_number(agent.inventory_capacity, 0.0, minimum=0.0, maximum=10000.0)),
+        "key_items": [_truncate(item.display_name, 120) for item in list(agent.key_items.values())[:KEY_ITEM_SUMMARY_LIMIT]],
         "scale_explanation": {
             "hunger_deficit": "0 is fully fed; 100 is starving",
             "satiety": "100 is fully fed; 0 is starving",
             "health_energy_hydration": "100 is best; 0 is critical",
             "sleep_pressure_and_pain": "0 is best; 100 is critical",
         },
-        "health": round(agent.health, 1),
-        "energy": round(agent.energy, 1),
+        "health": round(_safe_number(agent.health), 1),
+        "energy": round(_safe_number(agent.energy), 1),
         "hunger": hunger_deficit,
-        "hydration": round(agent.hydration, 1),
+        "hydration": round(_safe_number(agent.hydration), 1),
     }
     cognition_summary = {
-        "key_item_ids": sorted(agent.key_items),
+        "key_item_ids": [_truncate(item, KEY_ITEM_ID_LIMIT) for item in sorted(agent.key_items, key=str)[:KEY_ITEM_SUMMARY_LIMIT]],
         "task_count": len(agent.tasks),
-        "proposed_task_titles": [task.title for task in sorted(agent.tasks.values(), key=lambda item: item.priority)[:4]],
+        "proposed_task_titles": [_truncate(task.title, TASK_TITLE_TEXT_LIMIT) for task in sorted(agent.tasks.values(), key=lambda item: (_safe_number(item.priority), _truncate(item.task_id, 96)))[:TASK_TITLE_SUMMARY_LIMIT]],
         "note_count": len(agent.notes),
         "map_marker_count": len(agent.map_markers),
         "belief_count": len(agent.beliefs),
@@ -235,16 +301,10 @@ def build_perception(world: WorldState, agent: AgentState, radius: int = 10) -> 
         "known_locations": _known_location_summaries(agent),
         "previously_explored": {
             "tile_count": len(agent.known_terrain),
-            "nearby_known_tiles": [
-                {"x": int(key.split(",")[0]) - ax, "y": int(key.split(",")[1]) - ay, "terrain": terrain}
-                for key, terrain in sorted(
-                    agent.known_terrain.items(),
-                    key=lambda item: abs(int(item[0].split(",")[0]) - ax) + abs(int(item[0].split(",")[1]) - ay),
-                )[:KNOWN_TILE_SUMMARY_LIMIT]
-            ],
+            "nearby_known_tiles": _known_tile_summaries(agent, ax, ay),
         },
         "belief_summary": _belief_summary(agent),
-        "personality_traits": agent.personality_traits,
+        "personality_traits": _bounded_pairs(agent.personality_traits, count_limit=PERSONALITY_TRAIT_LIMIT, key_limit=PERSONALITY_KEY_LIMIT, value_limit=PERSONALITY_VALUE_LIMIT),
         "recent_events": [_safe_event_summary(event) for event in agent.recent_events[-10:]],
         "last_action_result": _safe_event_summary(agent.recent_events[-1]) if agent.recent_events else None,
     }

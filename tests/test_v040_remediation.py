@@ -3,7 +3,8 @@ from __future__ import annotations
 import copy
 import json
 
-from app.llm.prompts import decision_messages
+from app.llm.fallback import FallbackBrain
+from app.llm.prompts import ACTIVE_PLAN_LIMIT, MEMORY_LIMIT, decision_messages
 from app.llm.schemas import ActionDecision
 from app.simulation.actions import ActionController
 from app.simulation.agent import AgentState
@@ -240,3 +241,212 @@ def test_realistic_legacy_and_malformed_state_normalizes_without_truth_promotion
     assert restored.short_term_episodes["good"].salience == 1.0
     assert restored.short_term_episodes["good"].status == "recent"
     assert AgentState.from_dict(restored.to_dict()).to_dict() == restored.to_dict()
+
+
+
+def test_exact_marker_branch_uses_allowlist_and_preserves_observer_cognition() -> None:
+    world = WorldState.generate(991, 48)
+    agent = AgentState(x=17.0, y=23.0)
+    forbidden_values = {
+        "CAVE_TRUTH_SENTINEL", "RECIPE_SENTINEL", "HIDDEN_ENTITY_SENTINEL", "HIDDEN_RESOURCE_SENTINEL",
+        "OBSERVER_ID_SENTINEL", "OBSERVER_CAMEL_SENTINEL", "INTERNAL_METADATA_SENTINEL", "TRUTH_SENTINEL",
+        "COORDINATES_SENTINEL", "ABSOLUTE_POSITION_SENTINEL", "PRIVATE_PATH_SENTINEL", "NOTES_SENTINEL",
+        "PROVENANCE_SENTINEL", "LINKED_METADATA_SENTINEL",
+    }
+    believed_location = {
+        "relative_direction": "northwest",
+        "distance_band": "near",
+        "uncertainty": 0.3,
+        "cave_truth": "CAVE_TRUTH_SENTINEL",
+        "recipe": "RECIPE_SENTINEL",
+        "hidden_entity": "HIDDEN_ENTITY_SENTINEL",
+        "hidden_resource": "HIDDEN_RESOURCE_SENTINEL",
+        "observer_id": "OBSERVER_ID_SENTINEL",
+        "observerId": "OBSERVER_CAMEL_SENTINEL",
+        "internal_metadata": {"truth": "INTERNAL_METADATA_SENTINEL"},
+        "truth": "TRUTH_SENTINEL",
+        "coordinates": "COORDINATES_SENTINEL",
+        "absolute_position": "ABSOLUTE_POSITION_SENTINEL",
+        "nested": [{"private_path": "PRIVATE_PATH_SENTINEL"}],
+    }
+    marker = MapMarker(
+        "marker-safe", "possible landmark", "subjective", believed_location, 0.55, "active",
+        "NOTES_SENTINEL", 0, 0,
+        linked_task_ids=["LINKED_METADATA_SENTINEL"],
+        linked_note_ids=["LINKED_METADATA_SENTINEL"],
+        provenance=Provenance("observer", "OBSERVER_ID_SENTINEL", "PROVENANCE_SENTINEL"),
+    )
+    believed_location["extension"] = {"metadata": ["LINKED_METADATA_SENTINEL"]}
+    agent.map_markers[marker.marker_id] = marker
+
+    result = _complete(ActionController(), world, agent, "view_map")
+    result_payload = result.to_dict()
+    normal_prompt = decision_messages({
+        "perception": build_perception(world, agent),
+        "active_plan": [],
+        "retrieved_memories": [],
+        "recent_outcomes": [result_payload],
+    })[-1]["content"]
+    first_agent = AgentState.from_dict(agent.to_dict())
+    first_agent.awakening.presented = False
+    first_prompt = _serialized_prompt(world, first_agent)
+    fallback = FallbackBrain().decide(build_perception(world, agent)).model_dump()
+
+    forbidden_keys = {
+        "x", "y", "world_x", "world_y", "coordinates", "absolute_position", "cave_truth", "recipe",
+        "hidden_entity", "hidden_resource", "observer_id", "observerid", "internal_metadata", "truth",
+        "nested", "extension", "private_path", "notes", "provenance", "source_id", "detail",
+    }
+    for payload in (result_payload, json.loads(normal_prompt), json.loads(first_prompt), fallback):
+        _assert_forbidden(payload, forbidden_keys, forbidden_values)
+    projected = result.data["markers"][0]
+    assert projected == {
+        "marker_id": "marker-safe",
+        "label": "possible landmark",
+        "marker_type": "subjective",
+        "status": "active",
+        "confidence": 0.55,
+        "provenance_category": "subjective",
+        "believed_location": {"direction": "northwest", "distance_band": "near", "uncertainty": 0.3},
+    }
+    observer = agent.to_dict()
+    assert observer["map_markers"]["marker-safe"]["believed_location"]["cave_truth"] == "CAVE_TRUTH_SENTINEL"
+    assert observer["map_markers"]["marker-safe"]["notes"] == "NOTES_SENTINEL"
+    assert observer["map_markers"]["marker-safe"]["provenance"]["detail"] == "PROVENANCE_SENTINEL"
+
+
+
+def _large_prompt_case(world: WorldState, size: int, *, awakening: bool) -> tuple[AgentState, str, dict]:
+    agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+    agent.awakening.presented = not awakening
+    agent.key_items = {}
+    agent.tasks = {}
+    agent.personality_traits = {}
+    agent.known_locations = {}
+    agent.recent_events = []
+    memories = []
+    active_plan = []
+    for index in range(size):
+        sentinel = f"FULL_STORE_SENTINEL_{size}_{index}_"
+        key_id = sentinel + ("k" * 500)
+        agent.key_items[key_id] = KeyItem(key_id, sentinel + ("d" * 500), "description", Provenance("test"))
+        task_id = f"task-{index}"
+        agent.tasks[task_id] = TaskRecord(task_id, sentinel + ("t" * 500), "summary" + ("s" * 500), "test", "proposed", index, 0, 0, provenance=Provenance("test"))
+        agent.personality_traits[sentinel + ("p" * 300)] = sentinel + ("v" * 800)
+        agent.known_locations[sentinel + ("l" * 400)] = {"x": index, "y": index, "certainty": sentinel + "bad"}
+        agent.recent_events.append({"sim_time": sentinel, "kind": sentinel + ("e" * 300), "message": sentinel + ("m" * 900), "importance": sentinel})
+        agent.beliefs[f"belief-{index}"] = BeliefRecord(f"belief-{index}", sentinel + ("b" * 900), 0.5, sentinel + ("q" * 900), "hypothesis", index, None, provenance=Provenance("test"))
+        agent.notes[f"note-{index}"] = NoteRecord(f"note-{index}", sentinel, sentinel + ("n" * 900), [], "active", 0, 0, provenance=Provenance("test"))
+        agent.map_markers[f"marker-{index}"] = MapMarker(f"marker-{index}", sentinel, "test", {"relative_direction": "north", "metadata": sentinel}, 0.5, "active", sentinel, 0, 0, provenance=Provenance("test"))
+        agent.short_term_episodes[f"episode-{index}"] = EpisodeRecord(f"episode-{index}", index, index, sentinel + ("z" * 900), "test", 0.5, "recent", provenance=Provenance("test"))
+        memories.append({"memory_id": f"memory-{index}", "title": sentinel + ("r" * 600), "content": sentinel + ("c" * 5000), "tags": [sentinel + ("g" * 500)] * 50})
+        active_plan.append(sentinel + ("a" * 3000))
+    perception = build_perception(world, agent)
+    prompt = decision_messages({
+        "perception": perception,
+        "active_plan": active_plan,
+        "retrieved_memories": memories,
+        "recent_outcomes": [{"details": f"OUTCOME_FULL_SENTINEL_{index}_" + ("o" * 3000)} for index in range(size)],
+    })[-1]["content"]
+    return agent, prompt, json.loads(prompt)
+
+
+def test_every_normal_prompt_source_has_fixed_final_bounds_at_three_scales() -> None:
+    world = WorldState.generate(992, 48)
+    results = [_large_prompt_case(world, size, awakening=False) for size in (10, 100, 1000)]
+    lengths = [len(prompt) for _, prompt, _ in results]
+    assert max(lengths) - min(lengths) < 2500
+    for size, (agent, prompt, payload) in zip((10, 100, 1000), results):
+        perception = payload["perception"]
+        assert perception["cognitive_tools"]["task_count"] == size
+        assert perception["cognitive_tools"]["note_count"] == size
+        assert len(perception["cognitive_tools"]["key_item_ids"]) == min(size, 8)
+        assert len(perception["cognitive_tools"]["proposed_task_titles"]) == min(size, 4)
+        assert len(perception["personality_traits"]) == min(size, 12)
+        assert len(payload["active_plan"]) == min(size, ACTIVE_PLAN_LIMIT)
+        assert len(payload["retrieved_long_term_memories"]) == min(size, MEMORY_LIMIT)
+        assert len(payload["recent_action_outcomes"]) <= 4
+        assert all(len(item) <= 240 for item in payload["active_plan"])
+        assert all(len(key) <= 96 for key in perception["cognitive_tools"]["key_item_ids"])
+        assert all(len(title) <= 160 for title in perception["cognitive_tools"]["proposed_task_titles"])
+        complete = f"FULL_STORE_SENTINEL_{size}_{size - 1}_" + ("c" * 5000)
+        assert complete not in prompt
+        assert f"OUTCOME_FULL_SENTINEL_{size - 1}_" + ("o" * 3000) not in prompt
+
+
+def test_first_decision_uses_the_same_final_bounds() -> None:
+    world = WorldState.generate(993, 48)
+    _, first_prompt, first_payload = _large_prompt_case(world, 1000, awakening=True)
+    _, normal_prompt, normal_payload = _large_prompt_case(world, 1000, awakening=False)
+    assert "I wake beneath an unfamiliar sky" in first_prompt
+    assert "I wake beneath an unfamiliar sky" not in normal_prompt
+    assert len(first_payload["active_plan"]) == len(normal_payload["active_plan"]) == ACTIVE_PLAN_LIMIT
+    assert abs(len(first_prompt) - len(normal_prompt)) < 4000
+
+
+
+def test_malformed_numeric_values_remain_controlled_after_loading_and_direct_mutation() -> None:
+    world = WorldState.generate(994, 48)
+    agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+    agent.beliefs["bad"] = BeliefRecord("bad", "claim", 0.5, "basis", "hypothesis", 0, None, provenance=Provenance("test"))
+    bad_belief = agent.beliefs["bad"]
+    bad_belief.first_formed_at = {"bad": 1}
+    bad_belief.last_tested_at = ["bad"]
+    bad_belief.confidence = float("nan")
+    agent.known_locations["bad"] = {"x": [], "y": {}, "certainty": float("inf")}
+    agent.map_markers["bad"] = MapMarker("bad", "bad", "test", {"x": float("inf"), "y": float("nan"), "direction": "unknown"}, 0.5, "active", "", 0, 0, provenance=Provenance("test"))
+    agent.map_markers["bad"].confidence = {"bad": 1}
+    agent.short_term_episodes["bad"] = EpisodeRecord("bad", None, 0, "summary", "test", 0.5, "recent", provenance=Provenance("test"))
+    agent.short_term_episodes["bad"].salience = ["bad"]
+    agent.known_terrain["not,a,coordinate"] = "bad"
+
+    perception = build_perception(world, agent)
+    messages = decision_messages({"perception": perception, "active_plan": [None, {"bad": 1}], "retrieved_memories": [{"importance": float("nan"), "content": "ok"}], "recent_outcomes": [{"importance": float("inf")}]})
+    fallback = FallbackBrain().decide(perception)
+    result = _complete(ActionController(), world, agent, "view_map")
+    serialized = agent.to_dict()
+    assert messages[-1]["content"]
+    assert fallback.action
+    assert result.success
+    assert serialized["map_markers"]["bad"]["confidence"] == {"bad": 1}
+
+    legacy = agent.to_dict()
+    legacy["beliefs"]["bad"].update({"first_formed_at": None, "last_tested_at": "not-a-number", "confidence": float("inf")})
+    legacy["map_markers"]["bad"].update({"confidence": float("nan"), "created_at": [], "updated_at": {}})
+    legacy["short_term_episodes"]["bad"].update({"simulation_timestamp": {}, "salience": float("-inf")})
+    restored = AgentState.from_dict(legacy)
+    assert build_perception(world, restored)
+    assert AgentState.from_dict(restored.to_dict()).to_dict() == restored.to_dict()
+
+
+def test_all_linked_id_lists_use_one_stable_bounded_normalizer() -> None:
+    cases = [
+        "single-id",
+        ("tuple-a", "tuple-b"),
+        {"set-b", "set-a"},
+        ["valid", 7, None, True, ["nested"], {"bad": 1}, "x" * 500],
+        None,
+        [],
+    ]
+    for value in cases:
+        raw = {
+            "task_id": "task", "title": "task", "linked_marker_ids": value, "linked_note_ids": value,
+            "note_id": "note", "content": "note",
+        }
+        task = TaskRecord.from_dict(raw)
+        note = NoteRecord.from_dict({"note_id": "note", "linked_task_ids": value, "linked_marker_ids": value})
+        marker = MapMarker.from_dict({"marker_id": "marker", "linked_task_ids": value, "linked_note_ids": value})
+        belief = BeliefRecord.from_dict({"belief_id": "belief", "supporting_evidence_ids": value, "contradicting_evidence_ids": value})
+        episode = EpisodeRecord.from_dict({"episode_id": "episode", "linked_task_ids": value, "linked_note_ids": value, "linked_belief_ids": value, "linked_marker_ids": value, "linked_memory_ids": value})
+        records = [task, note, marker, belief, episode]
+        for record in records:
+            for field, field_value in record.to_dict().items():
+                if field.startswith("linked_") or field.endswith("_evidence_ids") or field == "tags":
+                    assert isinstance(field_value, list)
+                    assert len(field_value) <= 32
+                    assert all(isinstance(item, str) and len(item) <= 160 for item in field_value)
+        marker_roundtrip = MapMarker.from_dict(marker.to_dict())
+        assert marker_roundtrip.to_dict() == marker.to_dict()
+        assert MapMarker.from_dict(marker_roundtrip.to_dict()).to_dict() == marker.to_dict()
+    assert MapMarker.from_dict({"marker_id": "m", "linked_task_ids": "single-id"}).linked_task_ids == ["single-id"]
+    assert MapMarker.from_dict({"marker_id": "m", "linked_task_ids": ["abc"] * 100}).linked_task_ids == ["abc"]

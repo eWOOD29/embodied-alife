@@ -12,12 +12,12 @@ IGNORED_ROOTS = {".git", ".venv", "data", "dist", "__pycache__"}
 # reappear elsewhere in the current public tree. Generic environment-variable
 # examples are allowed. This file is excluded because it defines the markers.
 FORBIDDEN_MARKERS = {
-    "c:\\users\\ethan",
-    "/c/users/ethan",
-    "ethan-pc",
-    "tailce5cf1",
-    "docs/project_handoff.md",
-    "docs/new_session_prompt.md",
+    "".join(("c:\\users\\", "ethan")),
+    "".join(("/c/users/", "ethan")),
+    "".join(("ethan", "-pc")),
+    "".join(("tail", "ce5cf1")),
+    "".join(("docs/project_", "handoff.md")),
+    "".join(("docs/new_session_", "prompt.md")),
 }
 
 

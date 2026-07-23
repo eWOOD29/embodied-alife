@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import uuid
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
@@ -8,12 +9,42 @@ from typing import Any
 COGNITION_SCHEMA_VERSION = 1
 
 
-def _bounded(value: Any, default: float = 0.5) -> float:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
+TEXT_ID_LIMIT = 160
+LINKED_ID_LIMIT = 32
+
+
+def _number(value: Any, default: float = 0.0, *, minimum: float | None = None, maximum: float | None = None) -> float:
+    if isinstance(value, bool):
         number = default
-    return max(0.0, min(1.0, number))
+    else:
+        try:
+            number = float(value)
+        except (TypeError, ValueError, OverflowError):
+            number = default
+    if not math.isfinite(number):
+        number = default
+    if minimum is not None:
+        number = max(minimum, number)
+    if maximum is not None:
+        number = min(maximum, number)
+    return number
+
+
+def _integer(value: Any, default: int = 0) -> int:
+    return int(_number(value, float(default), minimum=-1_000_000_000, maximum=1_000_000_000))
+
+
+def _bounded(value: Any, default: float = 0.5) -> float:
+    return _number(value, default, minimum=0.0, maximum=1.0)
+
+
+def _text(value: Any, default: str = "", limit: int = TEXT_ID_LIMIT) -> str:
+    if not isinstance(value, (str, int, float, bool)):
+        return default
+    text = str(value).strip()
+    if not text:
+        return default
+    return text if len(text) <= limit else text[:limit]
 
 
 def _status(value: Any, enum_type: type[StrEnum], default: StrEnum) -> str:
@@ -27,7 +58,26 @@ def _dict(value: Any) -> dict[str, Any]:
 
 
 def _list(value: Any) -> list[Any]:
-    return list(value) if isinstance(value, (list, tuple, set)) else []
+    if isinstance(value, set):
+        return sorted(value, key=lambda item: str(item))
+    return list(value) if isinstance(value, (list, tuple)) else []
+
+
+def _string_list(value: Any, *, allow_scalar: bool = True, count_limit: int = LINKED_ID_LIMIT, text_limit: int = TEXT_ID_LIMIT) -> list[str]:
+    if allow_scalar and isinstance(value, (str, int)) and not isinstance(value, bool):
+        source = [value]
+    else:
+        source = _list(value)
+    result: list[str] = []
+    for raw in source:
+        if isinstance(raw, (list, tuple, set, dict)) or raw is None or isinstance(raw, bool):
+            continue
+        item = _text(raw, limit=text_limit)
+        if item and item not in result:
+            result.append(item)
+        if len(result) >= count_limit:
+            break
+    return result
 AWAKENING_NARRATIVE = (
     "I wake beneath an unfamiliar sky with no memory of how I arrived. My body feels real, vulnerable, and entirely my responsibility. "
     "I do not know this land, what lives here, or whether anyone else is nearby.\n\n"
@@ -83,9 +133,9 @@ class Provenance:
     def from_dict(cls, value: dict[str, Any] | None, *, default_source: str = "system_initialization") -> "Provenance":
         value = value or {}
         return cls(
-            source_type=str(value.get("source_type") or default_source),
-            source_id=value.get("source_id"),
-            detail=value.get("detail"),
+            source_type=_text(value.get("source_type"), default_source, 64),
+            source_id=_text(value.get("source_id"), limit=160) or None,
+            detail=_text(value.get("detail"), limit=240) or None,
         )
 
 
@@ -102,9 +152,9 @@ class KeyItem:
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "KeyItem":
         return cls(
-            key_item_id=str(value["key_item_id"]),
-            display_name=str(value["display_name"]),
-            description=str(value.get("description", "")),
+            key_item_id=_text(value.get("key_item_id"), limit=160),
+            display_name=_text(value.get("display_name"), "Unnamed key item", 160),
+            description=_text(value.get("description"), limit=1000),
             provenance=Provenance.from_dict(value.get("provenance")),
         )
 
@@ -131,18 +181,18 @@ class TaskRecord:
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "TaskRecord":
         return cls(
-            task_id=str(value["task_id"]),
-            title=str(value["title"]),
-            description=str(value.get("description", "")),
-            created_by=str(value.get("created_by", "system_initialization")),
+            task_id=_text(value.get("task_id"), limit=160),
+            title=_text(value.get("title"), "Untitled task", 240),
+            description=_text(value.get("description"), limit=1000),
+            created_by=_text(value.get("created_by"), "system_initialization", 80),
             status=_status(value.get("status"), TaskStatus, TaskStatus.PROPOSED),
-            priority=int(value.get("priority", 0)),
-            created_at=float(value.get("created_at", 0.0)),
-            updated_at=float(value.get("updated_at", value.get("created_at", 0.0))),
+            priority=_integer(value.get("priority", 0)),
+            created_at=_number(value.get("created_at", 0.0)),
+            updated_at=_number(value.get("updated_at", value.get("created_at", 0.0))),
             parent_task_id=value.get("parent_task_id"),
             metadata=_dict(value.get("metadata")),
-            linked_marker_ids=[str(item) for item in _list(value.get("linked_marker_ids"))],
-            linked_note_ids=[str(item) for item in _list(value.get("linked_note_ids"))],
+            linked_marker_ids=_string_list(value.get("linked_marker_ids")),
+            linked_note_ids=_string_list(value.get("linked_note_ids")),
             provenance=Provenance.from_dict(value.get("provenance")),
         )
 
@@ -166,15 +216,15 @@ class NoteRecord:
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "NoteRecord":
         return cls(
-            note_id=str(value["note_id"]),
-            title=str(value.get("title", "Untitled note")),
-            content=str(value.get("content", "")),
-            tags=[str(item) for item in _list(value.get("tags"))],
+            note_id=_text(value.get("note_id"), limit=160),
+            title=_text(value.get("title"), "Untitled note", 240),
+            content=_text(value.get("content"), limit=4000),
+            tags=_string_list(value.get("tags"), count_limit=32, text_limit=80),
             status=_status(value.get("status"), NoteStatus, NoteStatus.ACTIVE),
-            created_at=float(value.get("created_at", 0.0)),
-            updated_at=float(value.get("updated_at", value.get("created_at", 0.0))),
-            linked_task_ids=[str(item) for item in _list(value.get("linked_task_ids"))],
-            linked_marker_ids=list(value.get("linked_marker_ids") or []),
+            created_at=_number(value.get("created_at", 0.0)),
+            updated_at=_number(value.get("updated_at", value.get("created_at", 0.0))),
+            linked_task_ids=_string_list(value.get("linked_task_ids")),
+            linked_marker_ids=_string_list(value.get("linked_marker_ids")),
             provenance=Provenance.from_dict(value.get("provenance")),
         )
 
@@ -200,17 +250,17 @@ class MapMarker:
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "MapMarker":
         return cls(
-            marker_id=str(value["marker_id"]),
-            label=str(value.get("label", "Unknown marker")),
-            marker_type=str(value.get("marker_type", "unknown")),
+            marker_id=_text(value.get("marker_id"), limit=160),
+            label=_text(value.get("label"), "Unknown marker", 240),
+            marker_type=_text(value.get("marker_type"), "unknown", 80),
             believed_location=_dict(value.get("believed_location")) or None,
             confidence=_bounded(value.get("confidence"), 0.0),
             status=_status(value.get("status"), MarkerStatus, MarkerStatus.ACTIVE),
-            notes=str(value.get("notes", "")),
-            created_at=float(value.get("created_at", 0.0)),
-            updated_at=float(value.get("updated_at", value.get("created_at", 0.0))),
-            linked_task_ids=list(value.get("linked_task_ids") or []),
-            linked_note_ids=list(value.get("linked_note_ids") or []),
+            notes=_text(value.get("notes"), limit=2000),
+            created_at=_number(value.get("created_at", 0.0)),
+            updated_at=_number(value.get("updated_at", value.get("created_at", 0.0))),
+            linked_task_ids=_string_list(value.get("linked_task_ids")),
+            linked_note_ids=_string_list(value.get("linked_note_ids")),
             provenance=Provenance.from_dict(value.get("provenance"), default_source="perception"),
         )
 
@@ -235,16 +285,16 @@ class BeliefRecord:
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "BeliefRecord":
         return cls(
-            belief_id=str(value["belief_id"]),
-            claim=str(value.get("claim", "")),
+            belief_id=_text(value.get("belief_id"), limit=160),
+            claim=_text(value.get("claim"), limit=2000),
             confidence=_bounded(value.get("confidence"), 0.5),
-            basis=str(value.get("basis", "")),
+            basis=_text(value.get("basis"), limit=2000),
             status=_status(value.get("status"), BeliefStatus, BeliefStatus.HYPOTHESIS),
-            first_formed_at=float(value.get("first_formed_at", 0.0)),
-            last_tested_at=float(value["last_tested_at"]) if value.get("last_tested_at") is not None else None,
-            supporting_evidence_ids=[str(item) for item in _list(value.get("supporting_evidence_ids"))],
-            contradicting_evidence_ids=[str(item) for item in _list(value.get("contradicting_evidence_ids"))],
-            source_type=str(value.get("source_type", "inference")),
+            first_formed_at=_number(value.get("first_formed_at", 0.0)),
+            last_tested_at=_number(value.get("last_tested_at")) if value.get("last_tested_at") is not None else None,
+            supporting_evidence_ids=_string_list(value.get("supporting_evidence_ids")),
+            contradicting_evidence_ids=_string_list(value.get("contradicting_evidence_ids")),
+            source_type=_text(value.get("source_type"), "inference", 64),
             provenance=Provenance.from_dict(value.get("provenance"), default_source=str(value.get("source_type", "inference"))),
         )
 
@@ -271,18 +321,18 @@ class EpisodeRecord:
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "EpisodeRecord":
         return cls(
-            episode_id=str(value["episode_id"]),
+            episode_id=_text(value.get("episode_id"), limit=160),
             source_event_id=value.get("source_event_id"),
-            simulation_timestamp=float(value.get("simulation_timestamp", 0.0)),
-            summary=str(value.get("summary", "")),
-            category=str(value.get("category", "general")),
+            simulation_timestamp=_number(value.get("simulation_timestamp", 0.0)),
+            summary=_text(value.get("summary"), limit=2000),
+            category=_text(value.get("category"), "general", 80),
             salience=_bounded(value.get("salience"), 0.5),
             status=_status(value.get("status"), EpisodeStatus, EpisodeStatus.RECENT),
-            linked_task_ids=list(value.get("linked_task_ids") or []),
-            linked_note_ids=list(value.get("linked_note_ids") or []),
-            linked_belief_ids=[str(item) for item in _list(value.get("linked_belief_ids"))],
-            linked_marker_ids=list(value.get("linked_marker_ids") or []),
-            linked_memory_ids=[str(item) for item in _list(value.get("linked_memory_ids"))],
+            linked_task_ids=_string_list(value.get("linked_task_ids")),
+            linked_note_ids=_string_list(value.get("linked_note_ids")),
+            linked_belief_ids=_string_list(value.get("linked_belief_ids")),
+            linked_marker_ids=_string_list(value.get("linked_marker_ids")),
+            linked_memory_ids=_string_list(value.get("linked_memory_ids")),
             provenance=Provenance.from_dict(value.get("provenance"), default_source="event"),
         )
 
@@ -300,9 +350,9 @@ class AwakeningState:
     def from_dict(cls, value: dict[str, Any] | None) -> "AwakeningState":
         value = value or {}
         return cls(
-            narrative=str(value.get("narrative") or AWAKENING_NARRATIVE),
+            narrative=_text(value.get("narrative"), AWAKENING_NARRATIVE, 4000),
             presented=bool(value.get("presented", False)),
-            presented_at=float(value["presented_at"]) if value.get("presented_at") is not None else None,
+            presented_at=_number(value.get("presented_at")) if value.get("presented_at") is not None else None,
         )
 
 

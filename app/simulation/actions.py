@@ -38,13 +38,114 @@ def _relative_direction(dx: float, dy: float) -> str:
     return labels[int((angle + 22.5) // 45) % 8]
 
 
-def _strip_coordinate_fields(value: Any) -> Any:
-    forbidden = {"x", "y", "world_x", "world_y", "coordinates", "absolute_coordinates", "observer_id"}
-    if isinstance(value, dict):
-        return {key: _strip_coordinate_fields(item) for key, item in value.items() if str(key).lower() not in forbidden}
-    if isinstance(value, list):
-        return [_strip_coordinate_fields(item) for item in value]
-    return value
+ARI_MARKER_TEXT_LIMIT = 160
+ARI_MARKER_LINK_LIMIT = 8
+ARI_LOCATION_TEXT_KEYS = {
+    "direction": "direction",
+    "relative_direction": "direction",
+    "distance_band": "distance_band",
+    "relative_distance": "distance_band",
+    "description": "description",
+}
+ARI_PROVENANCE_CATEGORIES = {
+    "agent": "agent",
+    "ari": "agent",
+    "inference": "inference",
+    "perception": "perception",
+    "observation": "perception",
+    "memory": "memory",
+    "task": "task",
+    "note": "note",
+    "system_initialization": "system",
+}
+
+
+def _bounded_text(value: Any, limit: int = ARI_MARKER_TEXT_LIMIT) -> str:
+    if not isinstance(value, (str, int, float, bool)):
+        return ""
+    text = str(value).replace("\n", " ").strip()
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _finite_number(value: Any, default: float | None = None) -> float | None:
+    if isinstance(value, bool):
+        return default
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    return number if math.isfinite(number) else default
+
+
+def _safe_link_ids(values: Any, known_ids: set[str]) -> list[str]:
+    if not isinstance(values, (list, tuple, set)):
+        return []
+    selected: list[str] = []
+    iterable = sorted(values, key=lambda item: str(item)) if isinstance(values, set) else values
+    for raw in iterable:
+        if not isinstance(raw, (str, int)):
+            continue
+        item = _bounded_text(raw, 96)
+        if item and item in known_ids and item not in selected:
+            selected.append(item)
+        if len(selected) >= ARI_MARKER_LINK_LIMIT:
+            break
+    return selected
+
+
+def _ari_location_projection(location: Any, agent: AgentState) -> dict[str, Any] | None:
+    if not isinstance(location, dict):
+        return None
+    world_x = _finite_number(location.get("x"))
+    world_y = _finite_number(location.get("y"))
+    if world_x is not None and world_y is not None:
+        dx, dy = world_x - _finite_number(agent.x, 0.0), world_y - _finite_number(agent.y, 0.0)
+        assert dx is not None and dy is not None
+        return {
+            "direction": _relative_direction(dx, dy),
+            "distance": round(math.hypot(dx, dy), 1),
+            "offset_east": round(dx, 1),
+            "offset_south": round(dy, 1),
+        }
+    projected: dict[str, Any] = {}
+    for source_key, output_key in ARI_LOCATION_TEXT_KEYS.items():
+        if source_key not in location or output_key in projected:
+            continue
+        text = _bounded_text(location.get(source_key), 120)
+        if text:
+            projected[output_key] = text
+    distance = _finite_number(location.get("distance"))
+    if distance is not None:
+        projected["distance"] = round(max(0.0, min(distance, 10000.0)), 1)
+    uncertainty = _finite_number(location.get("uncertainty"))
+    if uncertainty is not None:
+        projected["uncertainty"] = round(max(0.0, min(1.0, uncertainty)), 3)
+    confidence = _finite_number(location.get("confidence"))
+    if confidence is not None:
+        projected["confidence"] = round(max(0.0, min(1.0, confidence)), 3)
+    return projected or None
+
+
+def _ari_marker_projection(marker: Any, agent: AgentState) -> dict[str, Any]:
+    source_type = _bounded_text(getattr(getattr(marker, "provenance", None), "source_type", ""), 48).lower()
+    item: dict[str, Any] = {
+        "marker_id": _bounded_text(getattr(marker, "marker_id", ""), 96),
+        "label": _bounded_text(getattr(marker, "label", "Unknown marker"), 120),
+        "marker_type": _bounded_text(getattr(marker, "marker_type", "unknown"), 64),
+        "status": _bounded_text(getattr(marker, "status", "active"), 24),
+        "confidence": round(max(0.0, min(1.0, _finite_number(getattr(marker, "confidence", 0.0), 0.0) or 0.0)), 3),
+        "provenance_category": ARI_PROVENANCE_CATEGORIES.get(source_type, "subjective"),
+    }
+    location = _ari_location_projection(getattr(marker, "believed_location", None), agent)
+    if location:
+        item["believed_location"] = location
+    task_links = _safe_link_ids(getattr(marker, "linked_task_ids", []), set(agent.tasks))
+    note_links = _safe_link_ids(getattr(marker, "linked_note_ids", []), set(agent.notes))
+    if task_links:
+        item["linked_task_ids"] = task_links
+    if note_links:
+        item["linked_note_ids"] = note_links
+    return item
 
 
 class ActionController:
@@ -232,21 +333,10 @@ class ActionController:
             cells.sort(key=lambda item: (item["distance"], item["offset_south"], item["offset_east"]))
             markers: list[dict[str, Any]] = []
             for marker in agent.map_markers.values():
-                if marker.status == "archived":
+                if str(getattr(marker, "status", "active")) == "archived":
                     continue
-                item = marker.to_dict()
-                location = item.pop("believed_location", None)
-                if isinstance(location, dict) and isinstance(location.get("x"), (int, float)) and isinstance(location.get("y"), (int, float)):
-                    dx, dy = float(location["x"]) - agent.x, float(location["y"]) - agent.y
-                    item["believed_location"] = {
-                        "direction": _relative_direction(dx, dy),
-                        "distance": round(math.hypot(dx, dy), 1),
-                        "offset_east": round(dx, 1),
-                        "offset_south": round(dy, 1),
-                    }
-                elif location is not None:
-                    item["believed_location"] = _strip_coordinate_fields(location)
-                markers.append(_strip_coordinate_fields(item))
+                markers.append(_ari_marker_projection(marker, agent))
+            markers.sort(key=lambda item: (item.get("status", ""), item.get("label", ""), item.get("marker_id", "")))
             return ActionResult(True, action, "viewed", "Ari reviewed the field map.", {
                 "map_state": "blank" if not markers and not cells else "partially_known",
                 "subjective_origin": "Ari's current position",

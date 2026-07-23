@@ -118,7 +118,8 @@ class AgentState:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "AgentState":
         copied = dict(data)
-        copied["explored"] = set(copied.get("explored", []))
+        explored = copied.get("explored", [])
+        copied["explored"] = {str(item)[:160] for item in explored} if isinstance(explored, (list, tuple, set)) else set()
         raw_key_items = copied.get("key_items") if "key_items" in copied else None
         copied["key_items"] = starter_key_items() if "key_items" not in copied else _load_records(raw_key_items, KeyItem, "key_item_id")
         raw_tasks = copied.get("tasks") if "tasks" in copied else None
@@ -128,5 +129,8 @@ class AgentState:
         copied["beliefs"] = BeliefStore(copied.get("beliefs"))
         copied["short_term_episodes"] = _load_records(copied.get("short_term_episodes"), EpisodeRecord, "episode_id")
         copied["awakening"] = AwakeningState.from_dict(copied.get("awakening"))
-        copied["cognition_schema_version"] = int(copied.get("cognition_schema_version", 1))
+        try:
+            copied["cognition_schema_version"] = int(copied.get("cognition_schema_version", 1))
+        except (TypeError, ValueError, OverflowError):
+            copied["cognition_schema_version"] = 1
         return cls(**copied)
