@@ -1,0 +1,91 @@
+............F.........F................................................. [ 93%]
+.....                                                                    [100%]
+=================================== FAILURES ===================================
+_______ test_affordance_map_distinguishes_reachable_and_approach_targets _______
+
+engine = <app.simulation.engine.SimulationEngine object at 0x7fbf86cd8610>
+
+    def test_affordance_map_distinguishes_reachable_and_approach_targets(engine) -> None:
+        perception = {
+            "available_actions": ["move", "move_to", "inspect", "pick_up", "eat"],
+            "visible_objects": [
+                {
+                    "id": "near_food",
+                    "kind": "edible_plant",
+                    "distance": 1.2,
+                    "direction": "north",
+                    "portable": True,
+                    "appears_edible": True,
+                },
+                {
+                    "id": "far_branch",
+                    "kind": "branch",
+                    "distance": 4.0,
+                    "direction": "east",
+                    "portable": True,
+                    "appears_edible": False,
+                },
+            ],
+            "visible_entities": [],
+        }
+        summary = build_action_affordances(engine.world, engine.agent, perception)
+>       assert set(summary["target_constraints"]["near_food"]["executable_now"]) == {"inspect", "pick_up", "eat"}
+E       AssertionError: assert {'inspect', 'pick_up'} == {'eat', 'inspect', 'pick_up'}
+E         
+E         Extra items in the right set:
+E         'eat'
+E         
+E         Full diff:
+E           {
+E         -     'eat',
+E               'inspect',
+E               'pick_up',
+E           }
+
+tests/test_cognition_guidance.py:34: AssertionError
+_________ test_successful_action_creates_only_verified_outcome_memory __________
+
+settings = Settings(host='0.0.0.0', port=8797, data_dir=PosixPath('/tmp/pytest-of-runner/pytest-0/test_successful_action_creates0...te_max_extract_bytes=262144000, update_max_release_notes_chars=12000, update_auto_restart=True, update_github_token='')
+
+    async def test_successful_action_creates_only_verified_outcome_memory(settings) -> None:
+        database = Database(settings.database_path)
+        vault = MemoryVault(settings.memory_dir)
+        engine = SimulationEngine(
+            settings,
+            database=database,
+            vault=vault,
+            brain=StubBrain(_decision("eat")),
+            load_existing=False,
+        )
+        engine.agent.inventory["edible_plant"] = 1
+        try:
+            await engine.make_decision()
+            assert vault.list_records() == []
+            await engine.advance(0.3, allow_decision=False)
+            records = vault.list_records()
+>           assert len(records) == 1
+E           assert 0 == 1
+E            +  where 0 = len([])
+
+tests/test_integrity.py:80: AssertionError
+=============================== warnings summary ===============================
+../../../../../opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/fastapi/testclient.py:1
+  /opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_cognition_guidance.py::test_affordance_map_distinguishes_reachable_and_approach_targets - AssertionError: assert {'inspect', 'pick_up'} == {'eat', 'inspect', 'pick_up'}
+  
+  Extra items in the right set:
+  'eat'
+  
+  Full diff:
+    {
+  -     'eat',
+        'inspect',
+        'pick_up',
+    }
+FAILED tests/test_integrity.py::test_successful_action_creates_only_verified_outcome_memory - assert 0 == 1
+ +  where 0 = len([])
+2 failed, 75 passed, 1 warning in 1.72s
