@@ -17,21 +17,24 @@ def build_action_affordances(
     targets: dict[str, dict[str, Any]] = {}
     for obj in perception.get("visible_objects", []):
         distance = float(obj.get("distance", 999.0))
+        # Real perceptions always include quantity. Treat omitted quantity in older
+        # fixtures/compatible adapters as present rather than silently depleted.
+        quantity = int(obj.get("quantity", 1))
         executable: list[str] = []
         if distance <= INTERACTION_RADIUS:
             executable.append("inspect")
         if distance <= INTERACTION_RADIUS and (obj.get("portable") or obj.get("kind") == "berry_bush"):
             executable.append("pick_up")
-        if distance <= INTERACTION_RADIUS and obj.get("appears_edible") and int(obj.get("quantity", 0)) > 0:
+        if distance <= INTERACTION_RADIUS and obj.get("appears_edible") and quantity > 0:
             executable.append("eat")
         targets[obj["id"]] = {
             "kind": obj.get("kind"),
             "distance": distance,
             "direction": obj.get("direction"),
-            "quantity": int(obj.get("quantity", 0)),
+            "quantity": quantity,
             "portable": bool(obj.get("portable")),
             "appears_edible": bool(obj.get("appears_edible")),
-            "depleted": int(obj.get("quantity", 0)) <= 0,
+            "depleted": quantity <= 0,
             "executable_now": executable,
             "requires_move_to_for": [
                 action
@@ -40,7 +43,7 @@ def build_action_affordances(
                 and (
                     action == "inspect"
                     or (action == "pick_up" and (obj.get("portable") or obj.get("kind") == "berry_bush"))
-                    or (action == "eat" and obj.get("appears_edible") and int(obj.get("quantity", 0)) > 0)
+                    or (action == "eat" and obj.get("appears_edible") and quantity > 0)
                 )
             ],
             "approach_action": "move_to" if distance > INTERACTION_RADIUS else None,
