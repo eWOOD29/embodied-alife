@@ -1,8 +1,8 @@
-..........F.........F.F...........................F...............       [100%]
+..........F.......................................................       [100%]
 =================================== FAILURES ===================================
 ___________ test_diagnostic_bundle_is_complete_and_excludes_secrets ____________
 
-engine = <app.simulation.engine.SimulationEngine object at 0x7f92817051d0>
+engine = <app.simulation.engine.SimulationEngine object at 0x7fefe2ba9b90>
 
     def test_diagnostic_bundle_is_complete_and_excludes_secrets(engine) -> None:
         engine.settings.llm_api_key = "diagnostic-secret-must-not-leak"
@@ -18,128 +18,22 @@ engine = <app.simulation.engine.SimulationEngine object at 0x7f92817051d0>
         assert f"v{__version__}" in disposition
     
         bundle = response.json()
->       assert bundle["diagnostic_bundle"]["schema_version"] == 1
-E       assert 3 == 1
+        assert bundle["diagnostic_bundle"]["schema_version"] == 3
+        assert bundle["diagnostic_bundle"]["application_version"] == __version__
+        assert bundle["diagnostic_bundle"]["privacy"]["api_keys_included"] is False
+        assert bundle["health"]["version"] == __version__
+        assert len(bundle["observer_state"]["world"]["tiles"]) == engine.world.size
+        assert bundle["serialized_engine_state"]["world"]["seed"] == engine.world.seed
+        assert "status" in bundle["llm_configuration"]
+        assert "update_status" in bundle
+        assert "durable_memories" in bundle
+        assert "snapshots" in bundle
+        assert bundle["persisted_events"]
+        assert "model_responses" in bundle
+>       assert "soak_test_readiness" in bundle
+E       AssertionError: assert 'soak_test_readiness' in {'anomaly_checks': {'duplicate_adjacent_restore_event_pairs': 0, 'live_simulation_engine_instances': 1, 'multiple_live...ation': 'Non-secret local LLM settings, cached model catalog, provider metadata, and current status.', ...}, ...}, ...}
 
-tests/test_api.py:48: AssertionError
-_ test_diagnostic_bundle_v3_contains_runtime_metrics_soak_readiness_and_no_secrets _
-
-engine = <app.simulation.engine.SimulationEngine object at 0x7f9280502e50>
-
-    def test_diagnostic_bundle_v3_contains_runtime_metrics_soak_readiness_and_no_secrets(engine) -> None:
-        engine.database.add_model_response(
-            engine.world.sim_time,
-            ObservedBrainResult(
-                _decision(),
-                "llm",
-                "ok",
-                latency_ms=10.0,
-                prompt_tokens=50,
-                completion_tokens=10,
-                finish_reason="stop",
-                provider_response_id="chatcmpl-test",
-                request_attempts=1,
-            ),
-        )
-        engine._record(
-            "decision",
-            "Ari chose wait: test",
-            0.5,
-            {"decision": _decision().model_dump(), "provider": {"finish_reason": "stop"}},
-        )
-        engine._record(
-            "action_result",
-            "wait: completed",
-            0.5,
-            {"success": True, "action": "wait", "reason": "completed", "details": "Action wait completed."},
-        )
-    
-        bundle = build_diagnostic_bundle(
-            engine=engine,
-            updater=DummyUpdater(),
-            health={"status": "ok", "version": __version__},
-            application_version=__version__,
-        )
-    
-        header = bundle["diagnostic_bundle"]
-        assert header["schema_version"] == 3
-        assert header["run_id"] == engine.run_id
-        assert header["world_generation_id"] == engine.world_generation_id
-        assert header["privacy"]["api_keys_included"] is False
-        assert header["privacy"]["raw_prompts_included"] is False
-    
-        runtime = bundle["build_and_runtime"]
-        assert runtime["python_version"]
-        assert runtime["process_id"] > 0
-        assert runtime["database_path"] == str(engine.database.path)
-        assert "fastapi" in runtime["dependency_versions"]
-    
-        metrics = bundle["metrics"]
-        assert metrics["model"]["total"] == 1
-        assert metrics["model"]["finish_reason_counts"]["stop"] == 1
-        assert metrics["events"]["decisions"] == 1
-        assert metrics["events"]["final_action_success_rate"] == 1.0
->       assert bundle["anomaly_checks"]["multiple_live_engines_detected"] is False
-E       assert True is False
-
-tests/test_diagnostics_v2.py:108: AssertionError
-_________ test_successful_action_creates_only_verified_outcome_memory __________
-
-settings = Settings(host='0.0.0.0', port=8797, data_dir=PosixPath('/tmp/pytest-of-runner/pytest-0/test_successful_action_creates0...te_max_extract_bytes=262144000, update_max_release_notes_chars=12000, update_auto_restart=True, update_github_token='')
-
-    async def test_successful_action_creates_only_verified_outcome_memory(settings) -> None:
-        database = Database(settings.database_path)
-        vault = MemoryVault(settings.memory_dir)
-        engine = SimulationEngine(
-            settings,
-            database=database,
-            vault=vault,
-            brain=StubBrain(_decision("wait")),
-            load_existing=False,
-        )
-        try:
-            await engine.make_decision()
-            assert vault.list_records() == []
-            await engine.advance(0.3, allow_decision=False)
-            records = vault.list_records()
->           assert len(records) == 1
-E           assert 0 == 1
-E            +  where 0 = len([])
-
-tests/test_integrity.py:77: AssertionError
-____________________ test_update_check_and_verified_staging ____________________
-
-settings = Settings(host='0.0.0.0', port=8797, data_dir=PosixPath('/tmp/pytest-of-runner/pytest-0/test_update_check_and_verified0...te_max_extract_bytes=262144000, update_max_release_notes_chars=12000, update_auto_restart=True, update_github_token='')
-tmp_path = PosixPath('/tmp/pytest-of-runner/pytest-0/test_update_check_and_verified0')
-
-    @pytest.mark.asyncio
-    async def test_update_check_and_verified_staging(settings, tmp_path: Path) -> None:
-        package = _update_zip()
-        digest = hashlib.sha256(package).hexdigest()
-        release = _release_payload(package)
-    
-        def handler(request: httpx.Request) -> httpx.Response:
-            if request.url.path.endswith("/releases/latest"):
-                return httpx.Response(200, json=release)
-            if request.url.path.endswith("/assets/1"):
-                return httpx.Response(200, content=package)
-            if request.url.path.endswith("/assets/2"):
-                return httpx.Response(
-                    200,
-                    text=f"{digest}  embodied-alife-update.zip\n",
-                )
-            return httpx.Response(404)
-    
-        settings.update_repository = "test/project"
-        settings.update_enabled = True
-        client = httpx.AsyncClient(transport=httpx.MockTransport(handler), follow_redirects=True)
-        manager = UpdateManager(settings, client=client, project_root=tmp_path / "project")
-    
-        status = await manager.check()
->       assert status["update_available"] is True
-E       assert False is True
-
-tests/test_updater.py:92: AssertionError
+tests/test_api.py:60: AssertionError
 =============================== warnings summary ===============================
 ../../../../../opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/fastapi/testclient.py:1
   /opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
@@ -147,9 +41,5 @@ tests/test_updater.py:92: AssertionError
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
 =========================== short test summary info ============================
-FAILED tests/test_api.py::test_diagnostic_bundle_is_complete_and_excludes_secrets - assert 3 == 1
-FAILED tests/test_diagnostics_v2.py::test_diagnostic_bundle_v3_contains_runtime_metrics_soak_readiness_and_no_secrets - assert True is False
-FAILED tests/test_integrity.py::test_successful_action_creates_only_verified_outcome_memory - assert 0 == 1
- +  where 0 = len([])
-FAILED tests/test_updater.py::test_update_check_and_verified_staging - assert False is True
-4 failed, 62 passed, 1 warning in 1.48s
+FAILED tests/test_api.py::test_diagnostic_bundle_is_complete_and_excludes_secrets - AssertionError: assert 'soak_test_readiness' in {'anomaly_checks': {'duplicate_adjacent_restore_event_pairs': 0, 'live_simulation_engine_instances': 1, 'multiple_live...ation': 'Non-secret local LLM settings, cached model catalog, provider metadata, and current status.', ...}, ...}, ...}
+1 failed, 65 passed, 1 warning in 1.57s
