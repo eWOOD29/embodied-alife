@@ -2,10 +2,12 @@ name: temporary-release-audit
 
 on:
   push:
-    branches: [ops/v0.4.0-release-audit-3]
+    branches: [ops/v0.4.0-release-audit-final]
+  pull_request:
+    branches: [main]
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   TAG: v0.4.0
@@ -35,52 +37,27 @@ jobs:
           python - <<'PY'
           import hashlib, json, os, re, subprocess, zipfile
           from pathlib import Path
-
           root=Path('audit'); assets=root/'assets'
-          tag=json.loads((root/'tag.json').read_text())
-          release=json.loads((root/'release.json').read_text())
-          latest=json.loads((root/'latest.json').read_text())
-          expected=os.environ['EXPECTED_COMMIT']; tag_name=os.environ['TAG']
-          obj=tag['object']
-          if obj['type']=='tag':
-              obj=json.loads(subprocess.check_output(['gh','api',obj['url']], text=True))['object']
-          tag_target=obj['sha']
-          names={a['name']:a for a in release['assets']}
-          zip_path=assets/os.environ['ZIP_NAME']; sha_path=assets/os.environ['SHA_NAME']
-          checksum_text=sha_path.read_text().strip()
-          m=re.fullmatch(r'([0-9a-fA-F]{64})\s+\*?([^\s]+)', checksum_text)
-          declared=m.group(1).lower() if m else None
-          declared_name=m.group(2) if m else None
-          computed=hashlib.sha256(zip_path.read_bytes()).hexdigest()
+          tag=json.loads((root/'tag.json').read_text()); release=json.loads((root/'release.json').read_text()); latest=json.loads((root/'latest.json').read_text())
+          expected=os.environ['EXPECTED_COMMIT']; tag_name=os.environ['TAG']; obj=tag['object']
+          if obj['type']=='tag': obj=json.loads(subprocess.check_output(['gh','api',obj['url']], text=True))['object']
+          names={a['name']:a for a in release['assets']}; zip_path=assets/os.environ['ZIP_NAME']; sha_path=assets/os.environ['SHA_NAME']
+          checksum_text=sha_path.read_text().strip(); m=re.fullmatch(r'([0-9a-fA-F]{64})\s+\*?([^\s]+)', checksum_text)
+          declared=m.group(1).lower() if m else None; declared_name=m.group(2) if m else None; computed=hashlib.sha256(zip_path.read_bytes()).hexdigest()
           with zipfile.ZipFile(zip_path) as z:
-              bad=z.testzip(); listing=sorted(z.namelist())
-              manifest=json.loads(z.read('update-manifest.json'))
-              pyproject=z.read('pyproject.toml').decode()
-              appver=z.read('app/version.py').decode()
-              cognition=z.read('app/simulation/cognition.py').decode()
-          managed=manifest['managed_paths']; preserved=manifest['preserved_roots']
-          archive_files=[x for x in listing if not x.endswith('/') and x!='update-manifest.json']
+              bad=z.testzip(); listing=sorted(z.namelist()); manifest=json.loads(z.read('update-manifest.json')); pyproject=z.read('pyproject.toml').decode(); appver=z.read('app/version.py').decode(); cognition=z.read('app/simulation/cognition.py').decode()
+          managed=manifest['managed_paths']; archive_files=[x for x in listing if not x.endswith('/') and x!='update-manifest.json']
           forbidden_patterns=[r'(^|/)data/',r'(^|/)dist/',r'(^|/)\.git/',r'(^|/)\.venv/',r'__pycache__',r'\.pytest_cache',r'\.ruff_cache',r'ci-.*report',r'release-audit\.yml',r'Ethan Assistant System',r'docs\.google\.com',r'ts\.net',r'[A-Za-z]:\\\\Users\\\\']
-          forbidden=[p for p in listing if any(re.search(x,p,re.I) for x in forbidden_patterns)]
-          text_hits=[]
+          forbidden=[p for p in listing if any(re.search(x,p,re.I) for x in forbidden_patterns)]; text_hits=[]
           with zipfile.ZipFile(zip_path) as z:
               for p in listing:
                   if p.endswith('/') or p.lower().endswith(('.png','.jpg','.jpeg','.zip','.db','.pyc')): continue
                   s=z.read(p).decode('utf-8','ignore')
                   if any(x in s for x in ['Ethan Assistant System','docs.google.com/document/d/','tailce5cf1.ts.net']): text_hits.append(p)
-          result={
-            'tag':{'exists':True,'name':tag_name,'target_commit':tag_target,'expected_commit':expected,'matches_expected':tag_target==expected},
-            'release':{'exists':True,'id':release['id'],'html_url':release['html_url'],'tag_name':release['tag_name'],'name':release['name'],'draft':release['draft'],'prerelease':release['prerelease'],'published_at':release['published_at']},
-            'assets':{'names':sorted(names),'zip_size':names[os.environ['ZIP_NAME']]['size'],'checksum_size':names[os.environ['SHA_NAME']]['size'],'checksum_file_contents':checksum_text,'declared_filename':declared_name,'computed_sha256':computed,'checksum_match':declared==computed and declared_name==os.environ['ZIP_NAME']},
-            'archive':{'opens_successfully':bad is None,'bad_member':bad,'file_count':len(listing),'manifest_path':'update-manifest.json','manifest':manifest,'managed_paths_match_archive':sorted(managed)==archive_files,'preserved_roots_valid':preserved==['.env','.venv','data','.git'],'pyproject_version_0_4_0':'version = "0.4.0"' in pyproject,'app_version_0_4_0':'__version__ = "0.4.0"' in appver,'cognition_v0_4_0_present':'AWAKENING_NARRATIVE' in cognition and 'starter_key_items' in cognition,'forbidden_paths':forbidden,'private_text_hits':text_hits},
-            'latest':{'tag_name':latest['tag_name'],'html_url':latest['html_url'],'asset_names':sorted(a['name'] for a in latest['assets']),'required_assets_exposed':{n:next((a['browser_download_url'] for a in latest['assets'] if a['name']==n),None) for n in [os.environ['ZIP_NAME'],os.environ['SHA_NAME']]}},
-          }
+          result={'tag':{'exists':True,'name':tag_name,'target_commit':obj['sha'],'expected_commit':expected,'matches_expected':obj['sha']==expected},'release':{'exists':True,'id':release['id'],'html_url':release['html_url'],'tag_name':release['tag_name'],'name':release['name'],'draft':release['draft'],'prerelease':release['prerelease'],'published_at':release['published_at']},'assets':{'names':sorted(names),'zip_size':names[os.environ['ZIP_NAME']]['size'],'checksum_size':names[os.environ['SHA_NAME']]['size'],'checksum_file_contents':checksum_text,'declared_filename':declared_name,'computed_sha256':computed,'checksum_match':declared==computed and declared_name==os.environ['ZIP_NAME']},'archive':{'opens_successfully':bad is None,'bad_member':bad,'file_count':len(listing),'manifest_path':'update-manifest.json','manifest':manifest,'managed_paths_match_archive':sorted(managed)==archive_files,'preserved_roots_valid':manifest['preserved_roots']==['.env','.venv','data','.git'],'pyproject_version_0_4_0':'version = "0.4.0"' in pyproject,'app_version_0_4_0':'__version__ = "0.4.0"' in appver,'cognition_v0_4_0_present':'AWAKENING_NARRATIVE' in cognition and 'starter_key_items' in cognition,'forbidden_paths':forbidden,'private_text_hits':text_hits},'latest':{'tag_name':latest['tag_name'],'html_url':latest['html_url'],'asset_names':sorted(a['name'] for a in latest['assets']),'required_assets_exposed':{n:next((a['browser_download_url'] for a in latest['assets'] if a['name']==n),None) for n in [os.environ['ZIP_NAME'],os.environ['SHA_NAME']]}}}
           checks=[result['tag']['matches_expected'],not release['draft'],not release['prerelease'],release['tag_name']==tag_name,os.environ['ZIP_NAME'] in names,os.environ['SHA_NAME'] in names,result['assets']['checksum_match'],result['archive']['opens_successfully'],manifest['version']=='0.4.0',manifest['app_id']=='embodied-alife',result['archive']['managed_paths_match_archive'],result['archive']['preserved_roots_valid'],result['archive']['pyproject_version_0_4_0'],result['archive']['app_version_0_4_0'],result['archive']['cognition_v0_4_0_present'],not forbidden,not text_hits,latest['tag_name']==tag_name,all(result['latest']['required_assets_exposed'].values())]
-          result['overall_pass']=all(checks)
-          (root/'release-audit.json').write_text(json.dumps(result,indent=2)+'\n')
-          (root/'archive-listing.txt').write_text('\n'.join(listing)+'\n')
-          if not result['overall_pass']:
-              raise SystemExit('release audit failed')
+          result['overall_pass']=all(checks); (root/'release-audit.json').write_text(json.dumps(result,indent=2)+'\n'); (root/'archive-listing.txt').write_text('\n'.join(listing)+'\n')
+          if not result['overall_pass']: raise SystemExit('release audit failed')
           PY
       - name: Upload exact audit evidence
         if: always()
@@ -93,12 +70,3 @@ jobs:
             audit/tag.json
             audit/release.json
             audit/latest.json
-      - name: Remove temporary audit branches
-        if: always()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          gh api -X DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/ops/v0.4.0-release-audit" || true
-          gh api -X DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/ops/v0.4.0-release-audit-2" || true
-          gh api -X DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/ops/v0.4.0-release-audit-3" || true
