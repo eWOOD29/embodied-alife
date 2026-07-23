@@ -6,6 +6,7 @@ from typing import Any
 
 from app.llm.schemas import ActionDecision
 from app.simulation.agent import AgentState
+from app.simulation.affordances import INTERACTION_RADIUS
 from app.simulation.body import ActionExecution, astar, move_along_path
 from app.simulation.world import Shelter, Terrain, WorldState
 
@@ -61,12 +62,10 @@ class ActionController:
             resource = world.resources.get(decision.target_id or "")
             if not resource or resource.quantity <= 0:
                 return ActionResult(False, action, "target_missing", "The requested resource is not present.")
-            if math.hypot(resource.x - agent.x, resource.y - agent.y) > 1.6:
+            if math.hypot(resource.x - agent.x, resource.y - agent.y) > INTERACTION_RADIUS:
                 return ActionResult(False, action, "out_of_reach", "The resource is too far away.")
-            if not resource.portable:
-                # Berry bushes can be harvested into berries.
-                if resource.kind != "berry_bush":
-                    return ActionResult(False, action, "not_portable", "That object cannot be picked up.")
+            if not resource.portable and resource.kind != "berry_bush":
+                return ActionResult(False, action, "not_portable", "That object cannot be picked up.")
             if not agent.can_add(1):
                 return ActionResult(False, action, "inventory_full", "The inventory is full.")
         elif action == "eat":
@@ -92,7 +91,7 @@ class ActionController:
             if not decision.target_id or agent.inventory.get(decision.target_id, 0) <= 0:
                 return ActionResult(False, action, "item_missing", "The requested inventory item is unavailable.")
         elif action == "inspect" and decision.target_id:
-            if not self._target_near(decision.target_id, world, agent, 2.2):
+            if not self._target_near(decision.target_id, world, agent, INTERACTION_RADIUS):
                 return ActionResult(False, action, "out_of_reach", "The target is not close enough to inspect.")
         elif action == "sleep":
             duration = max(15.0, duration)
@@ -124,8 +123,6 @@ class ActionController:
             move_along_path(agent, world, execution, dt)
         execution.remaining -= dt
         agent.current_action = execution.to_dict()
-
-        # Movement completes as soon as the goal is reached; other actions use their duration.
         completed = (execution.action in {"move", "move_to", "flee"} and not execution.path) or execution.remaining <= 0
         if not completed:
             return False, None, moving
@@ -151,7 +148,7 @@ class ActionController:
             return ActionResult(True, action, "completed", "The body reached the destination.", {"position": [round(agent.x, 2), round(agent.y, 2)]})
         if action == "pick_up":
             resource = world.resources.get(target_id or "")
-            if not resource or resource.quantity <= 0 or math.hypot(resource.x - agent.x, resource.y - agent.y) > 1.6:
+            if not resource or resource.quantity <= 0 or math.hypot(resource.x - agent.x, resource.y - agent.y) > INTERACTION_RADIUS:
                 return ActionResult(False, action, "target_changed", "The resource is no longer available within reach.")
             item_kind = "berry" if resource.kind == "berry_bush" else resource.kind
             if not agent.add_item(item_kind, 1):
@@ -209,8 +206,12 @@ class ActionController:
 
             is_edible = target_id in {"berry", "edible_plant"}
             world.resources[rid] = Resource(
-                rid, target_id, int(round(agent.x)), int(round(agent.y)),
-                edible=is_edible, nutrition=22.0 if target_id == "berry" else (12.0 if is_edible else 0.0),
+                rid,
+                target_id,
+                int(round(agent.x)),
+                int(round(agent.y)),
+                edible=is_edible,
+                nutrition=22.0 if target_id == "berry" else (12.0 if is_edible else 0.0),
                 energy=5.0 if target_id == "berry" else (2.0 if is_edible else 0.0),
             )
             return ActionResult(True, action, "dropped", f"Dropped 1 {target_id}.")
@@ -257,8 +258,8 @@ class ActionController:
     @staticmethod
     def _adjacent_walkable(world: WorldState, x: int, y: int, agent: AgentState) -> tuple[int, int] | None:
         candidates = [(x, y)] + [(x + dx, y + dy) for dx, dy in DIRECTION_DELTAS.values()]
-        valid = [p for p in candidates if world.is_walkable(*p)]
-        return min(valid, key=lambda p: math.hypot(p[0] - agent.x, p[1] - agent.y)) if valid else None
+        valid = [point for point in candidates if world.is_walkable(*point)]
+        return min(valid, key=lambda point: math.hypot(point[0] - agent.x, point[1] - agent.y)) if valid else None
 
     @staticmethod
     def _near_water(world: WorldState, agent: AgentState) -> bool:
@@ -278,22 +279,22 @@ class ActionController:
                 return "inventory", kind
         if target_id and target_id in world.resources:
             resource = world.resources[target_id]
-            if resource.edible and resource.quantity > 0 and math.hypot(resource.x - agent.x, resource.y - agent.y) <= 1.6:
+            if resource.edible and resource.quantity > 0 and math.hypot(resource.x - agent.x, resource.y - agent.y) <= INTERACTION_RADIUS:
                 return "world", resource.id
         for resource in world.resources.values():
-            if resource.edible and resource.quantity > 0 and math.hypot(resource.x - agent.x, resource.y - agent.y) <= 1.6:
+            if resource.edible and resource.quantity > 0 and math.hypot(resource.x - agent.x, resource.y - agent.y) <= INTERACTION_RADIUS:
                 return "world", resource.id
         return None
 
     @staticmethod
     def _target_near(target_id: str, world: WorldState, agent: AgentState, radius: float) -> bool:
         if target_id in world.resources:
-            r = world.resources[target_id]
-            return math.hypot(r.x - agent.x, r.y - agent.y) <= radius
+            resource = world.resources[target_id]
+            return math.hypot(resource.x - agent.x, resource.y - agent.y) <= radius
         if target_id in world.npcs:
-            n = world.npcs[target_id]
-            return math.hypot(n.x - agent.x, n.y - agent.y) <= radius
+            npc = world.npcs[target_id]
+            return math.hypot(npc.x - agent.x, npc.y - agent.y) <= radius
         if target_id in agent.known_locations:
-            p = agent.known_locations[target_id]
-            return math.hypot(p["x"] - agent.x, p["y"] - agent.y) <= radius
+            point = agent.known_locations[target_id]
+            return math.hypot(point["x"] - agent.x, point["y"] - agent.y) <= radius
         return False
