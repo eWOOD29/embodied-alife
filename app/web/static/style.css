@@ -57,6 +57,14 @@ pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; background: #0e
 .update-actions a { color: var(--accent); font-size: .82rem; }
 .update-warning { margin-top: 8px; line-height: 1.45; }
 .update-warning code, .llm-settings-panel code { color: #c5d6cc; }
+.release-notes { margin-top: 10px; max-height: 320px; overflow: auto; background: #0e1613; border: 1px solid #223229; border-radius: 7px; padding: 10px 12px; font-size: .78rem; line-height: 1.5; }
+.release-notes h3, .release-notes h4 { margin: 10px 0 6px; color: var(--text); text-transform: none; letter-spacing: normal; }
+.release-notes h3:first-child, .release-notes h4:first-child { margin-top: 0; }
+.release-notes p { margin: 6px 0; }
+.release-notes ul { margin: 6px 0 10px 20px; padding: 0; }
+.release-notes li { margin: 4px 0; }
+.release-notes code { color: #c5d6cc; background: #17221e; border-radius: 4px; padding: 1px 4px; }
+.release-notes a { color: var(--accent); }
 .llm-settings-panel { border-color: #385247; }
 .settings-form { display: grid; gap: 10px; margin-top: 14px; }
 .settings-form label { display: grid; gap: 5px; color: var(--muted); font-size: .78rem; }
