@@ -5,43 +5,19 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
-  test:
+  cleanup:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: audit/v0.4.0-post3-final
           fetch-depth: 0
-      - name: Download published release metadata and assets
+      - name: Delete temporary branches and close audit PR
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          rm -rf post3-audit
-          mkdir post3-audit
-          gh api repos/${{ github.repository }}/releases/tags/v0.4.0.post3 > post3-audit/release.json
-          gh api repos/${{ github.repository }}/releases/latest > post3-audit/latest.json
-          gh release download v0.4.0.post3 --dir post3-audit --pattern 'embodied-alife-update.zip*'
-      - name: Audit published bytes
-        id: audit
-        continue-on-error: true
-        run: python scripts/post3_release_audit.py
-      - name: Upload durable evidence artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: post3-release-audit-evidence
-          path: |
-            post3-release-audit.json
-            post3-release-members.txt
-          retention-days: 90
-      - name: Commit retrievable evidence
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add post3-release-audit.json post3-release-members.txt
-          git commit -m 'Capture post3 published release audit evidence'
-          git push origin HEAD:audit/v0.4.0-post3-final
-      - name: Propagate audit failure
-        if: steps.audit.outcome == 'failure'
-        run: exit 1
+          git push origin --delete remediation/v0.4.0-post3 || true
+          gh pr close 14 --comment 'Published-byte audit evidence was retrieved and retained as Actions artifact 8580958326. Closing without merge.'
+          git push origin --delete audit/v0.4.0-post3-final || true
