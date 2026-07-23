@@ -33,3 +33,4 @@ jobs:
           git add CHANGELOG.md
           git commit -m "Restore complete changelog history"
           git push origin HEAD:fix/restore-v040-changelog
+# trigger
