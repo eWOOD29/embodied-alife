@@ -12,6 +12,8 @@ from app.simulation.cognition import (
     NoteRecord,
     TaskRecord,
     migrate_legacy_beliefs,
+    starter_key_items,
+    starter_tasks,
 )
 
 
@@ -39,8 +41,8 @@ class AgentState:
     injury: str | None = None
     inventory: dict[str, int] = field(default_factory=dict)
     inventory_capacity: int = 8
-    key_items: dict[str, KeyItem] = field(default_factory=dict)
-    tasks: dict[str, TaskRecord] = field(default_factory=dict)
+    key_items: dict[str, KeyItem] = field(default_factory=starter_key_items)
+    tasks: dict[str, TaskRecord] = field(default_factory=starter_tasks)
     notes: dict[str, NoteRecord] = field(default_factory=dict)
     map_markers: dict[str, MapMarker] = field(default_factory=dict)
     beliefs: dict[str, BeliefRecord] = field(default_factory=dict)
@@ -95,14 +97,24 @@ class AgentState:
     def from_dict(cls, data: dict[str, Any]) -> "AgentState":
         copied = dict(data)
         copied["explored"] = set(copied.get("explored", []))
-        copied["key_items"] = {
-            key: KeyItem.from_dict({"key_item_id": key, **value})
-            for key, value in (copied.get("key_items") or {}).items()
-        }
-        copied["tasks"] = {
-            key: TaskRecord.from_dict({"task_id": key, **value})
-            for key, value in (copied.get("tasks") or {}).items()
-        }
+        raw_key_items = copied.get("key_items")
+        copied["key_items"] = (
+            {
+                key: KeyItem.from_dict({"key_item_id": key, **value})
+                for key, value in raw_key_items.items()
+            }
+            if isinstance(raw_key_items, dict) and raw_key_items
+            else starter_key_items()
+        )
+        raw_tasks = copied.get("tasks")
+        copied["tasks"] = (
+            {
+                key: TaskRecord.from_dict({"task_id": key, **value})
+                for key, value in raw_tasks.items()
+            }
+            if isinstance(raw_tasks, dict) and raw_tasks
+            else starter_tasks()
+        )
         copied["notes"] = {
             key: NoteRecord.from_dict({"note_id": key, **value})
             for key, value in (copied.get("notes") or {}).items()
