@@ -4,7 +4,7 @@ import copy
 import json
 
 from app.llm.fallback import FallbackBrain
-from app.llm.prompts import decision_messages
+from app.llm.prompts import ACTIVE_PLAN_LIMIT, MEMORY_LIMIT, decision_messages
 from app.llm.schemas import ActionDecision
 from app.simulation.actions import ActionController
 from app.simulation.agent import AgentState
@@ -313,3 +313,72 @@ def test_exact_marker_branch_uses_allowlist_and_preserves_observer_cognition() -
     assert observer["map_markers"]["marker-safe"]["believed_location"]["cave_truth"] == "CAVE_TRUTH_SENTINEL"
     assert observer["map_markers"]["marker-safe"]["notes"] == "NOTES_SENTINEL"
     assert observer["map_markers"]["marker-safe"]["provenance"]["detail"] == "PROVENANCE_SENTINEL"
+
+
+
+def _large_prompt_case(world: WorldState, size: int, *, awakening: bool) -> tuple[AgentState, str, dict]:
+    agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+    agent.awakening.presented = not awakening
+    agent.key_items = {}
+    agent.tasks = {}
+    agent.personality_traits = {}
+    agent.known_locations = {}
+    agent.recent_events = []
+    memories = []
+    active_plan = []
+    for index in range(size):
+        sentinel = f"FULL_STORE_SENTINEL_{size}_{index}_"
+        key_id = sentinel + ("k" * 500)
+        agent.key_items[key_id] = KeyItem(key_id, sentinel + ("d" * 500), "description", Provenance("test"))
+        task_id = f"task-{index}"
+        agent.tasks[task_id] = TaskRecord(task_id, sentinel + ("t" * 500), "summary" + ("s" * 500), "test", "proposed", index, 0, 0, provenance=Provenance("test"))
+        agent.personality_traits[sentinel + ("p" * 300)] = sentinel + ("v" * 800)
+        agent.known_locations[sentinel + ("l" * 400)] = {"x": index, "y": index, "certainty": sentinel + "bad"}
+        agent.recent_events.append({"sim_time": sentinel, "kind": sentinel + ("e" * 300), "message": sentinel + ("m" * 900), "importance": sentinel})
+        agent.beliefs[f"belief-{index}"] = BeliefRecord(f"belief-{index}", sentinel + ("b" * 900), 0.5, sentinel + ("q" * 900), "hypothesis", index, None, provenance=Provenance("test"))
+        agent.notes[f"note-{index}"] = NoteRecord(f"note-{index}", sentinel, sentinel + ("n" * 900), [], "active", 0, 0, provenance=Provenance("test"))
+        agent.map_markers[f"marker-{index}"] = MapMarker(f"marker-{index}", sentinel, "test", {"relative_direction": "north", "metadata": sentinel}, 0.5, "active", sentinel, 0, 0, provenance=Provenance("test"))
+        agent.short_term_episodes[f"episode-{index}"] = EpisodeRecord(f"episode-{index}", index, index, sentinel + ("z" * 900), "test", 0.5, "recent", provenance=Provenance("test"))
+        memories.append({"memory_id": f"memory-{index}", "title": sentinel + ("r" * 600), "content": sentinel + ("c" * 5000), "tags": [sentinel + ("g" * 500)] * 50})
+        active_plan.append(sentinel + ("a" * 3000))
+    perception = build_perception(world, agent)
+    prompt = decision_messages({
+        "perception": perception,
+        "active_plan": active_plan,
+        "retrieved_memories": memories,
+        "recent_outcomes": [{"details": f"OUTCOME_FULL_SENTINEL_{index}_" + ("o" * 3000)} for index in range(size)],
+    })[-1]["content"]
+    return agent, prompt, json.loads(prompt)
+
+
+def test_every_normal_prompt_source_has_fixed_final_bounds_at_three_scales() -> None:
+    world = WorldState.generate(992, 48)
+    results = [_large_prompt_case(world, size, awakening=False) for size in (10, 100, 1000)]
+    lengths = [len(prompt) for _, prompt, _ in results]
+    assert max(lengths) - min(lengths) < 2500
+    for size, (agent, prompt, payload) in zip((10, 100, 1000), results):
+        perception = payload["perception"]
+        assert perception["cognitive_tools"]["task_count"] == size
+        assert perception["cognitive_tools"]["note_count"] == size
+        assert len(perception["cognitive_tools"]["key_item_ids"]) == min(size, 8)
+        assert len(perception["cognitive_tools"]["proposed_task_titles"]) == min(size, 4)
+        assert len(perception["personality_traits"]) == min(size, 12)
+        assert len(payload["active_plan"]) == min(size, ACTIVE_PLAN_LIMIT)
+        assert len(payload["retrieved_long_term_memories"]) == min(size, MEMORY_LIMIT)
+        assert len(payload["recent_action_outcomes"]) <= 4
+        assert all(len(item) <= 240 for item in payload["active_plan"])
+        assert all(len(key) <= 96 for key in perception["cognitive_tools"]["key_item_ids"])
+        assert all(len(title) <= 160 for title in perception["cognitive_tools"]["proposed_task_titles"])
+        complete = f"FULL_STORE_SENTINEL_{size}_{size - 1}_" + ("c" * 5000)
+        assert complete not in prompt
+        assert f"OUTCOME_FULL_SENTINEL_{size - 1}_" + ("o" * 3000) not in prompt
+
+
+def test_first_decision_uses_the_same_final_bounds() -> None:
+    world = WorldState.generate(993, 48)
+    _, first_prompt, first_payload = _large_prompt_case(world, 1000, awakening=True)
+    _, normal_prompt, normal_payload = _large_prompt_case(world, 1000, awakening=False)
+    assert "I wake beneath an unfamiliar sky" in first_prompt
+    assert "I wake beneath an unfamiliar sky" not in normal_prompt
+    assert len(first_payload["active_plan"]) == len(normal_payload["active_plan"]) == ACTIVE_PLAN_LIMIT
+    assert abs(len(first_prompt) - len(normal_prompt)) < 4000

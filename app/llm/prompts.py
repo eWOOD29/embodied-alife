@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import math
+from typing import Any
 
 from app.llm.schemas import ActionDecision, ConsolidationResult
 
@@ -26,14 +28,120 @@ A concise intent and reason are required, but do not reveal hidden chain-of-thou
 
 REFLECTION_PROMPT = """You are Ari performing memory consolidation around sleep. Summarize important lived events and revise beliefs cautiously. Beliefs may remain uncertain or disputed; do not confuse them with world truth. Select only durable memories. Return only one valid JSON object matching every required field; do not provide hidden chain-of-thought. /no_think"""
 
+DECISION_STRING_LIMIT = 240
+DECISION_LIST_LIMIT = 12
+DECISION_DICT_LIMIT = 40
+DECISION_DEPTH_LIMIT = 5
+ACTIVE_PLAN_LIMIT = 8
+MEMORY_LIMIT = 6
+OUTCOME_LIMIT = 4
+MEMORY_TEXT_LIMIT = 400
+
+
+def _text(value: Any, limit: int = DECISION_STRING_LIMIT) -> str:
+    if not isinstance(value, (str, int, float, bool)):
+        return ""
+    text = str(value).replace("\n", " ").strip()
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _number(value: Any) -> int | float | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    return None
+
+
+def _project(value: Any, *, depth: int = 0, list_limit: int = DECISION_LIST_LIMIT, dict_limit: int = DECISION_DICT_LIMIT) -> Any:
+    if depth >= DECISION_DEPTH_LIMIT:
+        return None
+    if value is None or isinstance(value, bool):
+        return value
+    numeric = _number(value)
+    if numeric is not None:
+        return numeric
+    if isinstance(value, str):
+        return _text(value)
+    if isinstance(value, dict):
+        result: dict[str, Any] = {}
+        for raw_key in sorted(value, key=lambda item: str(item))[:dict_limit]:
+            key = _text(raw_key, 96)
+            if not key:
+                continue
+            projected = _project(value[raw_key], depth=depth + 1, list_limit=list_limit, dict_limit=dict_limit)
+            if projected is not None:
+                result[key] = projected
+        return result
+    if isinstance(value, (list, tuple, set)):
+        source = sorted(value, key=lambda item: str(item)) if isinstance(value, set) else value
+        result = []
+        for item in list(source)[:list_limit]:
+            projected = _project(item, depth=depth + 1, list_limit=list_limit, dict_limit=dict_limit)
+            if projected is not None:
+                result.append(projected)
+        return result
+    return None
+
+
+def _plan_summary(value: Any) -> list[str]:
+    if not isinstance(value, (list, tuple)):
+        return []
+    result = []
+    for item in value:
+        text = _text(item)
+        if text:
+            result.append(text)
+        if len(result) >= ACTIVE_PLAN_LIMIT:
+            break
+    return result
+
+
+def _memory_summary(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        text = _text(raw, MEMORY_TEXT_LIMIT)
+        return {"summary": text} if text else None
+    result: dict[str, Any] = {}
+    for key, limit in (("memory_id", 96), ("id", 96), ("category", 64), ("title", 160)):
+        if key in raw and key not in result:
+            text = _text(raw.get(key), limit)
+            if text:
+                result[key] = text
+    summary = raw.get("summary", raw.get("content", raw.get("text", "")))
+    text = _text(summary, MEMORY_TEXT_LIMIT)
+    if text:
+        result["summary"] = text
+    importance = _number(raw.get("importance"))
+    if importance is not None:
+        result["importance"] = importance
+    tags = _project(raw.get("tags", []), list_limit=8, dict_limit=0)
+    if tags:
+        result["tags"] = tags
+    return result or None
+
+
+def _memory_summaries(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, (list, tuple)):
+        return []
+    result = []
+    for raw in value:
+        summary = _memory_summary(raw)
+        if summary:
+            result.append(summary)
+        if len(result) >= MEMORY_LIMIT:
+            break
+    return result
+
 
 def decision_messages(context: dict) -> list[dict[str, str]]:
     payload = {
-        "perception": context["perception"],
-        "executable_action_map": context.get("action_affordances", {}),
-        "active_plan": context.get("active_plan", []),
-        "retrieved_long_term_memories": context.get("retrieved_memories", []),
-        "recent_action_outcomes": context.get("recent_outcomes", []),
+        "perception": _project(context.get("perception", {}), list_limit=64, dict_limit=64),
+        "executable_action_map": _project(context.get("action_affordances", {}), list_limit=32, dict_limit=64),
+        "active_plan": _plan_summary(context.get("active_plan", [])),
+        "retrieved_long_term_memories": _memory_summaries(context.get("retrieved_memories", [])),
+        "recent_action_outcomes": _project(context.get("recent_outcomes", []), list_limit=OUTCOME_LIMIT, dict_limit=32),
         "decision_policy": {
             "action": "Choose one action that is executable now. Use move_to before a target-specific action when the target is out of reach. Cognitive-tool view actions are always available while awake.",
             "needs": "Treat hunger as a deficit where 0 is fully fed and 100 is starving; hydration and energy are reserves.",
@@ -46,7 +154,7 @@ def decision_messages(context: dict) -> list[dict[str, str]]:
     }
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": json.dumps(payload, ensure_ascii=False, separators=(",", ":"))},
+        {"role": "user", "content": json.dumps(payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False)},
     ]
 
 
