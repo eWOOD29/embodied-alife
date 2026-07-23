@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from app.build_info import BUILD_COMMIT, BUILD_TIME_UTC, BUILD_VERSION
+from app.validation import build_soak_readiness
 
 PROCESS_STARTED_AT = datetime.now(UTC)
 
@@ -75,12 +76,16 @@ def _model_metrics(model_responses: list[dict[str, Any]]) -> dict[str, Any]:
     sources = Counter(item.get("source") or "unknown" for item in model_responses)
     statuses = Counter(item.get("status") or "unknown" for item in model_responses)
     errors = [item for item in model_responses if item.get("error")]
+    finish_reasons = Counter((item.get("provider") or {}).get("finish_reason") or "unknown" for item in model_responses)
+    attempts = Counter(str((item.get("provider") or {}).get("request_attempts") or "unknown") for item in model_responses)
     return {
         "total": len(model_responses),
         "source_counts": dict(sources),
         "status_counts": dict(statuses),
         "error_count": len(errors),
         "llm_success_rate": round(sources.get("llm", 0) / len(model_responses), 4) if model_responses else None,
+        "finish_reason_counts": dict(finish_reasons),
+        "request_attempt_counts": dict(attempts),
         "latency_ms": {
             "median": round(statistics.median(latencies), 2) if latencies else None,
             "p95": _percentile(latencies, 0.95),
@@ -148,6 +153,7 @@ def build_diagnostic_bundle(
     process_uptime = max(0.0, (exported_at - PROCESS_STARTED_AT).total_seconds())
     event_metrics = _event_metrics(events)
     model_metrics = _model_metrics(model_responses)
+    metrics = {"model": model_metrics, "events": event_metrics}
     duplicate_restore_events = sum(
         1
         for left, right in zip(events, events[1:])
@@ -156,10 +162,27 @@ def build_diagnostic_bundle(
         and left.get("sim_time") == right.get("sim_time")
     )
     live_instances = engine.live_instance_count() if hasattr(engine, "live_instance_count") else None
+    anomaly_checks = {
+        "live_simulation_engine_instances": live_instances,
+        "multiple_live_engines_detected": live_instances is not None and live_instances > 1,
+        "duplicate_adjacent_restore_event_pairs": duplicate_restore_events,
+        "pending_memory_candidate": engine.pending_memory,
+        "status": "warning" if (live_instances is not None and live_instances > 1) or duplicate_restore_events else "ok",
+    }
+    soak_readiness = build_soak_readiness(
+        engine=engine,
+        updater=updater,
+        events=events,
+        model_responses=model_responses,
+        memories=memories,
+        snapshots=snapshots,
+        metrics=metrics,
+        anomaly_checks=anomaly_checks,
+    )
 
     return {
         "diagnostic_bundle": {
-            "schema_version": 2,
+            "schema_version": 3,
             "exported_at_utc": exported_at.isoformat(),
             "application": "embodied-alife",
             "application_version": application_version,
@@ -179,9 +202,10 @@ def build_diagnostic_bundle(
                 "llm_configuration": "Non-secret local LLM settings, cached model catalog, provider metadata, and current status.",
                 "metrics": "Aggregate model, action, planning, belief, and memory reliability statistics.",
                 "anomaly_checks": "Known structural integrity checks such as duplicate engines and duplicate restore events.",
+                "soak_readiness": "Scenario coverage, quality gates, missing long-horizon systems, and the multi-day test protocol.",
                 "recent_logs": "Sanitized tails of persistent runtime logs when available.",
                 "persisted_events": "Up to 10,000 persisted timeline events in chronological order.",
-                "model_responses": "Up to 10,000 persisted model/fallback responses with usage, latency, and errors.",
+                "model_responses": "Up to 10,000 persisted model/fallback responses with usage, latency, provider metadata, and errors.",
             },
         },
         "health": health,
@@ -210,14 +234,9 @@ def build_diagnostic_bundle(
         "update_status": updater.public_status(),
         "durable_memories": memories,
         "snapshots": snapshots,
-        "metrics": {"model": model_metrics, "events": event_metrics},
-        "anomaly_checks": {
-            "live_simulation_engine_instances": live_instances,
-            "multiple_live_engines_detected": live_instances is not None and live_instances > 1,
-            "duplicate_adjacent_restore_event_pairs": duplicate_restore_events,
-            "pending_memory_candidate": engine.pending_memory,
-            "status": "warning" if (live_instances is not None and live_instances > 1) or duplicate_restore_events else "ok",
-        },
+        "metrics": metrics,
+        "anomaly_checks": anomaly_checks,
+        "soak_readiness": soak_readiness,
         "recent_logs": _recent_logs(engine.settings.data_dir),
         "persisted_events": events,
         "model_responses": model_responses,
