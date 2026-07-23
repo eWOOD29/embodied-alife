@@ -51,6 +51,8 @@ jobs:
         run: python scripts/validate_package.py
       - name: Build update assets
         run: python scripts/build_release.py --output dist/embodied-alife-update.zip
+      - name: Build concise release notes
+        run: python scripts/release_notes.py "$PACKAGE_VERSION" dist/release-notes.md
       - name: Tag release commit
         shell: bash
         run: |
@@ -78,6 +80,7 @@ jobs:
               --clobber
             gh release edit "${RELEASE_TAG}" \
               --title "Embodied Artificial Life ${RELEASE_TAG}" \
+              --notes-file dist/release-notes.md \
               --latest
           else
             gh release create "${RELEASE_TAG}" \
@@ -85,6 +88,6 @@ jobs:
               dist/embodied-alife-update.zip.sha256 \
               --target "$GITHUB_SHA" \
               --title "Embodied Artificial Life ${RELEASE_TAG}" \
-              --generate-notes \
+              --notes-file dist/release-notes.md \
               --latest
           fi
