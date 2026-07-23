@@ -161,7 +161,11 @@ def build_diagnostic_bundle(
         and left.get("message") == right.get("message") == "Restored the latest local runtime state."
         and left.get("sim_time") == right.get("sim_time")
     )
-    live_instances = engine.live_instance_count() if hasattr(engine, "live_instance_count") else None
+    live_instances = (
+        engine.live_instance_count(engine.database.path)
+        if hasattr(engine, "live_instance_count")
+        else None
+    )
     anomaly_checks = {
         "live_simulation_engine_instances": live_instances,
         "multiple_live_engines_detected": live_instances is not None and live_instances > 1,
