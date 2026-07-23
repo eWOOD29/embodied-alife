@@ -1,0 +1,279 @@
+FFFFFFFF.......F................                                         [100%]
+=================================== FAILURES ===================================
+___ test_perception_satiety_uses_normalized_hunger_for_direct_mutation[None] ___
+
+bad = None
+
+    @pytest.mark.parametrize('bad', [None, '', 'not-number', [], (), set(), {}, {'nested': 1}, True, math.nan, math.inf, -math.inf, 10**500, -(10**500)])
+    def test_perception_satiety_uses_normalized_hunger_for_direct_mutation(bad):
+        world = WorldState.generate(7001, 48)
+        agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+        agent.hunger = bad
+>       perception = build_perception(world, agent)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_v040_post3_remediation.py:34: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+app/simulation/perception.py:288: in build_perception
+    "drive_labels": drive_labels(agent),
+                    ^^^^^^^^^^^^^^^^^^^
+app/simulation/needs.py:98: in drive_labels
+    "hunger": high_bad(agent.hunger),
+              ^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+value = None
+
+    def high_bad(value: float) -> str:
+>       if value >= 85:
+           ^^^^^^^^^^^
+E       TypeError: '>=' not supported between instances of 'NoneType' and 'int'
+
+app/simulation/needs.py:69: TypeError
+_____ test_perception_satiety_uses_normalized_hunger_for_direct_mutation[] _____
+
+bad = ''
+
+    @pytest.mark.parametrize('bad', [None, '', 'not-number', [], (), set(), {}, {'nested': 1}, True, math.nan, math.inf, -math.inf, 10**500, -(10**500)])
+    def test_perception_satiety_uses_normalized_hunger_for_direct_mutation(bad):
+        world = WorldState.generate(7001, 48)
+        agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+        agent.hunger = bad
+>       perception = build_perception(world, agent)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_v040_post3_remediation.py:34: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+app/simulation/perception.py:288: in build_perception
+    "drive_labels": drive_labels(agent),
+                    ^^^^^^^^^^^^^^^^^^^
+app/simulation/needs.py:98: in drive_labels
+    "hunger": high_bad(agent.hunger),
+              ^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+value = ''
+
+    def high_bad(value: float) -> str:
+>       if value >= 85:
+           ^^^^^^^^^^^
+E       TypeError: '>=' not supported between instances of 'str' and 'int'
+
+app/simulation/needs.py:69: TypeError
+_ test_perception_satiety_uses_normalized_hunger_for_direct_mutation[not-number] _
+
+bad = 'not-number'
+
+    @pytest.mark.parametrize('bad', [None, '', 'not-number', [], (), set(), {}, {'nested': 1}, True, math.nan, math.inf, -math.inf, 10**500, -(10**500)])
+    def test_perception_satiety_uses_normalized_hunger_for_direct_mutation(bad):
+        world = WorldState.generate(7001, 48)
+        agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+        agent.hunger = bad
+>       perception = build_perception(world, agent)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_v040_post3_remediation.py:34: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+app/simulation/perception.py:288: in build_perception
+    "drive_labels": drive_labels(agent),
+                    ^^^^^^^^^^^^^^^^^^^
+app/simulation/needs.py:98: in drive_labels
+    "hunger": high_bad(agent.hunger),
+              ^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+value = 'not-number'
+
+    def high_bad(value: float) -> str:
+>       if value >= 85:
+           ^^^^^^^^^^^
+E       TypeError: '>=' not supported between instances of 'str' and 'int'
+
+app/simulation/needs.py:69: TypeError
+___ test_perception_satiety_uses_normalized_hunger_for_direct_mutation[bad3] ___
+
+bad = []
+
+    @pytest.mark.parametrize('bad', [None, '', 'not-number', [], (), set(), {}, {'nested': 1}, True, math.nan, math.inf, -math.inf, 10**500, -(10**500)])
+    def test_perception_satiety_uses_normalized_hunger_for_direct_mutation(bad):
+        world = WorldState.generate(7001, 48)
+        agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+        agent.hunger = bad
+>       perception = build_perception(world, agent)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_v040_post3_remediation.py:34: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+app/simulation/perception.py:288: in build_perception
+    "drive_labels": drive_labels(agent),
+                    ^^^^^^^^^^^^^^^^^^^
+app/simulation/needs.py:98: in drive_labels
+    "hunger": high_bad(agent.hunger),
+              ^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+value = []
+
+    def high_bad(value: float) -> str:
+>       if value >= 85:
+           ^^^^^^^^^^^
+E       TypeError: '>=' not supported between instances of 'list' and 'int'
+
+app/simulation/needs.py:69: TypeError
+___ test_perception_satiety_uses_normalized_hunger_for_direct_mutation[bad4] ___
+
+bad = ()
+
+    @pytest.mark.parametrize('bad', [None, '', 'not-number', [], (), set(), {}, {'nested': 1}, True, math.nan, math.inf, -math.inf, 10**500, -(10**500)])
+    def test_perception_satiety_uses_normalized_hunger_for_direct_mutation(bad):
+        world = WorldState.generate(7001, 48)
+        agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+        agent.hunger = bad
+>       perception = build_perception(world, agent)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_v040_post3_remediation.py:34: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+app/simulation/perception.py:288: in build_perception
+    "drive_labels": drive_labels(agent),
+                    ^^^^^^^^^^^^^^^^^^^
+app/simulation/needs.py:98: in drive_labels
+    "hunger": high_bad(agent.hunger),
+              ^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+value = ()
+
+    def high_bad(value: float) -> str:
+>       if value >= 85:
+           ^^^^^^^^^^^
+E       TypeError: '>=' not supported between instances of 'tuple' and 'int'
+
+app/simulation/needs.py:69: TypeError
+___ test_perception_satiety_uses_normalized_hunger_for_direct_mutation[bad5] ___
+
+bad = set()
+
+    @pytest.mark.parametrize('bad', [None, '', 'not-number', [], (), set(), {}, {'nested': 1}, True, math.nan, math.inf, -math.inf, 10**500, -(10**500)])
+    def test_perception_satiety_uses_normalized_hunger_for_direct_mutation(bad):
+        world = WorldState.generate(7001, 48)
+        agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+        agent.hunger = bad
+>       perception = build_perception(world, agent)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_v040_post3_remediation.py:34: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+app/simulation/perception.py:288: in build_perception
+    "drive_labels": drive_labels(agent),
+                    ^^^^^^^^^^^^^^^^^^^
+app/simulation/needs.py:98: in drive_labels
+    "hunger": high_bad(agent.hunger),
+              ^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+value = set()
+
+    def high_bad(value: float) -> str:
+>       if value >= 85:
+           ^^^^^^^^^^^
+E       TypeError: '>=' not supported between instances of 'set' and 'int'
+
+app/simulation/needs.py:69: TypeError
+___ test_perception_satiety_uses_normalized_hunger_for_direct_mutation[bad6] ___
+
+bad = {}
+
+    @pytest.mark.parametrize('bad', [None, '', 'not-number', [], (), set(), {}, {'nested': 1}, True, math.nan, math.inf, -math.inf, 10**500, -(10**500)])
+    def test_perception_satiety_uses_normalized_hunger_for_direct_mutation(bad):
+        world = WorldState.generate(7001, 48)
+        agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+        agent.hunger = bad
+>       perception = build_perception(world, agent)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_v040_post3_remediation.py:34: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+app/simulation/perception.py:288: in build_perception
+    "drive_labels": drive_labels(agent),
+                    ^^^^^^^^^^^^^^^^^^^
+app/simulation/needs.py:98: in drive_labels
+    "hunger": high_bad(agent.hunger),
+              ^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+value = {}
+
+    def high_bad(value: float) -> str:
+>       if value >= 85:
+           ^^^^^^^^^^^
+E       TypeError: '>=' not supported between instances of 'dict' and 'int'
+
+app/simulation/needs.py:69: TypeError
+___ test_perception_satiety_uses_normalized_hunger_for_direct_mutation[bad7] ___
+
+bad = {'nested': 1}
+
+    @pytest.mark.parametrize('bad', [None, '', 'not-number', [], (), set(), {}, {'nested': 1}, True, math.nan, math.inf, -math.inf, 10**500, -(10**500)])
+    def test_perception_satiety_uses_normalized_hunger_for_direct_mutation(bad):
+        world = WorldState.generate(7001, 48)
+        agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+        agent.hunger = bad
+>       perception = build_perception(world, agent)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_v040_post3_remediation.py:34: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+app/simulation/perception.py:288: in build_perception
+    "drive_labels": drive_labels(agent),
+                    ^^^^^^^^^^^^^^^^^^^
+app/simulation/needs.py:98: in drive_labels
+    "hunger": high_bad(agent.hunger),
+              ^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+value = {'nested': 1}
+
+    def high_bad(value: float) -> str:
+>       if value >= 85:
+           ^^^^^^^^^^^
+E       TypeError: '>=' not supported between instances of 'dict' and 'int'
+
+app/simulation/needs.py:69: TypeError
+_ test_note_view_exact_serialized_fields_use_allowlist_and_preserve_observer_record _
+
+    def test_note_view_exact_serialized_fields_use_allowlist_and_preserve_observer_record():
+        world = WorldState.generate(7003, 48)
+        agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+        sentinel = 'FORBIDDEN_NOTE_SENTINEL'
+        note = NoteRecord('n1', 'approved note', 'approved content', ['safe', sentinel], 'active', 1, 2, provenance=Provenance('note', sentinel, sentinel))
+        note.linked_task_ids = [sentinel]
+        note.linked_marker_ids = [sentinel]
+        note.created_at = math.nan
+        note.updated_at = math.inf
+        agent.notes = {'n1': note}
+        result = complete(world, agent, 'view_notebook')
+        text = recursive_text(result.to_dict())
+>       assert sentinel not in text
+E       assert 'FORBIDDEN_NOTE_SENTINEL' not in '{"action": ...cess": true}'
+E         
+E         'FORBIDDEN_NOTE_SENTINEL' is contained here:
+E           ["safe", "FORBIDDEN_NOTE_SENTINEL"], "title": "approved note", "updated_at": 0.0}], "total_active_notes": 1, "total_notes": 1, "visible_notes": 1}, "details": "Ari reviewed the field notebook.", "reason": "viewed", "success": true}
+E         ?           +++++++++++++++++++++++
+
+tests/test_v040_post3_remediation.py:72: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_v040_post3_remediation.py::test_perception_satiety_uses_normalized_hunger_for_direct_mutation[None] - TypeError: '>=' not supported between instances of 'NoneType' and 'int'
+FAILED tests/test_v040_post3_remediation.py::test_perception_satiety_uses_normalized_hunger_for_direct_mutation[] - TypeError: '>=' not supported between instances of 'str' and 'int'
+FAILED tests/test_v040_post3_remediation.py::test_perception_satiety_uses_normalized_hunger_for_direct_mutation[not-number] - TypeError: '>=' not supported between instances of 'str' and 'int'
+FAILED tests/test_v040_post3_remediation.py::test_perception_satiety_uses_normalized_hunger_for_direct_mutation[bad3] - TypeError: '>=' not supported between instances of 'list' and 'int'
+FAILED tests/test_v040_post3_remediation.py::test_perception_satiety_uses_normalized_hunger_for_direct_mutation[bad4] - TypeError: '>=' not supported between instances of 'tuple' and 'int'
+FAILED tests/test_v040_post3_remediation.py::test_perception_satiety_uses_normalized_hunger_for_direct_mutation[bad5] - TypeError: '>=' not supported between instances of 'set' and 'int'
+FAILED tests/test_v040_post3_remediation.py::test_perception_satiety_uses_normalized_hunger_for_direct_mutation[bad6] - TypeError: '>=' not supported between instances of 'dict' and 'int'
+FAILED tests/test_v040_post3_remediation.py::test_perception_satiety_uses_normalized_hunger_for_direct_mutation[bad7] - TypeError: '>=' not supported between instances of 'dict' and 'int'
+FAILED tests/test_v040_post3_remediation.py::test_note_view_exact_serialized_fields_use_allowlist_and_preserve_observer_record - assert 'FORBIDDEN_NOTE_SENTINEL' not in '{"action": ...cess": true}'
+  
+  'FORBIDDEN_NOTE_SENTINEL' is contained here:
+    ["safe", "FORBIDDEN_NOTE_SENTINEL"], "title": "approved note", "updated_at": 0.0}], "total_active_notes": 1, "total_notes": 1, "visible_notes": 1}, "details": "Ari reviewed the field notebook.", "reason": "viewed", "success": true}
+  ?           +++++++++++++++++++++++
+9 failed, 23 passed in 0.99s
