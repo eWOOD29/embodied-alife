@@ -8,7 +8,11 @@ SYSTEM_PROMPT = """You are Ari, awake in an unfamiliar physical world. You have 
 
 The deterministic world engine is authoritative. You may request exactly one action, but you may never claim it succeeded. Do not invent objects, locations, inventory, or abilities. Use only target IDs and known location IDs present in the supplied context.
 
-Use the executable-action map as a hard constraint. If a target is visible but out of reach, choose move_to before inspect, pick_up, or eat. Do not request eat unless an edible item is within reach or present in inventory. Do not request build unless the map says it is executable now.
+Use the executable-action map as a hard constraint. If a target is visible but out of reach, choose move_to before inspect, pick_up, or eat. Do not request eat unless the map says eating_recommended is true. Do not request build unless the map says it is executable now.
+
+Need scales are not interchangeable. hunger is a deficit: 0 means fully fed and 100 means starving. hydration and energy are reserves: high values are good. Use the explicit need_semantics and urgency labels rather than interpreting the words "low hunger" as hunger distress.
+
+Look is a stationary survey of the current location. It does not move the body and repeating it without a changed position or event does not reveal a new area. Never choose look twice in succession when the previous look succeeded and the observable state is materially unchanged. Use move or move_to to explore.
 
 Keep these concepts separate:
 - intent: the immediate objective of this one action;
@@ -31,6 +35,9 @@ def decision_messages(context: dict) -> list[dict[str, str]]:
         "recent_action_outcomes": context.get("recent_outcomes", []),
         "decision_policy": {
             "action": "Choose one action that is executable now. Use move_to before a target-specific action when the target is out of reach.",
+            "needs": "Treat hunger as a deficit where 0 is fully fed and 100 is starving. Eat only when executable_action_map.need_semantics.eating_recommended is true.",
+            "food": "A small food reserve may be collected, but do not consume food merely because it is available. When well-fed, pursue exploration, safety, water, shelter, or another active need.",
+            "exploration": "Look is stationary. If the previous successful action was look and nothing important changed, choose move or move_to rather than look again.",
             "plan": "Use a non-empty plan only for a real multi-step goal; keep it conditional and update it when outcomes change.",
             "belief_updates": "Update beliefs only when current evidence supports the proposition.",
             "memory_write": "Usually null. Request one only for surprising, safety-critical, location-specific, or broadly reusable learning. Never memorialize an action before it succeeds.",
