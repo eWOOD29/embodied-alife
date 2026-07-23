@@ -42,7 +42,7 @@ def _release_payload(package: bytes, version: str = "0.3.0") -> dict:
         "tag_name": f"v{version}",
         "name": f"Release {version}",
         "body": "Useful release notes",
-        "html_url": "https://github.com/test/project/releases/tag/v0.3.0",
+        "html_url": f"https://github.com/test/project/releases/tag/v{version}",
         "published_at": "2026-07-22T12:00:00Z",
         "draft": False,
         "prerelease": False,
@@ -50,14 +50,14 @@ def _release_payload(package: bytes, version: str = "0.3.0") -> dict:
             {
                 "name": "embodied-alife-update.zip",
                 "url": "https://api.github.com/repos/test/project/releases/assets/1",
-                "browser_download_url": "https://github.com/test/project/releases/download/v0.3.0/embodied-alife-update.zip",
+                "browser_download_url": f"https://github.com/test/project/releases/download/v{version}/embodied-alife-update.zip",
                 "size": len(package),
                 "digest": None,
             },
             {
                 "name": "embodied-alife-update.zip.sha256",
                 "url": "https://api.github.com/repos/test/project/releases/assets/2",
-                "browser_download_url": "https://github.com/test/project/releases/download/v0.3.0/embodied-alife-update.zip.sha256",
+                "browser_download_url": f"https://github.com/test/project/releases/download/v{version}/embodied-alife-update.zip.sha256",
                 "size": 100,
                 "digest": None,
             },
@@ -67,9 +67,10 @@ def _release_payload(package: bytes, version: str = "0.3.0") -> dict:
 
 @pytest.mark.asyncio
 async def test_update_check_and_verified_staging(settings, tmp_path: Path) -> None:
-    package = _update_zip()
+    test_version = "999.0.0"
+    package = _update_zip(test_version)
     digest = hashlib.sha256(package).hexdigest()
-    release = _release_payload(package)
+    release = _release_payload(package, test_version)
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/releases/latest"):
@@ -90,13 +91,13 @@ async def test_update_check_and_verified_staging(settings, tmp_path: Path) -> No
 
     status = await manager.check()
     assert status["update_available"] is True
-    assert status["latest_version"] == "0.3.0"
+    assert status["latest_version"] == test_version
     assert status["release_notes"] == "Useful release notes"
 
-    prepared = await manager.prepare_install(expected_version="0.3.0")
+    prepared = await manager.prepare_install(expected_version=test_version)
     assert prepared["verified_sha256"] == digest
     request = json.loads(Path(prepared["request_path"]).read_text(encoding="utf-8"))
-    assert request["manifest"]["version"] == "0.3.0"
+    assert request["manifest"]["version"] == test_version
     assert Path(request["staged_path"], "app", "main.py").is_file()
     await client.aclose()
 
