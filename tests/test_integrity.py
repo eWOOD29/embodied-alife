@@ -54,7 +54,9 @@ async def test_failed_action_does_not_create_durable_memory(settings) -> None:
         await engine.make_decision()
         assert vault.list_records() == []
         assert engine.pending_memory is None
-        assert any(event["kind"] == "memory_rejected" for event in engine.events)
+        assert any(event["kind"] == "decision_corrected" for event in engine.events)
+        assert engine.last_decision["action"] == "look"
+        assert engine.last_decision["memory_write"] is None
     finally:
         database.close()
 
