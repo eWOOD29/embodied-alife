@@ -1,0 +1,77 @@
+name: post3-release-audit
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/post3-release-audit.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Download published assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p post3-audit
+          gh release view v0.4.0.post3 --json databaseId,tagName,targetCommitish,isDraft,isPrerelease,isLatest,publishedAt,assets > post3-audit/release.json
+          gh release download v0.4.0.post3 --dir post3-audit --pattern 'embodied-alife-update.zip*'
+      - name: Audit final bytes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib, json, zipfile, re
+          root=Path('post3-audit')
+          meta=json.loads((root/'release.json').read_text())
+          z=root/'embodied-alife-update.zip'
+          c=root/'embodied-alife-update.zip.sha256'
+          digest=hashlib.sha256(z.read_bytes()).hexdigest()
+          checksum=c.read_text().strip()
+          forbidden_names=('post3','validation-output','audit-output','applicator','__pycache__','.pytest_cache','.ruff_cache','.db','.log')
+          forbidden_content=('c:\\users\\','/home/runner/','docs.google.com/document/d/','tailce5cf1','post3-final-test-output','post3-preedit-audit')
+          with zipfile.ZipFile(z) as archive:
+              names=archive.namelist()
+              duplicate=len(names)!=len(set(names))
+              bad_names=[n for n in names if any(x in n.lower() for x in forbidden_names)]
+              readable=[]; bad_content=[]
+              for n in names:
+                  if n.endswith('/') or archive.getinfo(n).file_size>2_000_000: continue
+                  try: text=archive.read(n).decode('utf-8')
+                  except Exception: continue
+                  readable.append(n)
+                  for marker in forbidden_content:
+                      if marker.lower() in text.lower(): bad_content.append((n,marker))
+              manifest=json.loads(archive.read('update-manifest.json'))
+              app_version=archive.read('app/version.py').decode()
+              pyproject=archive.read('pyproject.toml').decode()
+          out={
+              'release':meta,'zip_size':z.stat().st_size,'checksum_contents':checksum,
+              'computed_sha256':digest,'digest_match':digest in checksum,
+              'zip_integrity':'PASS','member_count':len(names),'duplicate_scan':'FAIL' if duplicate else 'PASS',
+              'readable_member_count':len(readable),'forbidden_name_scan':'FAIL' if bad_names else 'PASS',
+              'forbidden_names':bad_names,'forbidden_content_scan':'FAIL' if bad_content else 'PASS',
+              'forbidden_content':bad_content,'manifest':manifest,
+              'manifest_version_ok':manifest.get('version')=='0.4.0.post3',
+              'manifest_app_id_ok':manifest.get('app_id')=='embodied-alife',
+              'app_version_present':'0.4.0.post3' in app_version,
+              'pyproject_version_present':'0.4.0.post3' in pyproject,
+              'raw_task_path_absent':'task.to_dict() for task' not in archive.read('app/simulation/actions.py').decode(),
+              'raw_note_path_absent':'note.to_dict() for note' not in archive.read('app/simulation/actions.py').decode(),
+              'raw_hunger_arithmetic_absent':'100.0 - agent.hunger' not in archive.read('app/simulation/perception.py').decode(),
+          }
+          Path('post3-release-audit.txt').write_text(json.dumps(out,indent=2,sort_keys=True)+'\n')
+          assert all(out[k] in (True,'PASS') for k in ('digest_match','zip_integrity','duplicate_scan','forbidden_name_scan','forbidden_content_scan','manifest_version_ok','manifest_app_id_ok','app_version_present','pyproject_version_present','raw_task_path_absent','raw_note_path_absent','raw_hunger_arithmetic_absent'))
+          PY
+      - name: Commit audit evidence
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add post3-release-audit.txt
+          git commit -m 'Capture post3 published asset audit'
+          git push origin main
