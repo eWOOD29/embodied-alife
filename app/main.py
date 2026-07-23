@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import Settings, load_settings
-from app.simulation.scheduler import SimulationEngine
+from app.simulation.engine import SimulationEngine
 from app.updater.manager import UpdateManager
 from app.version import __version__
 from app.web.routes import router as api_router
