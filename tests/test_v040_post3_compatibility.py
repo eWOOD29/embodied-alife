@@ -16,18 +16,21 @@ from app.updater.security import inspect_update_archive
 
 
 def _package(version: str) -> bytes:
+    managed = ["app/main.py", "app/version.py", "pyproject.toml", "scripts/apply_update.py"]
     manifest = {
         "schema_version": 1,
         "app_id": "embodied-alife",
         "version": version,
-        "managed_paths": ["app/version.py", "pyproject.toml"],
+        "managed_paths": managed,
         "preserved_roots": [".env", ".venv", "data", ".git"],
     }
     stream = io.BytesIO()
     with zipfile.ZipFile(stream, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("update-manifest.json", json.dumps(manifest))
+        archive.writestr("app/main.py", "print('post3')\n")
         archive.writestr("app/version.py", f'__version__ = "{version}"\n')
         archive.writestr("pyproject.toml", f'[project]\nname="embodied-alife"\nversion="{version}"\n')
+        archive.writestr("scripts/apply_update.py", "print('worker')\n")
     return stream.getvalue()
 
 
@@ -85,6 +88,6 @@ async def test_post3_latest_release_and_verified_staging_accept_post3_over_post2
     request = json.loads(Path(prepared["request_path"]).read_text(encoding="utf-8"))
     assert request["manifest"]["app_id"] == "embodied-alife"
     assert request["manifest"]["version"] == version
-    archive = inspect_update_archive(Path(prepared["archive_path"]), max_uncompressed_bytes=10_000_000)
-    assert archive.manifest["version"] == version
+    manifest = inspect_update_archive(Path(prepared["archive_path"]), max_uncompressed_bytes=10_000_000)
+    assert manifest["version"] == version
     await client.aclose()
