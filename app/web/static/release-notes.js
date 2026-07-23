@@ -65,11 +65,9 @@
   window.renderUpdateStatus = function renderUpdateStatusWithFormattedNotes() {
     originalRenderUpdateStatus();
     const notes = document.getElementById('updateNotes');
-    if (!notes || !window.updateStatus) return;
-    notes.hidden = !window.updateStatus.release_notes;
-    notes.innerHTML = window.updateStatus.release_notes
-      ? releaseNotesHtml(window.updateStatus.release_notes)
-      : '';
+    if (!notes || notes.hidden) return;
+    const markdown = notes.textContent;
+    notes.innerHTML = releaseNotesHtml(markdown);
   };
 
   // The ordinary status endpoint is intentionally cheap and cached. Perform one real
