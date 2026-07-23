@@ -1,7 +1,7 @@
 name: Post2 remediation runner
 
 on:
-  push:
+  pull_request:
     branches:
       - main
 
@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   apply:
-    if: github.event.head_commit.message == 'Run post2 remediation applicator'
+    if: github.event.pull_request.title == 'Run v0.4.0.post2 remediation applicator'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
