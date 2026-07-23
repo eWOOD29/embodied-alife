@@ -23,17 +23,23 @@ ActionName = Literal[
 
 
 class GrammarSafeOutput(BaseModel):
-    """Expose a minimal schema to model servers while retaining full Pydantic validation.
+    """Use a minimal server grammar while retaining the complete validation schema.
 
     LM Studio's llama.cpp grammar compiler can reject otherwise-valid Pydantic JSON
     Schema features such as nested refs, nullable unions, constrained dictionaries,
-    and array constraints. The prompt still describes the exact output fields, and
-    the returned object is validated against the complete Pydantic model in-process.
+    and array constraints. `model_json_schema()` is therefore intentionally minimal
+    for the API response grammar. Prompts must use `full_json_schema()` so the model
+    still sees the exact field contract. Returned objects are always validated against
+    the complete Pydantic model in-process.
     """
 
     @classmethod
     def model_json_schema(cls, *args: Any, **kwargs: Any) -> dict[str, Any]:
         return {"type": "object"}
+
+    @classmethod
+    def full_json_schema(cls, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        return super().model_json_schema(*args, **kwargs)
 
 
 class MemoryWrite(BaseModel):
@@ -92,28 +98,16 @@ class ActionDecision(GrammarSafeOutput):
 
     @model_validator(mode="before")
     @classmethod
-    def repair_minor_omissions(cls, value: Any) -> Any:
-        """Repair descriptive omissions without inventing executable action data."""
+    def repair_descriptive_omissions(cls, value: Any) -> Any:
         if not isinstance(value, dict):
             return value
         repaired = dict(value)
         intent = repaired.get("intent")
         reason = repaired.get("reason")
-        action = repaired.get("action")
-        target = repaired.get("target_id")
-
-        if not isinstance(intent, str) or not intent.strip():
-            if isinstance(reason, str) and reason.strip():
-                repaired["intent"] = reason.strip()[:240]
-            elif isinstance(action, str) and action.strip():
-                suffix = f" toward {target}" if isinstance(target, str) and target.strip() else ""
-                repaired["intent"] = f"Attempt to {action.strip()}{suffix}."[:240]
-
-        if not isinstance(reason, str) or not reason.strip():
-            inferred_intent = repaired.get("intent")
-            if isinstance(inferred_intent, str) and inferred_intent.strip():
-                repaired["reason"] = inferred_intent.strip()[:500]
-
+        if (not isinstance(intent, str) or not intent.strip()) and isinstance(reason, str) and reason.strip():
+            repaired["intent"] = reason.strip()[:240]
+        if (not isinstance(reason, str) or not reason.strip()) and isinstance(intent, str) and intent.strip():
+            repaired["reason"] = intent.strip()[:500]
         return repaired
 
 
