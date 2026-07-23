@@ -1,0 +1,169 @@
+from __future__ import annotations
+
+import json
+
+from app.llm.prompts import decision_messages
+from app.llm.schemas import ActionDecision
+from app.simulation.actions import ActionController
+from app.simulation.agent import AgentState
+from app.simulation.cognition import (
+    AWAKE‌NING_NARRATIVE,
+    BeliefRecord,
+    BeliefStatus,
+    EpisodeRecord,
+    MapMarker,
+    NoteRecord,
+    Provenance,
+)
+from app.simulation.perception import build_perception
+from app.simulation.world import WorldState
+from app.storage.database import Database
+
+
+def _decision(action: str, *, target_id: str | None = None) -> ActionDecision:
+    return ActionDecision(
+        intent=f"Exercise {action}.",
+        action=action,
+        target_id=target_id,
+        duration_seconds=0.2,
+        reason="Acceptance test.",
+    )
+
+
+def _complete(controller: ActionController, world: WorldState, agent: AgentState, action: str):
+    started = controller.start(_decision(action), world, agent)
+    assert started.success
+    completed, result, _ = controller.step(1.0, world, agent)
+    assert completed and result is not None
+    return result
+
+
+def test_fresh_agent_has_starter_key_items_and_tasks_without_capacity_cost() -> None:
+    agent = AgentState()
+    assert sorted(agent.key_items) == ["blank_field_map", "field_notebook", "task_journal"]
+    assert agent.inventory_used == 0
+    assert len(agent.tasks) == 4
+    assert len(set(agent.tasks)) == 4
+    assert all(task.status == "proposed" for task in agent.tasks.values())
+    assert agent.add_item("blank_field_map") is False
+    assert agent.remove_item("task_journal") is False
+
+
+def test_v034_shaped_agent_loads_with_defaults_and_structured_beliefs() -> None:
+    legacy = {
+        "name": "Ari",
+        "inventory": {"branch": 2},
+        "beliefs": {"berries": "These berries may be edible."},
+        "explored": ["1,2"],
+    }
+    agent = AgentState.from_dict(legacy)
+    assert len(agent.key_items) == 3
+    assert len(agent.tasks) == 4
+    assert isinstance(agent.beliefs["berries"], BeliefRecord)
+    assert agent.beliefs["berries"].status == BeliefStatus.WORKING.value
+    assert agent.beliefs["berries"].provenance.source_type == "legacy_migration"
+    assert AgentState.from_dict(agent.to_dict()).to_dict() == agent.to_dict()
+
+
+def test_unsupported_hypothesis_serializes_without_evidence() -> None:
+    agent = AgentState()
+    agent.beliefs["unproven"] = BeliefRecord(
+        belief_id="unproven",
+        claim="The distant sound might be water.",
+        confidence=0.2,
+        basis="A tentative inference.",
+        status=BeliefStatus.HYPOTHESIS.value,
+        first_formed_at=0.0,
+        last_tested_at=None,
+        provenance=Provenance("inference"),
+    )
+    restored = AgentState.from_dict(agent.to_dict())
+    assert restored.beliefs["unproven"].supporting_evidence_ids == []
+    assert restored.beliefs["unproven"].status == "hypothesis"
+
+
+def test_view_actions_return_only_agent_knowledge_and_do_not_create_inventory_items() -> None:
+    world = WorldState.generate(42, 48)
+    agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+    agent.notes["n1"] = NoteRecord("n1", "Test", "Ari-authored note", [], "active", 0, 0, provenance=Provenance("test"))
+    agent.map_markers["m1"] = MapMarker("m1", "Possible water", "water", {"relative": "west"}, 0.4, "active", "uncertain", 0, 0, provenance=Provenance("inference"))
+    agent.short_term_episodes["e1"] = EpisodeRecord("e1", None, 0, "recent", "test", 0.5, "recent")
+    controller = ActionController()
+
+    map_result = _complete(controller, world, agent, "view_map")
+    assert map_result.data["observer_truth_included"] is False
+    serialized = json.dumps(map_result.data)
+    assert "wolf" not in serialized
+    assert world.truth_notes["cave"] not in serialized
+
+    journal_result = _complete(controller, world, agent, "view_task_journal")
+    assert len(journal_result.data["tasks"]) == 4
+
+    notebook_result = _complete(controller, world, agent, "view_notebook")
+    assert notebook_result.data["notes"][0]["content"] == "Ari-authored note"
+    assert agent.inventory == {}
+
+
+def test_key_items_cannot_be_dropped() -> None:
+    world = WorldState.generate(43, 48)
+    agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+    result = ActionController().start(_decision("drop", target_id="blank_field_map"), world, agent)
+    assert not result.success
+    assert result.reason == "key_item_protected"
+
+
+def test_awakening_appears_once_and_is_serialized() -> None:
+    world = WorldState.generate(44, 48)
+    agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+    first = build_perception(world, agent)
+    assert first["awakening"] == AWAKE‌NING_NARRATIVE
+    controller = ActionController()
+    _complete(controller, world, agent, "view_task_journal")
+    assert build_perception(world, agent)["awakening"] is None
+    restored = AgentState.from_dict(agent.to_dict())
+    assert restored.awakening.presented is True
+
+
+def test_snapshot_restart_and_reset_round_trip_all_cognitive_stores(engine, settings) -> None:
+    engine.agent.notes["n1"] = NoteRecord("n1", "Note", "content", ["tag"], "active", 1, 1, provenance=Provenance("test"))
+    engine.agent.map_markers["m1"] = MapMarker("m1", "Marker", "unknown", {"relative": "north"}, 0.3, "active", "", 1, 1, provenance=Provenance("test"))
+    engine.agent.beliefs["b1"] = "A subjective working belief."
+    engine.agent.short_term_episodes["e1"] = EpisodeRecord("e1", 1, 1, "episode", "test", 0.5, "recent", provenance=Provenance("test"))
+    expected = engine.agent.to_dict()
+    engine.save_snapshot("cognition")
+    engine.agent.notes.clear()
+    engine.load_snapshot("cognition")
+    assert engine.agent.to_dict() == expected
+
+    engine._persist_current()
+    database = Database(settings.database_path)
+    from app.simulation.engine import SimulationEngine
+    restored_engine = SimulationEngine(settings, database=database, load_existing=True)
+    try:
+        assert restored_engine.agent.to_dict() == expected
+    finally:
+        database.close()
+
+    old_run = engine.run_id
+    old_world = engine.world_generation_id
+    engine.reset(999)
+    assert engine.run_id != old_run and engine.world_generation_id != old_world
+    assert len(engine.agent.key_items) == 3 and len(engine.agent.tasks) == 4
+    assert engine.agent.notes == {}
+    assert engine.agent.map_markers == {}
+    assert engine.agent.beliefs == {}
+    assert engine.agent.short_term_episodes == {}
+    assert engine.agent.awakening.presented is False
+
+
+def test_first_decision_prompt_is_compact_and_normal_prompt_omits_full_stores() -> None:
+    world = WorldState.generate(45, 48)
+    agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+    for index in range(100):
+        agent.notes[str(index)] = NoteRecord(str(index), f"Note {index}", "x" * 500, [], "active", 0, 0, provenance=Provenance("test"))
+    perception = build_perception(world, agent)
+    messages = decision_messages({"perception": perception, "action_affordances": {}, "active_plan": [], "retrieved_memories": [], "recent_outcomes": []})
+    prompt = messages[-1]["content"]
+    assert "Note 99" not in prompt
+    assert len(prompt) < 50000
+    assert perception["cognitive_tools"]["note_count"] == 100
