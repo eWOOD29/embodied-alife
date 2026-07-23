@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import weakref
+from pathlib import Path
 from typing import Any
 
 from app.config import Settings
@@ -40,8 +41,16 @@ class SimulationEngine(BaseSimulationEngine):
         self._instances.add(self)
 
     @classmethod
-    def live_instance_count(cls) -> int:
-        return len(cls._instances)
+    def live_instance_count(cls, database_path: Path | str | None = None) -> int:
+        instances = list(cls._instances)
+        if database_path is None:
+            return len(instances)
+        resolved = Path(database_path).resolve()
+        return sum(
+            1
+            for instance in instances
+            if Path(instance.database.path).resolve() == resolved
+        )
 
     def _verified_memory_request_from(
         self,
