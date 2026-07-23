@@ -93,8 +93,12 @@ def llm_settings(request: Request) -> dict:
 async def llm_models(payload: LLMDiscoveryRequest, request: Request) -> dict:
     brain = _engine(request).brain
     try:
-        models = await brain.discover_models(base_url=payload.base_url, api_key=payload.api_key)
-        return {"models": models, "base_url": payload.base_url.rstrip("/")}
+        catalog = await brain.discover_model_catalog(base_url=payload.base_url, api_key=payload.api_key)
+        return {
+            **catalog,
+            "base_url": payload.base_url.rstrip("/"),
+            "selected_model": brain.settings.llm_model or None,
+        }
     except (httpx.HTTPError, ValueError) as exc:
         raise HTTPException(status_code=502, detail=f"Could not read models from the local server: {exc}") from exc
 
