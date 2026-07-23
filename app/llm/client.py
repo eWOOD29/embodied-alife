@@ -62,32 +62,64 @@ class LocalLLMClient:
             "status": dict(self.status),
         }
 
+    async def discover_model_catalog(
+        self,
+        *,
+        base_url: str | None = None,
+        api_key: str | None = None,
+    ) -> dict[str, Any]:
+        """Return LM Studio model metadata with loaded state when available."""
+        resolved_url = self._validate_base_url(base_url or self.settings.llm_base_url)
+        resolved_key = self.settings.llm_api_key if api_key is None else api_key
+        headers = self._headers_for_key(resolved_key)
+        server_root = self._server_root(resolved_url)
+
+        async with self._client_context() as client:
+            native_response = await client.get(f"{server_root}/api/v0/models", headers=headers)
+            if native_response.status_code != 404:
+                self._raise_for_lm_studio_error(native_response)
+                payload = native_response.json()
+                records = payload.get("data") if isinstance(payload, dict) else None
+                if not isinstance(records, list):
+                    raise ValueError("LM Studio returned an invalid /api/v0/models response")
+                models = [self._normalize_native_model(item) for item in records if isinstance(item, dict)]
+                models = [item for item in models if item["id"] and item["type"] in {"llm", "vlm", "unknown"}]
+                models.sort(key=lambda item: (item["state"] != "loaded", item["display_name"].lower()))
+                return {"models": models, "source": "lm-studio-native", "loaded_state_available": True}
+
+            compatible_response = await client.get(f"{resolved_url}/models", headers=headers)
+            self._raise_for_lm_studio_error(compatible_response)
+            payload = compatible_response.json()
+            records = payload.get("data") if isinstance(payload, dict) else None
+            if not isinstance(records, list):
+                raise ValueError("The model server returned an invalid /v1/models response")
+            models = [
+                {
+                    "id": str(item.get("id", "")).strip(),
+                    "display_name": str(item.get("id", "")).strip(),
+                    "state": "unknown",
+                    "type": "unknown",
+                    "publisher": None,
+                    "quantization": None,
+                    "max_context_length": None,
+                }
+                for item in records
+                if isinstance(item, dict) and str(item.get("id", "")).strip()
+            ]
+            models.sort(key=lambda item: item["display_name"].lower())
+            return {"models": models, "source": "openai-compatible", "loaded_state_available": False}
+
     async def discover_models(
         self,
         *,
         base_url: str | None = None,
         api_key: str | None = None,
     ) -> list[str]:
-        resolved_url = self._validate_base_url(base_url or self.settings.llm_base_url)
-        resolved_key = self.settings.llm_api_key if api_key is None else api_key
-        headers = {
-            "Authorization": f"Bearer {resolved_key}",
-            "Content-Type": "application/json",
-        }
-        async with self._client_context() as client:
-            response = await client.get(f"{resolved_url}/models", headers=headers)
-            response.raise_for_status()
-            payload = response.json()
-        models = payload.get("data") if isinstance(payload, dict) else None
-        if not isinstance(models, list):
-            raise ValueError("The model server returned an invalid /models response")
-        return sorted(
-            {
-                str(item.get("id", "")).strip()
-                for item in models
-                if isinstance(item, dict) and str(item.get("id", "")).strip()
-            }
-        )
+        catalog = await self.discover_model_catalog(base_url=base_url, api_key=api_key)
+        loaded = [item["id"] for item in catalog["models"] if item["state"] == "loaded"]
+        if catalog["loaded_state_available"]:
+            return loaded
+        return [item["id"] for item in catalog["models"]]
 
     async def configure(
         self,
@@ -144,19 +176,24 @@ class LocalLLMClient:
             self.status.update(mode="fallback", available=False, last_error="Local LLM is disabled")
             return dict(self.status)
         try:
-            models = await self.discover_models()
-            if not self.settings.llm_model and len(models) == 1:
-                self.settings.llm_model = models[0]
+            catalog = await self.discover_model_catalog()
+            models = catalog["models"]
+            loaded = [item["id"] for item in models if item["state"] == "loaded"]
+            selectable = loaded if catalog["loaded_state_available"] else [item["id"] for item in models]
+
+            if len(loaded) == 1 and self.settings.llm_model not in loaded:
+                self.settings.llm_model = loaded[0]
                 self.store.save(self.settings)
+
             if not self.settings.llm_model:
                 self.status.update(
                     mode="configured",
-                    available=bool(models),
+                    available=bool(selectable),
                     model=None,
-                    last_error="Choose a loaded model" if models else "No models are loaded",
+                    last_error="Choose a loaded model" if selectable else "No LLM is loaded",
                 )
                 return dict(self.status)
-            if self.settings.llm_model not in models:
+            if self.settings.llm_model not in selectable:
                 self.status.update(
                     mode="fallback",
                     available=False,
@@ -201,7 +238,14 @@ class LocalLLMClient:
             "temperature": self.settings.llm_temperature,
             "max_tokens": self.settings.llm_max_tokens,
             "stream": False,
-            "response_format": {"type": "json_object"},
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": model_type.__name__,
+                    "strict": True,
+                    "schema": model_type.model_json_schema(),
+                },
+            },
         }
         last_error: Exception | None = None
         for _attempt in range(2):
@@ -212,7 +256,7 @@ class LocalLLMClient:
                         headers=self._headers(),
                         json=payload,
                     )
-                    response.raise_for_status()
+                    self._raise_for_lm_studio_error(response)
                     data = response.json()
                 content = self._extract_content(data)
                 parsed = model_type.model_validate_json(self._clean_json(content))
@@ -249,7 +293,14 @@ class LocalLLMClient:
         raise last_error
 
     def _headers(self) -> dict[str, str]:
-        return {"Authorization": f"Bearer {self.settings.llm_api_key}", "Content-Type": "application/json"}
+        return self._headers_for_key(self.settings.llm_api_key)
+
+    @staticmethod
+    def _headers_for_key(api_key: str | None) -> dict[str, str]:
+        headers = {"Content-Type": "application/json"}
+        if api_key and api_key != "***":
+            headers["Authorization"] = f"Bearer {api_key}"
+        return headers
 
     @staticmethod
     def _validate_base_url(value: str) -> str:
@@ -258,6 +309,42 @@ class LocalLLMClient:
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise ValueError("Base URL must be a valid HTTP or HTTPS URL")
         return resolved
+
+    @staticmethod
+    def _server_root(base_url: str) -> str:
+        parsed = urlparse(base_url)
+        return f"{parsed.scheme}://{parsed.netloc}"
+
+    @staticmethod
+    def _normalize_native_model(item: dict[str, Any]) -> dict[str, Any]:
+        model_id = str(item.get("id", "")).strip()
+        display_name = str(item.get("display_name") or model_id).strip()
+        state = str(item.get("state") or "unknown").strip().lower()
+        model_type = str(item.get("type") or "unknown").strip().lower()
+        quantization = item.get("quantization")
+        if isinstance(quantization, dict):
+            quantization = quantization.get("name")
+        return {
+            "id": model_id,
+            "display_name": display_name or model_id,
+            "state": state,
+            "type": model_type,
+            "publisher": item.get("publisher"),
+            "quantization": quantization,
+            "max_context_length": item.get("max_context_length"),
+        }
+
+    @staticmethod
+    def _raise_for_lm_studio_error(response: httpx.Response) -> None:
+        if not response.is_error:
+            return
+        detail = response.text.strip()
+        if len(detail) > 1200:
+            detail = detail[:1200] + "…"
+        message = f"LM Studio returned HTTP {response.status_code}"
+        if detail:
+            message += f": {detail}"
+        raise ValueError(message)
 
     @staticmethod
     def _extract_content(data: dict[str, Any]) -> str:
