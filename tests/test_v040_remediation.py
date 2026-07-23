@@ -382,3 +382,71 @@ def test_first_decision_uses_the_same_final_bounds() -> None:
     assert "I wake beneath an unfamiliar sky" not in normal_prompt
     assert len(first_payload["active_plan"]) == len(normal_payload["active_plan"]) == ACTIVE_PLAN_LIMIT
     assert abs(len(first_prompt) - len(normal_prompt)) < 4000
+
+
+
+def test_malformed_numeric_values_remain_controlled_after_loading_and_direct_mutation() -> None:
+    world = WorldState.generate(994, 48)
+    agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+    agent.beliefs["bad"] = BeliefRecord("bad", "claim", 0.5, "basis", "hypothesis", 0, None, provenance=Provenance("test"))
+    bad_belief = agent.beliefs["bad"]
+    bad_belief.first_formed_at = {"bad": 1}
+    bad_belief.last_tested_at = ["bad"]
+    bad_belief.confidence = float("nan")
+    agent.known_locations["bad"] = {"x": [], "y": {}, "certainty": float("inf")}
+    agent.map_markers["bad"] = MapMarker("bad", "bad", "test", {"x": float("inf"), "y": float("nan"), "direction": "unknown"}, 0.5, "active", "", 0, 0, provenance=Provenance("test"))
+    agent.map_markers["bad"].confidence = {"bad": 1}
+    agent.short_term_episodes["bad"] = EpisodeRecord("bad", None, 0, "summary", "test", 0.5, "recent", provenance=Provenance("test"))
+    agent.short_term_episodes["bad"].salience = ["bad"]
+    agent.known_terrain["not,a,coordinate"] = "bad"
+
+    perception = build_perception(world, agent)
+    messages = decision_messages({"perception": perception, "active_plan": [None, {"bad": 1}], "retrieved_memories": [{"importance": float("nan"), "content": "ok"}], "recent_outcomes": [{"importance": float("inf")}]})
+    fallback = FallbackBrain().decide(perception)
+    result = _complete(ActionController(), world, agent, "view_map")
+    serialized = agent.to_dict()
+    assert messages[-1]["content"]
+    assert fallback.action
+    assert result.success
+    assert serialized["map_markers"]["bad"]["confidence"] == {"bad": 1}
+
+    legacy = agent.to_dict()
+    legacy["beliefs"]["bad"].update({"first_formed_at": None, "last_tested_at": "not-a-number", "confidence": float("inf")})
+    legacy["map_markers"]["bad"].update({"confidence": float("nan"), "created_at": [], "updated_at": {}})
+    legacy["short_term_episodes"]["bad"].update({"simulation_timestamp": {}, "salience": float("-inf")})
+    restored = AgentState.from_dict(legacy)
+    assert build_perception(world, restored)
+    assert AgentState.from_dict(restored.to_dict()).to_dict() == restored.to_dict()
+
+
+def test_all_linked_id_lists_use_one_stable_bounded_normalizer() -> None:
+    cases = [
+        "single-id",
+        ("tuple-a", "tuple-b"),
+        {"set-b", "set-a"},
+        ["valid", 7, None, True, ["nested"], {"bad": 1}, "x" * 500],
+        None,
+        [],
+    ]
+    for value in cases:
+        raw = {
+            "task_id": "task", "title": "task", "linked_marker_ids": value, "linked_note_ids": value,
+            "note_id": "note", "content": "note",
+        }
+        task = TaskRecord.from_dict(raw)
+        note = NoteRecord.from_dict({"note_id": "note", "linked_task_ids": value, "linked_marker_ids": value})
+        marker = MapMarker.from_dict({"marker_id": "marker", "linked_task_ids": value, "linked_note_ids": value})
+        belief = BeliefRecord.from_dict({"belief_id": "belief", "supporting_evidence_ids": value, "contradicting_evidence_ids": value})
+        episode = EpisodeRecord.from_dict({"episode_id": "episode", "linked_task_ids": value, "linked_note_ids": value, "linked_belief_ids": value, "linked_marker_ids": value, "linked_memory_ids": value})
+        records = [task, note, marker, belief, episode]
+        for record in records:
+            for field, field_value in record.to_dict().items():
+                if field.startswith("linked_") or field.endswith("_evidence_ids") or field == "tags":
+                    assert isinstance(field_value, list)
+                    assert len(field_value) <= 32
+                    assert all(isinstance(item, str) and len(item) <= 160 for item in field_value)
+        marker_roundtrip = MapMarker.from_dict(marker.to_dict())
+        assert marker_roundtrip.to_dict() == marker.to_dict()
+        assert MapMarker.from_dict(marker_roundtrip.to_dict()).to_dict() == marker.to_dict()
+    assert MapMarker.from_dict({"marker_id": "m", "linked_task_ids": "single-id"}).linked_task_ids == ["single-id"]
+    assert MapMarker.from_dict({"marker_id": "m", "linked_task_ids": ["abc"] * 100}).linked_task_ids == ["abc"]
