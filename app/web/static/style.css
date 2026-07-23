@@ -60,10 +60,12 @@ pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; background: #0e
 .llm-settings-panel { border-color: #385247; }
 .settings-form { display: grid; gap: 10px; margin-top: 14px; }
 .settings-form label { display: grid; gap: 5px; color: var(--muted); font-size: .78rem; }
-.settings-form input { width: 100%; border: 1px solid #385247; background: #0e1613; color: var(--text); border-radius: 7px; padding: 8px 9px; font: inherit; }
-.settings-form input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+.settings-form input, .settings-form select { width: 100%; border: 1px solid #385247; background: #0e1613; color: var(--text); border-radius: 7px; padding: 8px 9px; font: inherit; }
+.settings-form input:focus, .settings-form select:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+.settings-form select:disabled { opacity: .65; }
 .settings-form .toggle-row { display: flex; align-items: center; gap: 8px; color: var(--text); }
 .settings-form .toggle-row input { width: auto; }
+.model-details { line-height: 1.45; overflow-wrap: anywhere; }
 .settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
 @media (max-width: 1250px) { .dashboard { grid-template-columns: 1.3fr 1fr; } .timeline-panel { grid-column: span 1; } }
 @media (max-width: 780px) { .dashboard { grid-template-columns: 1fr; } .map-panel { grid-row: auto; } header { align-items: flex-start; gap: 12px; } .settings-grid { grid-template-columns: 1fr; } }
