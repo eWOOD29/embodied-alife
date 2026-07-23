@@ -102,7 +102,7 @@
         <button id="installUpdate" class="primary" hidden>Download and install</button>
         <a id="releaseLink" target="_blank" rel="noopener noreferrer" hidden>Release notes</a>
       </div>
-      <pre id="updateNotes" hidden></pre>
+      <div id="updateNotes" class="release-notes" hidden></div>
       <p class="muted update-warning">Updates preserve <code>.env</code>, <code>.venv</code>, <code>data/</code>, and <code>.git</code>. The app briefly stops and restarts after verification.</p>
     </section>
 
@@ -135,6 +135,7 @@
   </main>
   <div id="toast"></div>
   <script src="/static/app.js"></script>
+  <script src="/static/release-notes.js"></script>
   <script src="/static/llm-settings.js"></script>
   <script src="/static/diagnostics.js"></script>
 </body>
