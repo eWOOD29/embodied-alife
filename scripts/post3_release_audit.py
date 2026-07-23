@@ -40,8 +40,9 @@ forbidden_content = (
     "post3-final-test-output", "post3-preedit-audit", "github_pat_", "ghp_",
 )
 expected_roots = {
-    ".github", "app", "scripts", "tests", "CHANGELOG.md", "LICENSE", "README.md",
-    "install-windows.ps1", "pyproject.toml", "update-manifest.json",
+    ".env.example", ".github", ".gitignore", "CHANGELOG.md", "README.md", "WINDOWS_SETUP.md",
+    "app", "appdock.json", "docs", "examples", "install-windows.ps1", "pyproject.toml",
+    "scripts", "start-embodied-alife.bat", "start.sh", "tests", "update-manifest.json",
 }
 
 with zipfile.ZipFile(zpath) as archive:
