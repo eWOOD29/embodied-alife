@@ -20,29 +20,14 @@ jobs:
       - name: Install
         run: python -m pip install -e '.[dev]'
       - name: Test
-        shell: bash
-        run: |
-          set -o pipefail
-          python -m pytest -q 2>&1 | tee ci-test-report.txt
+        run: python -m pytest -q
       - name: Compile
         run: python -m compileall -q app tests scripts
       - name: Clean generated validation files
         shell: bash
         run: |
           find app tests scripts -type d -name __pycache__ -prune -exec rm -rf {} +
-          rm -rf .pytest_cache .ruff_cache ci-test-report.txt
+          rm -rf .pytest_cache .ruff_cache
           find data/runtime -maxdepth 1 -type f ! -name .gitkeep -delete
       - name: Validate package
-        shell: bash
-        run: |
-          set -o pipefail
-          python scripts/validate_package.py 2>&1 | tee ci-validation-report.txt
-      - name: Upload temporary CI reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ci-reports
-          path: |
-            ci-test-report.txt
-            ci-validation-report.txt
-          if-no-files-found: ignore
+        run: python scripts/validate_package.py
