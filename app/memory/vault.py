@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import shutil
 import time
 from collections import deque
 from dataclasses import asdict, dataclass
@@ -51,8 +52,56 @@ class MemoryVault:
         self.max_file_bytes = max_file_bytes
         self.max_writes_per_minute = max_writes_per_minute
         self.write_times: deque[float] = deque()
-        for folder in set(CATEGORY_DIRS.values()) | {"memories", "beliefs", "locations", "entities", "projects", "reflections", "daily"}:
+        self._ensure_directories()
+
+    def _ensure_directories(self) -> None:
+        for folder in set(CATEGORY_DIRS.values()) | {
+            "memories",
+            "beliefs",
+            "locations",
+            "entities",
+            "projects",
+            "reflections",
+            "daily",
+            "quarantine",
+        }:
             (self.root / folder).mkdir(parents=True, exist_ok=True)
+
+    def clear(self) -> int:
+        """Delete all active memory files while leaving quarantined history intact."""
+        removed = 0
+        quarantine = (self.root / "quarantine").resolve()
+        for path in list(self.root.rglob("*.md")):
+            resolved = path.resolve()
+            if quarantine == resolved or quarantine in resolved.parents:
+                continue
+            path.unlink(missing_ok=True)
+            removed += 1
+        self.write_times.clear()
+        self._ensure_directories()
+        return removed
+
+    def quarantine_all(self, label: str) -> int:
+        """Move active memories out of retrieval without destroying audit evidence."""
+        safe_label = re.sub(r"[^a-zA-Z0-9._-]+", "-", label).strip("-") or "quarantine"
+        destination = self.root / "quarantine" / safe_label
+        destination.mkdir(parents=True, exist_ok=True)
+        moved = 0
+        quarantine_root = (self.root / "quarantine").resolve()
+        for path in list(self.root.rglob("*.md")):
+            resolved = path.resolve()
+            if quarantine_root == resolved or quarantine_root in resolved.parents:
+                continue
+            relative = path.relative_to(self.root)
+            target = destination / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if target.exists():
+                target = target.with_name(f"{target.stem}-{int(time.time() * 1000)}{target.suffix}")
+            shutil.move(str(path), str(target))
+            moved += 1
+        self.write_times.clear()
+        self._ensure_directories()
+        return moved
 
     def validate(self, request: MemoryWrite) -> None:
         if request.category not in CATEGORY_DIRS:
@@ -126,7 +175,11 @@ class MemoryVault:
 
     def list_records(self) -> list[MemoryRecord]:
         records: list[MemoryRecord] = []
+        quarantine_root = (self.root / "quarantine").resolve()
         for path in sorted(self.root.rglob("*.md")):
+            resolved = path.resolve()
+            if quarantine_root == resolved or quarantine_root in resolved.parents:
+                continue
             try:
                 record = self._parse_file(path)
             except (OSError, ValueError):
