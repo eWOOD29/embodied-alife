@@ -1,50 +1,54 @@
 # Embodied Artificial Life
 
-A local, inspectable artificial-life experiment in which one persistent language-model agent has a body, partial perception, internal needs, durable memories, and a deterministic wilderness that decides what actually happens.
+A local, inspectable artificial-life experiment in which a language-model agent has a body, partial perception, internal needs, beliefs, plans, durable memories, and a deterministic wilderness that decides what actually happens.
 
-The application runs without a model through a deterministic fallback brain and can optionally use any OpenAI-compatible local server such as LM Studio. It includes persistent state, a live observer dashboard, in-app local-model selection, tailnet-only remote access through Tailscale Serve, and verified one-click updates from GitHub Releases.
+The application works without an LLM through a deterministic fallback brain and can optionally use an OpenAI-compatible local server such as LM Studio. It includes persistent state, a live observer dashboard, local-model selection, verified in-app updates, snapshots, diagnostic exports, and multi-day validation tooling.
+
+## Core architecture
+
+```text
+partial perception + body state + memories
+                  ↓
+       local LLM proposal (optional)
+                  ↓
+ deterministic controller validation
+                  ↓
+       authoritative world outcome
+```
+
+The LLM may propose one structured action, a short plan, belief updates, and a memory candidate. It cannot directly move the body, edit the world, access host files, mutate SQLite, execute code, or declare success. The deterministic controller checks target existence, reachability, inventory, terrain, materials, action duration, and interruptions before the world applies consequences.
+
+## Features
+
+- Seeded 128×128 wilderness with terrain, water, resources, shelters, wildlife, weather, temperature, and day/night cycles.
+- Embodied agent state including health, energy, hunger, hydration, sleep pressure, body temperature, pain, inventory, beliefs, plans, explored terrain, and memories.
+- Limited-radius line-of-sight perception separated from the observer's complete map.
+- Deterministic pathfinding, movement, collisions, interaction ranges, action durations, and interruptions.
+- Gathering, eating, drinking, sleeping, resting, exploring, inspecting, dropping, fleeing, speaking, and shelter construction.
+- OpenAI-compatible local-LLM adapter with model discovery, schema validation, retries, timeout handling, usage metrics, and explicit fallback.
+- Outcome-verified durable memories and clean experiment resets that isolate memories between generated worlds.
+- SQLite persistence, snapshots, restart recovery, event history, and model-response history.
+- FastAPI/WebSocket observer dashboard with complete world truth, agent perception, decisions, outcomes, beliefs, needs, resources, NPCs, controls, model settings, and updater status.
+- Diagnostic JSON exports with runtime identity, model/action/memory metrics, anomaly checks, and soak-test readiness.
+- GitHub Release updater with SHA-256 verification, protected paths, rollback, dependency synchronization, graceful shutdown, and restart.
 
 ## Documentation
 
-Start here when continuing development or diagnosing a real installation:
-
-- [`docs/PROJECT_HANDOFF.md`](docs/PROJECT_HANDOFF.md) — canonical architecture, current state, history, lessons, risks, and continuation workflow
-- [`docs/ROADMAP.md`](docs/ROADMAP.md) — prioritized feature and research roadmap
-- [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) — Windows, LM Studio, Tailscale, updater, CI, recovery, and backup procedures
-- [`docs/SOAK_TEST.md`](docs/SOAK_TEST.md) — clean multi-day validation procedure and audit thresholds
-- [`docs/NEW_SESSION_PROMPT.md`](docs/NEW_SESSION_PROMPT.md) — copy-paste prompt for resuming the project in a new ChatGPT session
-- [`WINDOWS_SETUP.md`](WINDOWS_SETUP.md) — current Windows installation and operations guide
+- [`WINDOWS_SETUP.md`](WINDOWS_SETUP.md) — public Windows installation and operation guide
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — design invariants and repository structure
+- [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) — portable troubleshooting procedures
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) — planned research and engineering work
+- [`docs/SOAK_TEST.md`](docs/SOAK_TEST.md) — multi-day validation protocol
 - [`CHANGELOG.md`](CHANGELOG.md) — release history
 
-## Architecture
+## Windows installation
 
-```text
-deterministic world engine
-        ↓
-deterministic body/controller
-        ↓
-local LLM brain (optional)
-```
+Prerequisites:
 
-The LLM interprets observations, proposes a plan and one structured action, updates beliefs, and may request a memory write. It cannot move the body directly, alter SQLite, access host files, execute code, or declare success. The controller checks pathfinding, reachability, inventory, materials, legal terrain, action duration, and interruptions. The world engine applies consequences and returns an explicit result.
-
-## Implemented vertical slice
-
-- Seeded 128×128 wilderness: meadow, forests, water, rocks, cave entrance, and building clearing.
-- Deterministic day/night, temperature, rain/storms, resource regeneration, passive wildlife, and a dangerous wolf.
-- Ari has health, energy, hunger, hydration, temperature, sleep pressure, pain, inventory, beliefs, plans, explored terrain, and memories.
-- Limited-radius line-of-sight perception remains separate from the observer's complete map.
-- Deterministic A* movement, collisions, reachability, action durations, and interruptions.
-- Gathering, eating, drinking, sleeping, resting, exploring, inspecting, dropping, fleeing, speaking, and shelter building.
-- OpenAI-compatible `/v1/chat/completions` adapter with schema validation, retry, timeout handling, usage/latency reporting, and explicit fallback.
-- Dashboard-based model discovery and live settings for LM Studio or another OpenAI-compatible local server.
-- Sandboxed Markdown memory vault with retrieval and sleep consolidation.
-- SQLite state, events, model responses, action results, memories, snapshots, loading, reset, and snapshot forking.
-- FastAPI/WebSocket dashboard with observer truth, agent perception, beliefs, decisions, outcomes, needs, NPCs, resources, controls, model settings, and update status.
-- GitHub Release updater with automatic checks, dashboard notification, SHA-256 verification, safe extraction, rollback, dependency synchronization, coordinated WebSocket shutdown, and restart.
-- Diagnostic schema v3 with model/action/memory metrics, anomaly checks, and machine-readable multi-day scenario coverage.
-
-## Install directly from GitHub
+- Windows 10 or 11
+- [uv](https://docs.astral.sh/uv/) available on `PATH`
+- Python 3.11, which `uv` can install automatically
+- Optional: LM Studio or another OpenAI-compatible local model server
 
 Open PowerShell:
 
@@ -56,86 +60,70 @@ Invoke-WebRequest `
 PowerShell -ExecutionPolicy Bypass -File $installer
 ```
 
-The default installation location is:
+The default installation directory is:
 
 ```text
-C:\Users\ethan\workspace\local-apps\embodied-alife
+%LOCALAPPDATA%\EmbodiedArtificialLife
 ```
 
-The installer downloads the latest custom release asset, verifies its SHA-256 digest, copies only package-managed files, creates or reuses a project-local `.venv`, installs dependencies, preserves existing `.env` and `data/`, validates the package, and launches it.
+Choose another directory with:
 
-For a private repository, see [`WINDOWS_SETUP.md`](WINDOWS_SETUP.md).
+```powershell
+PowerShell -ExecutionPolicy Bypass -File $installer `
+  -InstallPath "D:\Apps\EmbodiedArtificialLife"
+```
+
+The installer downloads the latest custom release asset, verifies its SHA-256 digest, validates archive paths, copies only package-managed files, creates or reuses a project-local `.venv`, installs dependencies, preserves `.env` and `data/`, validates the package, and launches the application.
 
 ## Run
 
-```bash
-cd /c/Users/ethan/workspace/local-apps/embodied-alife
-unset PYTHONPATH
-.venv/Scripts/python.exe -m app.serve
+From PowerShell:
+
+```powershell
+$root = "$env:LOCALAPPDATA\EmbodiedArtificialLife"
+Set-Location $root
+& .\.venv\Scripts\python.exe -m app.serve
 ```
 
-Local URL:
+Or double-click `start-embodied-alife.bat`.
+
+Default endpoints:
 
 ```text
-http://127.0.0.1:8797/
+Dashboard:       http://127.0.0.1:8797/
+Health:          http://127.0.0.1:8797/health
+Soak readiness: http://127.0.0.1:8797/api/validation/readiness
 ```
 
-Health endpoint:
+Use `app.serve`, the included batch launcher, or another process manager that supports graceful shutdown. Raw `uvicorn app.main:app` does not provide the coordinated shutdown hook required by the updater.
 
-```text
-http://127.0.0.1:8797/health
-```
+## Local LLM configuration
 
-Soak-test readiness endpoint:
-
-```text
-http://127.0.0.1:8797/api/validation/readiness
-```
-
-Use `app.serve`, `start-embodied-alife.bat`, or a compatible process manager rather than invoking raw Uvicorn. The managed launcher provides the graceful shutdown hook required by one-click updates.
-
-## Local LLM through LM Studio
-
-1. Load a model in LM Studio.
-2. Start LM Studio's OpenAI-compatible server at `http://127.0.0.1:1234/v1`.
+1. Load a model in LM Studio or another compatible server.
+2. Start its OpenAI-compatible API, commonly at `http://127.0.0.1:1234/v1`.
 3. Open the dashboard's **Local LLM brain** panel.
 4. Click **Discover models**.
-5. Select the exact returned model ID.
+5. Select the exact loaded model ID.
 6. Click **Save and apply**.
 
-Model changes do not require editing `.env` or restarting the app. Runtime LLM settings persist under `data/runtime/llm-settings.json` and survive application updates.
+Runtime model settings are stored under `data/runtime/llm-settings.json` and survive application updates. API keys are excluded from diagnostic exports.
 
-## Tailnet-only remote access
+## Remote access
 
-The currently proven setup is Tailscale Serve proxying the localhost application:
+The application has no independent authentication. Do not expose it through public port forwarding or Tailscale Funnel.
+
+For private tailnet access, Tailscale Serve can proxy the localhost application:
 
 ```powershell
 tailscale serve --bg --https=8797 http://127.0.0.1:8797
 tailscale serve status
 ```
 
-Do not use public port forwarding or Tailscale Funnel. The app currently has no independent authentication. See [`WINDOWS_SETUP.md`](WINDOWS_SETUP.md) and [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) for details.
+Use the HTTPS hostname reported by `tailscale serve status`; hostnames are specific to each user's tailnet and should not be committed to the repository.
 
-## Automatic updates
+## Updates and persistent data
 
-The updater checks GitHub Releases shortly after startup and then periodically. The dashboard displays installed/latest versions, release notes, errors, and an install button when a newer stable release exists.
-
-Before installing, it:
-
-1. reads the latest published GitHub release
-2. locates `embodied-alife-update.zip`
-3. verifies GitHub's SHA-256 asset digest or `embodied-alife-update.zip.sha256`
-4. rejects path traversal, symbolic links, oversized archives, protected paths, malformed manifests, and version mismatches
-5. extracts into `data/runtime/updates/`
-6. launches a separate updater process
-7. closes the dashboard WebSocket and gracefully stops the server
-8. backs up managed files under `data/runtime/update-backups/`
-9. replaces package-managed files only
-10. synchronizes dependencies against the existing project `.venv`
-11. rolls back files if installation or dependency synchronization fails
-12. restarts `python -m app.serve`
-
-These paths are always preserved:
+The updater checks the latest stable GitHub Release and displays a concise release summary in the dashboard. It verifies the release asset before installation and preserves:
 
 ```text
 .env
@@ -144,26 +132,29 @@ data/
 .git/
 ```
 
-Update logs and state are stored under `data/runtime/`.
+Update state, backups, and worker logs live under `data/runtime/`.
 
-## Development and releases
+## Development
 
-Run the local checks from the project root:
+Create a development environment from a source checkout:
 
-```bash
-unset PYTHONPATH
-.venv/Scripts/python.exe -m pytest -q
-.venv/Scripts/python.exe -m compileall -q app tests scripts
-.venv/Scripts/python.exe scripts/validate_package.py
-.venv/Scripts/python.exe scripts/build_release.py --output dist/embodied-alife-update.zip
-.venv/Scripts/ruff.exe check app tests scripts
+```powershell
+uv venv --python 3.11
+uv pip install --python .venv\Scripts\python.exe -e ".[dev]"
+Copy-Item .env.example .env
 ```
 
-Normal releases are automatic. When a coherent release is ready, update matching versions in:
+Run the checks:
 
-```text
-pyproject.toml
-app/version.py
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\python.exe -m compileall -q app tests scripts
+.\.venv\Scripts\python.exe scripts\validate_package.py
+.\.venv\Scripts\ruff.exe check app tests scripts
 ```
 
-The release workflow tests, validates, builds, tags, and publishes the custom ZIP and checksum. Documentation-only commits should not bump the application version.
+Normal releases are built by GitHub Actions after matching version changes in `pyproject.toml` and `app/version.py`. The release workflow tests, validates, builds, tags, and publishes the custom update ZIP and checksum.
+
+## Security and privacy
+
+This repository should contain no personal usernames, private hostnames, local absolute paths, API keys, `.env` contents, runtime databases, memories, diagnostic bundles, or device-specific logs. Use placeholders and environment-variable-based paths in documentation and examples.
