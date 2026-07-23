@@ -36,6 +36,7 @@ jobs:
             echo "SHOULD_RELEASE=true" >> "$GITHUB_ENV"
           else
             echo "SHOULD_RELEASE=false" >> "$GITHUB_ENV"
+            echo "Version update is staged: app=${APP_VERSION}, package=${PACKAGE_VERSION}. Skipping release until both files match."
           fi
       - name: Install
         if: env.SHOULD_RELEASE == 'true'
@@ -45,57 +46,34 @@ jobs:
         run: python scripts/write_build_info.py "$GITHUB_SHA" "$PACKAGE_VERSION"
       - name: Test
         if: env.SHOULD_RELEASE == 'true'
-        id: tests
-        shell: bash
-        run: |
-          mkdir -p dist
-          set +e
-          python -m pytest -q 2>&1 | tee dist/release-test-failure.log
-          STATUS=${PIPESTATUS[0]}
-          echo "status=${STATUS}" >> "$GITHUB_OUTPUT"
-          exit 0
-      - name: Publish failure report to repository
-        if: env.SHOULD_RELEASE == 'true' && steps.tests.outputs.status != '0'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          CONTENT="$(base64 -w 0 dist/release-test-failure.log)"
-          EXISTING_SHA="$(gh api repos/${GITHUB_REPOSITORY}/contents/.github/release-test-failure.log --jq .sha 2>/dev/null || true)"
-          if [ -n "$EXISTING_SHA" ]; then
-            gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/.github/release-test-failure.log" -f message="Update automated release failure report" -f content="$CONTENT" -f sha="$EXISTING_SHA" -f branch="main"
-          else
-            gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/.github/release-test-failure.log" -f message="Add automated release failure report" -f content="$CONTENT" -f branch="main"
-          fi
-      - name: Stop after failed tests
-        if: env.SHOULD_RELEASE == 'true' && steps.tests.outputs.status != '0'
-        run: exit 1
+        run: python -m pytest -q
       - name: Compile
-        if: env.SHOULD_RELEASE == 'true' && steps.tests.outputs.status == '0'
+        if: env.SHOULD_RELEASE == 'true'
         run: python -m compileall -q app tests scripts
       - name: Clean generated validation files
-        if: env.SHOULD_RELEASE == 'true' && steps.tests.outputs.status == '0'
+        if: env.SHOULD_RELEASE == 'true'
         shell: bash
         run: |
           find app tests scripts -type d -name __pycache__ -prune -exec rm -rf {} +
           rm -rf .pytest_cache .ruff_cache
           find data/runtime -maxdepth 1 -type f ! -name .gitkeep -delete
       - name: Validate package
-        if: env.SHOULD_RELEASE == 'true' && steps.tests.outputs.status == '0'
+        if: env.SHOULD_RELEASE == 'true'
         run: python scripts/validate_package.py
       - name: Build update assets
-        if: env.SHOULD_RELEASE == 'true' && steps.tests.outputs.status == '0'
+        if: env.SHOULD_RELEASE == 'true'
         run: python scripts/build_release.py --output dist/embodied-alife-update.zip
       - name: Build concise release notes
-        if: env.SHOULD_RELEASE == 'true' && steps.tests.outputs.status == '0'
+        if: env.SHOULD_RELEASE == 'true'
         run: python scripts/release_notes.py "$PACKAGE_VERSION" dist/release-notes.md
       - name: Tag release commit
-        if: env.SHOULD_RELEASE == 'true' && steps.tests.outputs.status == '0'
+        if: env.SHOULD_RELEASE == 'true'
         shell: bash
         run: |
           if git ls-remote --exit-code --tags origin "refs/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
             TAG_SHA="$(git rev-list -n 1 "${RELEASE_TAG}" 2>/dev/null || true)"
             if [ -n "$TAG_SHA" ] && [ "$TAG_SHA" != "$GITHUB_SHA" ]; then
+              echo "${RELEASE_TAG} already points to a different commit" >&2
               exit 1
             fi
           else
@@ -105,14 +83,26 @@ jobs:
             git push origin "${RELEASE_TAG}"
           fi
       - name: Publish GitHub release
-        if: env.SHOULD_RELEASE == 'true' && steps.tests.outputs.status == '0'
+        if: env.SHOULD_RELEASE == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
-            gh release upload "${RELEASE_TAG}" dist/embodied-alife-update.zip dist/embodied-alife-update.zip.sha256 --clobber
-            gh release edit "${RELEASE_TAG}" --title "Embodied Artificial Life ${RELEASE_TAG}" --notes-file dist/release-notes.md --latest
+            gh release upload "${RELEASE_TAG}" \
+              dist/embodied-alife-update.zip \
+              dist/embodied-alife-update.zip.sha256 \
+              --clobber
+            gh release edit "${RELEASE_TAG}" \
+              --title "Embodied Artificial Life ${RELEASE_TAG}" \
+              --notes-file dist/release-notes.md \
+              --latest
           else
-            gh release create "${RELEASE_TAG}" dist/embodied-alife-update.zip dist/embodied-alife-update.zip.sha256 --target "$GITHUB_SHA" --title "Embodied Artificial Life ${RELEASE_TAG}" --notes-file dist/release-notes.md --latest
+            gh release create "${RELEASE_TAG}" \
+              dist/embodied-alife-update.zip \
+              dist/embodied-alife-update.zip.sha256 \
+              --target "$GITHUB_SHA" \
+              --title "Embodied Artificial Life ${RELEASE_TAG}" \
+              --notes-file dist/release-notes.md \
+              --latest
           fi
