@@ -1,5 +1,6 @@
 name: Post2 remediation
 
+# Synchronization trigger for the temporary default-branch runner.
 on:
   push:
     branches:
