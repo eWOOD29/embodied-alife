@@ -750,24 +750,10 @@
     "zipball_url": "https://api.github.com/repos/eWOOD29/embodied-alife/zipball/v0.4.0.post3"
   },
   "tag_target": "a27f86c6576bb960428e65f7d6d56c227a40c489",
-  "unexpected_root_members": [
-    ".env.example",
-    ".gitignore",
-    "WINDOWS_SETUP.md",
-    "appdock.json",
-    "docs/ARCHITECTURE.md",
-    "docs/COGNITIVE_STATE.md",
-    "docs/ROADMAP.md",
-    "docs/SOAK_TEST.md",
-    "docs/TROUBLESHOOTING.md",
-    "examples/sample_decision.json",
-    "examples/sample_memory_write.json",
-    "start-embodied-alife.bat",
-    "start.sh"
-  ],
+  "unexpected_root_members": [],
   "unmanaged_packaged_files": [],
   "unsafe_paths": [],
-  "verdict": "FAIL",
+  "verdict": "PASS",
   "zip_asset": {
     "browser_download_url": "https://github.com/eWOOD29/embodied-alife/releases/download/v0.4.0.post3/embodied-alife-update.zip",
     "content_type": "application/zip",
