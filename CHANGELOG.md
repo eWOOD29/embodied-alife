@@ -14,6 +14,32 @@ The project uses semantic versioning pragmatically while it is still in early de
 - Added a copy-paste new-session bootstrap prompt.
 - Updated Windows setup guidance to reflect the working LM Studio UI and Tailscale Serve workflow.
 
+## [0.2.9] — 2026-07-23
+
+### Added
+
+- Added stable run and world-generation identifiers to engine state, observer state, awakening events, and clean-reset responses.
+- Added pending-memory events and provenance linking verified memories to model responses, decisions, and authoritative action results.
+- Added quarantine support for pre-integrity memory files under `data/memory/quarantine/`.
+
+### Changed
+
+- **Reset seed** now starts a clean experiment: world history, model-response history, snapshots, active memories, and prior runtime state are cleared before a new world is generated.
+- LLM memory requests are now treated as candidates. They are committed only after the deterministic controller reports a successful final outcome.
+- Verified memories are rewritten from the authoritative action result instead of preserving unverified model claims.
+- The managed launcher now creates only one application/engine instance; importing `app.main` no longer creates an unused engine and database connection.
+- GitHub release bodies are now generated from the matching changelog section so the app displays a concise release summary instead of only an automatic compare link.
+
+### Fixed
+
+- Prevented failed, interrupted, or changed actions from becoming false durable memories.
+- Quarantined existing pre-v0.2.9 active memories because their outcome provenance could not be trusted retroactively.
+- Removed duplicate restore events caused by import-time application construction.
+
+### Tests
+
+- Added regression coverage for failed-action memory rejection, successful outcome-verified memory creation, clean experiment resets, and release-note extraction.
+
 ## [0.2.8] — 2026-07-23
 
 ### Added
