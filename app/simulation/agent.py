@@ -3,15 +3,14 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from app.simulation.belief_store import BeliefStore
 from app.simulation.cognition import (
     AwakeningState,
-    BeliefRecord,
     EpisodeRecord,
     KeyItem,
     MapMarker,
     NoteRecord,
     TaskRecord,
-    migrate_legacy_beliefs,
     starter_key_items,
     starter_tasks,
 )
@@ -45,7 +44,7 @@ class AgentState:
     tasks: dict[str, TaskRecord] = field(default_factory=starter_tasks)
     notes: dict[str, NoteRecord] = field(default_factory=dict)
     map_markers: dict[str, MapMarker] = field(default_factory=dict)
-    beliefs: dict[str, BeliefRecord] = field(default_factory=dict)
+    beliefs: BeliefStore = field(default_factory=BeliefStore)
     short_term_episodes: dict[str, EpisodeRecord] = field(default_factory=dict)
     awakening: AwakeningState = field(default_factory=AwakeningState)
     cognition_schema_version: int = 1
@@ -66,6 +65,11 @@ class AgentState:
     last_damage_time: float = -1.0
     last_decision_reason: str = ""
     decision_source: str = "fallback"
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name == "beliefs" and not isinstance(value, BeliefStore):
+            value = BeliefStore(value)
+        object.__setattr__(self, name, value)
 
     @property
     def inventory_used(self) -> int:
@@ -99,19 +103,13 @@ class AgentState:
         copied["explored"] = set(copied.get("explored", []))
         raw_key_items = copied.get("key_items")
         copied["key_items"] = (
-            {
-                key: KeyItem.from_dict({"key_item_id": key, **value})
-                for key, value in raw_key_items.items()
-            }
+            {key: KeyItem.from_dict({"key_item_id": key, **value}) for key, value in raw_key_items.items()}
             if isinstance(raw_key_items, dict) and raw_key_items
             else starter_key_items()
         )
         raw_tasks = copied.get("tasks")
         copied["tasks"] = (
-            {
-                key: TaskRecord.from_dict({"task_id": key, **value})
-                for key, value in raw_tasks.items()
-            }
+            {key: TaskRecord.from_dict({"task_id": key, **value}) for key, value in raw_tasks.items()}
             if isinstance(raw_tasks, dict) and raw_tasks
             else starter_tasks()
         )
@@ -123,7 +121,7 @@ class AgentState:
             key: MapMarker.from_dict({"marker_id": key, **value})
             for key, value in (copied.get("map_markers") or {}).items()
         }
-        copied["beliefs"] = migrate_legacy_beliefs(copied.get("beliefs"), sim_time=0.0)
+        copied["beliefs"] = BeliefStore(copied.get("beliefs"))
         copied["short_term_episodes"] = {
             key: EpisodeRecord.from_dict({"episode_id": key, **value})
             for key, value in (copied.get("short_term_episodes") or {}).items()
