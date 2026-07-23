@@ -53,6 +53,7 @@ class Database:
                     completion_tokens INTEGER,
                     response_json TEXT NOT NULL,
                     error TEXT,
+                    metadata_json TEXT NOT NULL DEFAULT '{}',
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP
                 );
                 CREATE TABLE IF NOT EXISTS memories (
@@ -66,6 +67,9 @@ class Database:
                 );
                 """
             )
+            columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(model_responses)").fetchall()}
+            if "metadata_json" not in columns:
+                self._conn.execute("ALTER TABLE model_responses ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'")
 
     def _retry(self, operation: Callable[[], T]) -> T:
         last: Exception | None = None
@@ -186,12 +190,17 @@ class Database:
 
     def add_model_response(self, sim_time: float, result: Any) -> int:
         response_json = result.value.model_dump_json() if hasattr(result.value, "model_dump_json") else json.dumps(result.value)
+        provider_metadata = {
+            "finish_reason": getattr(result, "finish_reason", None),
+            "provider_response_id": getattr(result, "provider_response_id", None),
+            "request_attempts": getattr(result, "request_attempts", None),
+        }
 
         def op() -> int:
             with self._conn:
                 cursor = self._conn.execute(
                     """INSERT INTO model_responses(sim_time, source, status, latency_ms, prompt_tokens,
-                    completion_tokens, response_json, error) VALUES(?,?,?,?,?,?,?,?)""",
+                    completion_tokens, response_json, error, metadata_json) VALUES(?,?,?,?,?,?,?,?,?)""",
                     (
                         sim_time,
                         result.source,
@@ -201,6 +210,7 @@ class Database:
                         result.completion_tokens,
                         response_json,
                         result.error,
+                        json.dumps(provider_metadata, separators=(",", ":")),
                     ),
                 )
                 return int(cursor.lastrowid)
@@ -224,6 +234,7 @@ class Database:
                 "completion_tokens": row["completion_tokens"],
                 "response": json.loads(row["response_json"]),
                 "error": row["error"],
+                "provider": json.loads(row["metadata_json"] or "{}"),
                 "created_at": row["created_at"],
             }
             for row in reversed(rows)
