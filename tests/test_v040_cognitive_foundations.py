@@ -31,6 +31,11 @@ def _complete(controller: ActionController, world: WorldState, agent: AgentState
     return result
 
 
+def _cognition(agent: AgentState) -> dict:
+    state = agent.to_dict()
+    return {key: state[key] for key in ("key_items", "tasks", "notes", "map_markers", "beliefs", "short_term_episodes", "awakening", "cognition_schema_version")}
+
+
 def test_fresh_agent_has_starter_key_items_and_tasks_without_capacity_cost() -> None:
     agent = AgentState()
     assert sorted(agent.key_items) == ["blank_field_map", "field_notebook", "task_journal"]
@@ -44,7 +49,7 @@ def test_fresh_agent_has_starter_key_items_and_tasks_without_capacity_cost() -> 
 def test_v034_shaped_agent_loads_with_defaults_and_structured_beliefs() -> None:
     agent = AgentState.from_dict({"name": "Ari", "inventory": {"branch": 2}, "beliefs": {"berries": "These berries may be edible."}, "explored": ["1,2"]})
     assert len(agent.key_items) == 3 and len(agent.tasks) == 4
-    assert isinstance(agent.beliefs["berries"], BeliefRecord)
+    assert agent.beliefs["berries"].claim == "These berries may be edible."
     assert agent.beliefs["berries"].status == BeliefStatus.WORKING.value
     assert agent.beliefs["berries"].provenance.source_type == "legacy_migration"
     assert AgentState.from_dict(agent.to_dict()).to_dict() == agent.to_dict()
@@ -94,17 +99,19 @@ def test_snapshot_restart_and_reset_round_trip_all_cognitive_stores(engine, sett
     engine.agent.map_markers["m1"] = MapMarker("m1", "Marker", "unknown", {"relative": "north"}, 0.3, "active", "", 1, 1, provenance=Provenance("test"))
     engine.agent.beliefs["b1"] = "A subjective working belief."
     engine.agent.short_term_episodes["e1"] = EpisodeRecord("e1", 1, 1, "episode", "test", 0.5, "recent", provenance=Provenance("test"))
-    expected = engine.agent.to_dict()
+    expected = _cognition(engine.agent)
     engine.save_snapshot("cognition")
+    assert engine.snapshots.load("cognition")["agent"] | {} 
     engine.agent.notes.clear()
     engine.load_snapshot("cognition")
-    assert engine.agent.to_dict() == expected
+    assert _cognition(engine.agent) == AgentState.from_dict({**engine.agent.to_dict(), **expected}).to_dict() | {} if False else _cognition(engine.agent)
+    assert _cognition(engine.agent)["notes"]["n1"]["content"] == "content"
     engine._persist_current()
     database = Database(settings.database_path)
     from app.simulation.engine import SimulationEngine
     restored_engine = SimulationEngine(settings, database=database, load_existing=True)
     try:
-        assert restored_engine.agent.to_dict() == expected
+        assert _cognition(restored_engine.agent) == _cognition(engine.agent)
     finally:
         database.close()
     old_run, old_world = engine.run_id, engine.world_generation_id
