@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.4.0.post2] — 2026-07-23
+
+### Fixed
+
+- Replaced recursive marker-dictionary sanitation with an explicit Ari-safe `view_map` projection. Unknown marker fields, observer metadata, absolute locations, provenance details, and private operational data cannot cross the cognition boundary.
+- Added final fixed count and text bounds to every ordinary decision-context source, including key items, tasks, personality traits, active plans, memories, outcomes, known locations, events, beliefs, and malformed extension data.
+- Added controlled finite numeric projection for malformed beliefs, locations, markers, episodes, events, and schema timestamps.
+- Normalized all linked-ID and evidence lists through one stable bounded policy so scalar strings never become character arrays.
+- Changed release packaging to include tracked files only, preventing untracked root-level reports from entering release archives.
+- Reworked the repository-only privacy test so it remains packageable without embedding literal private-machine sentinels in the public archive.
+
+### Tests
+
+- Added exact-branch nested sentinels for the previously vulnerable `map_markers[*].believed_location` path and recursively checked action results, first and normal prompts, fallback context, and observer-diagnostic preservation.
+- Added 10/100/1,000-record growth tests across every ordinary prompt source.
+- Added direct-mutation and legacy-load malformed numeric tests plus repeated linked-list load/save stability checks.
+
 All notable changes to Embodied Artificial Life are documented here.
 
 The project uses semantic versioning pragmatically while it is still in early development. The GitHub release workflow is triggered when both `pyproject.toml` and `app/version.py` are updated on `main`.
