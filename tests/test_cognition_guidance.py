@@ -8,6 +8,7 @@ from app.simulation.affordances import build_action_affordances
 
 
 def test_affordance_map_distinguishes_reachable_and_approach_targets(engine) -> None:
+    engine.agent.hunger = 50.0
     perception = {
         "available_actions": ["move", "move_to", "inspect", "pick_up", "eat"],
         "visible_objects": [
