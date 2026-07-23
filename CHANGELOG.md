@@ -14,6 +14,23 @@ The project uses semantic versioning pragmatically while it is still in early de
 - Added a copy-paste new-session bootstrap prompt.
 - Updated Windows setup guidance to reflect the working LM Studio UI and Tailscale Serve workflow.
 
+## [0.2.8] — 2026-07-23
+
+### Added
+
+- Added a **Download diagnostic logs** dashboard control.
+- Added a timestamped JSON diagnostic bundle containing application/version metadata, health, complete observer state and map, serialized engine state, non-secret LLM configuration and status, update status, durable memories, snapshots, persisted event history, and persisted model-response history.
+- Added diagnostic manifests, section counts, latency/token/error history, attachment filenames, and explicit privacy metadata.
+- Added database queries for persisted events and model responses with identifiers and timestamps.
+
+### Security
+
+- Diagnostic exports explicitly exclude API keys and raw `.env` contents.
+
+### Tests
+
+- Added regression coverage for attachment headers, diagnostic completeness, full-world inclusion, versioning, history counts, and secret exclusion.
+
 ## [0.2.7] — 2026-07-23
 
 ### Fixed
