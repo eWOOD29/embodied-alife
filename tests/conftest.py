@@ -6,7 +6,7 @@ import pytest
 
 from app.config import Settings
 from app.memory.vault import MemoryVault
-from app.simulation.scheduler import SimulationEngine
+from app.simulation.engine import SimulationEngine
 from app.storage.database import Database
 
 
