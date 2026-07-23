@@ -14,6 +14,38 @@ The project uses semantic versioning pragmatically while it is still in early de
 - Added a copy-paste new-session bootstrap prompt.
 - Updated Windows setup guidance to reflect the working LM Studio UI and Tailscale Serve workflow.
 
+## [0.3.1] — 2026-07-23
+
+### Added
+
+- Upgraded diagnostic exports to schema v2 with run, world-generation, build, process, platform, dependency, path, uptime, and launch metadata.
+- Added aggregate model latency/token/success statistics, action success and failure summaries, planning and belief-update counts, and memory candidate/write/rejection metrics.
+- Added LM Studio model-catalog caching plus provider response IDs, finish reasons, and retry counts.
+- Added sanitized tails of persistent runtime logs when available.
+- Added explicit anomaly checks for duplicate live engines, duplicate restore events, and unresolved pending-memory candidates.
+- Added release-build metadata generated from the exact Git commit and packaging time.
+
+### Changed
+
+- A transient malformed generation now marks generation health as failed without incorrectly claiming that the LM Studio server is unreachable.
+- Provider metadata is persisted with each SQLite model-response record and survives restart.
+- Application update status is checked automatically when the dashboard opens.
+- Release summaries render as formatted headings, lists, inline code, emphasis, and links instead of raw Markdown.
+
+### Fixed
+
+- Fixed provider metadata storage for slotted result objects.
+- Fixed the release-note renderer reading a non-global dashboard state variable.
+
+### Security
+
+- Diagnostic exports continue to exclude API keys, raw `.env` contents, authorization headers, and raw prompts.
+- Release-note HTML is generated only after escaping source text.
+
+### Tests
+
+- Added regression coverage for provider metadata round-trips, diagnostic schema v2 sections and metrics, runtime identity, anomaly checks, and secret exclusion.
+
 ## [0.3.0] — 2026-07-23
 
 ### Added
