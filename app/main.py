@@ -63,6 +63,3 @@ def create_app(
         return FileResponse(WEB_DIR / "templates" / "index.html")
 
     return app
-
-
-app = create_app()
