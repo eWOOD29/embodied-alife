@@ -23,21 +23,30 @@ jobs:
       - name: Install
         run: python -m pip install -e '.[dev]'
       - name: Apply post3 remediation
-        run: python scripts/apply_post3_remediation.py
-      - name: Focused test
-        id: focused
-        continue-on-error: true
-        run: python -m pytest -q tests/test_v040_post3_remediation.py tests/test_v040_remediation.py > post3-focused-output.txt 2>&1
-      - name: Commit focused output
+        run: |
+          python scripts/apply_post3_remediation.py
+          python scripts/apply_post3_followup.py
+      - name: Focused tests
+        run: python -m pytest -q tests/test_v040_post3_remediation.py tests/test_v040_remediation.py
+      - name: Full suite
+        run: python -m pytest -q
+      - name: Compile
+        run: python -m compileall -q app tests scripts
+      - name: Clean generated validation files
+        run: |
+          find app tests scripts -type d -name __pycache__ -prune -exec rm -rf {} +
+          rm -rf .pytest_cache .ruff_cache
+          find data/runtime -maxdepth 1 -type f ! -name .gitkeep -delete
+      - name: Validate package
+        run: python scripts/validate_package.py
+      - name: Commit clean tested candidate
         if: github.event_name == 'pull_request'
         run: |
-          git checkout -- app CHANGELOG.md
-          rm -f tests/test_v040_post3_remediation.py
+          rm -f scripts/apply_post3_remediation.py scripts/apply_post3_followup.py
+          rm -f .github/workflows/post3-remediation.yml post3-focused-output.txt
+          git show origin/main:.github/workflows/tests.yml > .github/workflows/tests.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add post3-focused-output.txt
-          git commit -m 'Capture post3 focused validation output'
+          git add -A
+          git commit -m 'Implement bounded post3 cognition projections'
           git push origin HEAD:remediation/v0.4.0-post3
-      - name: Fail when focused tests fail
-        if: steps.focused.outcome == 'failure'
-        run: exit 1
