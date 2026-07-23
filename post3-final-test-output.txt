@@ -1,0 +1,195 @@
+........................................................................ [ 60%]
+......F........................................                          [100%]
+=================================== FAILURES ===================================
+____ test_post3_latest_release_and_verified_staging_accept_post3_over_post2 ____
+
+self = <app.updater.manager.UpdateManager object at 0x7f7d1a0876d0>
+
+    async def prepare_install(self, *, expected_version: str | None = None) -> dict[str, Any]:
+        if not self.settings.update_enabled:
+            raise UpdateError("automatic updates are disabled")
+        if self._release is None or not self.status.update_available:
+            await self.check()
+        async with self._lock:
+            release = self._release
+            if release is None or not self.status.update_available:
+                raise UpdateError("no newer release is available")
+            if expected_version and expected_version != release.version:
+                raise UpdateError("the selected release changed; check for updates again")
+            self.status.state = "downloading"
+            self.status.installing = True
+            self.status.error = None
+            version_dir = self.staging_root / release.version
+            archive_path = version_dir / self.settings.update_asset_name
+            extracted_path = version_dir / "staged"
+            if version_dir.exists():
+                shutil.rmtree(version_dir)
+            version_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                if release.package_asset.size > self.settings.update_max_download_bytes:
+                    raise UpdateValidationError("release package exceeds the configured download size limit")
+                await self._download_asset(release.package_asset, archive_path)
+                expected_hash = await self._expected_hash(release)
+                actual_hash = sha256_file(archive_path)
+                if actual_hash != expected_hash:
+                    raise UpdateValidationError("release package checksum verification failed")
+>               manifest = inspect_update_archive(
+                    archive_path,
+                    max_uncompressed_bytes=self.settings.update_max_extract_bytes,
+                    expected_version=release.version,
+                )
+
+app/updater/manager.py:247: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+archive_path = PosixPath('/tmp/pytest-of-runner/pytest-0/test_post3_latest_release_and_0/data/runtime/updates/0.4.0.post3/embodied-alife-update.zip')
+
+    def inspect_update_archive(
+        archive_path: Path,
+        *,
+        max_uncompressed_bytes: int,
+        expected_version: str | None = None,
+    ) -> dict[str, Any]:
+        try:
+            archive = zipfile.ZipFile(archive_path)
+        except zipfile.BadZipFile as exc:
+            raise UpdateValidationError("downloaded update is not a valid ZIP archive") from exc
+        with archive:
+            members = archive.infolist()
+            if not members or len(members) > MAX_FILE_COUNT:
+                raise UpdateValidationError("update archive has an invalid file count")
+            total_size = 0
+            names: set[str] = set()
+            for member in members:
+                safe = _safe_member_path(member.filename)
+                normalized = safe.as_posix().rstrip("/")
+                if normalized in names and not member.is_dir():
+                    raise UpdateValidationError(f"duplicate archive path: {normalized}")
+                names.add(normalized)
+                total_size += member.file_size
+                if total_size > max_uncompressed_bytes:
+                    raise UpdateValidationError("update archive exceeds the uncompressed size limit")
+                unix_mode = member.external_attr >> 16
+                if unix_mode and stat.S_ISLNK(unix_mode):
+                    raise UpdateValidationError(f"symbolic links are not allowed: {normalized}")
+            required = {MANIFEST_NAME, "pyproject.toml", "app/main.py", "scripts/apply_update.py"}
+            missing = sorted(required - names)
+            if missing:
+>               raise UpdateValidationError(f"update archive is missing required files: {', '.join(missing)}")
+E               app.updater.security.UpdateValidationError: update archive is missing required files: app/main.py, scripts/apply_update.py
+
+app/updater/security.py:79: UpdateValidationError
+
+The above exception was the direct cause of the following exception:
+
+settings = Settings(host='0.0.0.0', port=8797, data_dir=PosixPath('/tmp/pytest-of-runner/pytest-0/test_post3_latest_release_and_0...te_max_extract_bytes=262144000, update_max_release_notes_chars=12000, update_auto_restart=True, update_github_token='')
+tmp_path = PosixPath('/tmp/pytest-of-runner/pytest-0/test_post3_latest_release_and_0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f7d1a087f50>
+
+    @pytest.mark.asyncio
+    async def test_post3_latest_release_and_verified_staging_accept_post3_over_post2(settings, tmp_path: Path, monkeypatch) -> None:
+        version = "0.4.0.post3"
+        package = _package(version)
+        digest = hashlib.sha256(package).hexdigest()
+        payload = _release(package, version)
+    
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/releases/latest"):
+                return httpx.Response(200, json=payload)
+            if request.url.path.endswith("/assets/1"):
+                return httpx.Response(200, content=package)
+            if request.url.path.endswith("/assets/2"):
+                return httpx.Response(200, text=f"{digest}  embodied-alife-update.zip\n")
+            return httpx.Response(404)
+    
+        monkeypatch.setattr(updater_manager, "__version__", "0.4.0.post2")
+        settings.update_repository = "test/project"
+        settings.update_enabled = True
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler), follow_redirects=True)
+        manager = UpdateManager(settings, client=client, project_root=tmp_path / "project")
+        status = await manager.check()
+        assert status["update_available"] is True
+        assert status["latest_version"] == version
+>       prepared = await manager.prepare_install(expected_version=version)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_v040_post3_compatibility.py:83: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <app.updater.manager.UpdateManager object at 0x7f7d1a0876d0>
+
+    async def prepare_install(self, *, expected_version: str | None = None) -> dict[str, Any]:
+        if not self.settings.update_enabled:
+            raise UpdateError("automatic updates are disabled")
+        if self._release is None or not self.status.update_available:
+            await self.check()
+        async with self._lock:
+            release = self._release
+            if release is None or not self.status.update_available:
+                raise UpdateError("no newer release is available")
+            if expected_version and expected_version != release.version:
+                raise UpdateError("the selected release changed; check for updates again")
+            self.status.state = "downloading"
+            self.status.installing = True
+            self.status.error = None
+            version_dir = self.staging_root / release.version
+            archive_path = version_dir / self.settings.update_asset_name
+            extracted_path = version_dir / "staged"
+            if version_dir.exists():
+                shutil.rmtree(version_dir)
+            version_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                if release.package_asset.size > self.settings.update_max_download_bytes:
+                    raise UpdateValidationError("release package exceeds the configured download size limit")
+                await self._download_asset(release.package_asset, archive_path)
+                expected_hash = await self._expected_hash(release)
+                actual_hash = sha256_file(archive_path)
+                if actual_hash != expected_hash:
+                    raise UpdateValidationError("release package checksum verification failed")
+                manifest = inspect_update_archive(
+                    archive_path,
+                    max_uncompressed_bytes=self.settings.update_max_extract_bytes,
+                    expected_version=release.version,
+                )
+                extract_update_archive(archive_path, extracted_path)
+                request = {
+                    "schema_version": 1,
+                    "version": release.version,
+                    "project_root": str(self.project_root),
+                    "staged_path": str(extracted_path),
+                    "parent_pid": self.process_id,
+                    "python_executable": self.python_executable,
+                    "uv_executable": shutil.which("uv"),
+                    "restart": self.settings.update_auto_restart,
+                    "created_at": _now(),
+                    "manifest": manifest,
+                }
+                request_path = version_dir / "install-request.json"
+                request_path.write_text(json.dumps(request, indent=2), encoding="utf-8")
+                self.status.state = "ready"
+                self.status.can_install = True
+                self.status.metadata["staged_path"] = str(extracted_path)
+                self.status.metadata["verified_sha256"] = actual_hash
+                self._persist_status()
+                return {
+                    "ok": True,
+                    "version": release.version,
+                    "request_path": str(request_path),
+                    "verified_sha256": actual_hash,
+                }
+            except Exception as exc:
+                self.status.installing = False
+                self._set_error(_friendly_error(exc))
+>               raise UpdateError(self.status.error or "update preparation failed") from exc
+E               app.updater.manager.UpdateError: update archive is missing required files: app/main.py, scripts/apply_update.py
+
+app/updater/manager.py:281: UpdateError
+=============================== warnings summary ===============================
+../../../../../opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/fastapi/testclient.py:1
+  /opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_v040_post3_compatibility.py::test_post3_latest_release_and_verified_staging_accept_post3_over_post2 - app.updater.manager.UpdateError: update archive is missing required files: app/main.py, scripts/apply_update.py
+1 failed, 118 passed, 1 warning in 2.78s
