@@ -30,6 +30,23 @@ DIRECTION_DELTAS = {
 VIEW_ACTIONS = {"view_map", "view_task_journal", "view_notebook"}
 
 
+def _relative_direction(dx: float, dy: float) -> str:
+    if abs(dx) < 0.5 and abs(dy) < 0.5:
+        return "here"
+    angle = math.degrees(math.atan2(-dy, dx)) % 360
+    labels = ["east", "northeast", "north", "northwest", "west", "southwest", "south", "southeast"]
+    return labels[int((angle + 22.5) // 45) % 8]
+
+
+def _strip_coordinate_fields(value: Any) -> Any:
+    forbidden = {"x", "y", "world_x", "world_y", "coordinates", "absolute_coordinates", "observer_id"}
+    if isinstance(value, dict):
+        return {key: _strip_coordinate_fields(item) for key, item in value.items() if str(key).lower() not in forbidden}
+    if isinstance(value, list):
+        return [_strip_coordinate_fields(item) for item in value]
+    return value
+
+
 class ActionController:
     def __init__(self) -> None:
         self.execution: ActionExecution | None = None
@@ -197,13 +214,44 @@ class ActionController:
         if action == "inspect":
             return ActionResult(True, action, "inspected", f"Inspected {target_id or 'the surroundings'}.")
         if action == "view_map":
-            markers = [marker.to_dict() for marker in agent.map_markers.values() if marker.status != "archived"]
-            known = {key: value for key, value in agent.known_terrain.items()}
+            ax, ay = int(round(agent.x)), int(round(agent.y))
+            cells: list[dict[str, Any]] = []
+            for key, terrain in agent.known_terrain.items():
+                try:
+                    world_x, world_y = (int(part) for part in key.split(",", 1))
+                except (AttributeError, TypeError, ValueError):
+                    continue
+                dx, dy = world_x - ax, world_y - ay
+                cells.append({
+                    "offset_east": dx,
+                    "offset_south": dy,
+                    "distance": round(math.hypot(dx, dy), 1),
+                    "direction": _relative_direction(dx, dy),
+                    "terrain": str(terrain),
+                })
+            cells.sort(key=lambda item: (item["distance"], item["offset_south"], item["offset_east"]))
+            markers: list[dict[str, Any]] = []
+            for marker in agent.map_markers.values():
+                if marker.status == "archived":
+                    continue
+                item = marker.to_dict()
+                location = item.pop("believed_location", None)
+                if isinstance(location, dict) and isinstance(location.get("x"), (int, float)) and isinstance(location.get("y"), (int, float)):
+                    dx, dy = float(location["x"]) - agent.x, float(location["y"]) - agent.y
+                    item["believed_location"] = {
+                        "direction": _relative_direction(dx, dy),
+                        "distance": round(math.hypot(dx, dy), 1),
+                        "offset_east": round(dx, 1),
+                        "offset_south": round(dy, 1),
+                    }
+                elif location is not None:
+                    item["believed_location"] = _strip_coordinate_fields(location)
+                markers.append(_strip_coordinate_fields(item))
             return ActionResult(True, action, "viewed", "Ari reviewed the field map.", {
-                "map_state": "blank" if not markers and not known else "partially_known",
-                "known_terrain": known,
+                "map_state": "blank" if not markers and not cells else "partially_known",
+                "subjective_origin": "Ari's current position",
+                "known_cells": cells,
                 "markers": markers,
-                "observer_truth_included": False,
             })
         if action == "view_task_journal":
             tasks = [task.to_dict() for task in sorted(agent.tasks.values(), key=lambda item: (item.priority, item.created_at))]

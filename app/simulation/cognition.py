@@ -6,6 +6,28 @@ from enum import StrEnum
 from typing import Any
 
 COGNITION_SCHEMA_VERSION = 1
+
+
+def _bounded(value: Any, default: float = 0.5) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        number = default
+    return max(0.0, min(1.0, number))
+
+
+def _status(value: Any, enum_type: type[StrEnum], default: StrEnum) -> str:
+    candidate = str(value or default.value)
+    allowed = {item.value for item in enum_type}
+    return candidate if candidate in allowed else default.value
+
+
+def _dict(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _list(value: Any) -> list[Any]:
+    return list(value) if isinstance(value, (list, tuple, set)) else []
 AWAKENING_NARRATIVE = (
     "I wake beneath an unfamiliar sky with no memory of how I arrived. My body feels real, vulnerable, and entirely my responsibility. "
     "I do not know this land, what lives here, or whether anyone else is nearby.\n\n"
@@ -113,14 +135,14 @@ class TaskRecord:
             title=str(value["title"]),
             description=str(value.get("description", "")),
             created_by=str(value.get("created_by", "system_initialization")),
-            status=str(value.get("status", TaskStatus.PROPOSED.value)),
+            status=_status(value.get("status"), TaskStatus, TaskStatus.PROPOSED),
             priority=int(value.get("priority", 0)),
             created_at=float(value.get("created_at", 0.0)),
             updated_at=float(value.get("updated_at", value.get("created_at", 0.0))),
             parent_task_id=value.get("parent_task_id"),
-            metadata=dict(value.get("metadata") or {}),
-            linked_marker_ids=list(value.get("linked_marker_ids") or []),
-            linked_note_ids=list(value.get("linked_note_ids") or []),
+            metadata=_dict(value.get("metadata")),
+            linked_marker_ids=[str(item) for item in _list(value.get("linked_marker_ids"))],
+            linked_note_ids=[str(item) for item in _list(value.get("linked_note_ids"))],
             provenance=Provenance.from_dict(value.get("provenance")),
         )
 
@@ -147,11 +169,11 @@ class NoteRecord:
             note_id=str(value["note_id"]),
             title=str(value.get("title", "Untitled note")),
             content=str(value.get("content", "")),
-            tags=list(value.get("tags") or []),
-            status=str(value.get("status", NoteStatus.ACTIVE.value)),
+            tags=[str(item) for item in _list(value.get("tags"))],
+            status=_status(value.get("status"), NoteStatus, NoteStatus.ACTIVE),
             created_at=float(value.get("created_at", 0.0)),
             updated_at=float(value.get("updated_at", value.get("created_at", 0.0))),
-            linked_task_ids=list(value.get("linked_task_ids") or []),
+            linked_task_ids=[str(item) for item in _list(value.get("linked_task_ids"))],
             linked_marker_ids=list(value.get("linked_marker_ids") or []),
             provenance=Provenance.from_dict(value.get("provenance")),
         )
@@ -181,9 +203,9 @@ class MapMarker:
             marker_id=str(value["marker_id"]),
             label=str(value.get("label", "Unknown marker")),
             marker_type=str(value.get("marker_type", "unknown")),
-            believed_location=dict(value["believed_location"]) if value.get("believed_location") is not None else None,
-            confidence=float(value.get("confidence", 0.0)),
-            status=str(value.get("status", MarkerStatus.ACTIVE.value)),
+            believed_location=_dict(value.get("believed_location")) or None,
+            confidence=_bounded(value.get("confidence"), 0.0),
+            status=_status(value.get("status"), MarkerStatus, MarkerStatus.ACTIVE),
             notes=str(value.get("notes", "")),
             created_at=float(value.get("created_at", 0.0)),
             updated_at=float(value.get("updated_at", value.get("created_at", 0.0))),
@@ -215,13 +237,13 @@ class BeliefRecord:
         return cls(
             belief_id=str(value["belief_id"]),
             claim=str(value.get("claim", "")),
-            confidence=float(value.get("confidence", 0.5)),
+            confidence=_bounded(value.get("confidence"), 0.5),
             basis=str(value.get("basis", "")),
-            status=str(value.get("status", BeliefStatus.HYPOTHESIS.value)),
+            status=_status(value.get("status"), BeliefStatus, BeliefStatus.HYPOTHESIS),
             first_formed_at=float(value.get("first_formed_at", 0.0)),
             last_tested_at=float(value["last_tested_at"]) if value.get("last_tested_at") is not None else None,
-            supporting_evidence_ids=list(value.get("supporting_evidence_ids") or []),
-            contradicting_evidence_ids=list(value.get("contradicting_evidence_ids") or []),
+            supporting_evidence_ids=[str(item) for item in _list(value.get("supporting_evidence_ids"))],
+            contradicting_evidence_ids=[str(item) for item in _list(value.get("contradicting_evidence_ids"))],
             source_type=str(value.get("source_type", "inference")),
             provenance=Provenance.from_dict(value.get("provenance"), default_source=str(value.get("source_type", "inference"))),
         )
@@ -254,13 +276,13 @@ class EpisodeRecord:
             simulation_timestamp=float(value.get("simulation_timestamp", 0.0)),
             summary=str(value.get("summary", "")),
             category=str(value.get("category", "general")),
-            salience=float(value.get("salience", 0.5)),
-            status=str(value.get("status", EpisodeStatus.RECENT.value)),
+            salience=_bounded(value.get("salience"), 0.5),
+            status=_status(value.get("status"), EpisodeStatus, EpisodeStatus.RECENT),
             linked_task_ids=list(value.get("linked_task_ids") or []),
             linked_note_ids=list(value.get("linked_note_ids") or []),
-            linked_belief_ids=list(value.get("linked_belief_ids") or []),
+            linked_belief_ids=[str(item) for item in _list(value.get("linked_belief_ids"))],
             linked_marker_ids=list(value.get("linked_marker_ids") or []),
-            linked_memory_ids=list(value.get("linked_memory_ids") or []),
+            linked_memory_ids=[str(item) for item in _list(value.get("linked_memory_ids"))],
             provenance=Provenance.from_dict(value.get("provenance"), default_source="event"),
         )
 
@@ -324,8 +346,11 @@ def migrate_legacy_beliefs(value: Any, sim_time: float = 0.0) -> dict[str, Belie
     if isinstance(value, dict):
         for key, raw in value.items():
             if isinstance(raw, dict) and "claim" in raw:
-                record = BeliefRecord.from_dict({"belief_id": str(raw.get("belief_id") or key), **raw})
-            else:
+                try:
+                    record = BeliefRecord.from_dict({"belief_id": str(raw.get("belief_id") or key), **raw})
+                except (KeyError, TypeError, ValueError):
+                    continue
+            elif isinstance(raw, (str, int, float, bool)):
                 record = BeliefRecord(
                     belief_id=str(key),
                     claim=str(raw),
@@ -337,10 +362,15 @@ def migrate_legacy_beliefs(value: Any, sim_time: float = 0.0) -> dict[str, Belie
                     source_type="memory",
                     provenance=Provenance("legacy_migration", source_id=str(key)),
                 )
+            else:
+                continue
             migrated[record.belief_id] = record
     elif isinstance(value, list):
         for raw in value:
-            if isinstance(raw, dict):
-                record = BeliefRecord.from_dict(raw)
+            if isinstance(raw, dict) and raw.get("belief_id") and "claim" in raw:
+                try:
+                    record = BeliefRecord.from_dict(raw)
+                except (KeyError, TypeError, ValueError):
+                    continue
                 migrated[record.belief_id] = record
     return migrated
