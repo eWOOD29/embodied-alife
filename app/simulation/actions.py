@@ -24,15 +24,10 @@ class ActionResult:
 
 
 DIRECTION_DELTAS = {
-    "north": (0, -1),
-    "northeast": (1, -1),
-    "east": (1, 0),
-    "southeast": (1, 1),
-    "south": (0, 1),
-    "southwest": (-1, 1),
-    "west": (-1, 0),
-    "northwest": (-1, -1),
+    "north": (0, -1), "northeast": (1, -1), "east": (1, 0), "southeast": (1, 1),
+    "south": (0, 1), "southwest": (-1, 1), "west": (-1, 0), "northwest": (-1, -1),
 }
+VIEW_ACTIONS = {"view_map", "view_task_journal", "view_notebook"}
 
 
 class ActionController:
@@ -78,16 +73,13 @@ class ActionController:
             if world.tile(int(round(agent.x)), int(round(agent.y))) != Terrain.BUILD_AREA:
                 return ActionResult(False, action, "illegal_location", "A basic shelter can only be built on stable clearing terrain.")
             if agent.inventory.get("branch", 0) < 3 or agent.inventory.get("stone", 0) < 2:
-                return ActionResult(
-                    False,
-                    action,
-                    "missing_materials",
-                    f"A shelter needs 3 branches and 2 stones; inventory has {agent.inventory.get('branch', 0)} branches and {agent.inventory.get('stone', 0)} stones.",
-                )
+                return ActionResult(False, action, "missing_materials", "A shelter needs 3 branches and 2 stones.")
             if world.nearby_shelter(agent.x, agent.y, 2.0):
                 return ActionResult(False, action, "already_built", "A shelter already occupies this location.")
             duration = max(12.0, duration)
         elif action == "drop":
+            if decision.target_id in agent.key_items:
+                return ActionResult(False, action, "key_item_protected", "Key items cannot be dropped.")
             if not decision.target_id or agent.inventory.get(decision.target_id, 0) <= 0:
                 return ActionResult(False, action, "item_missing", "The requested inventory item is unavailable.")
         elif action == "inspect" and decision.target_id:
@@ -96,19 +88,15 @@ class ActionController:
         elif action == "sleep":
             duration = max(15.0, duration)
             agent.sleeping = True
+        elif action in VIEW_ACTIONS:
+            duration = max(0.2, min(duration, 1.0))
         elif action not in {"look", "rest", "speak", "wait"}:
             return ActionResult(False, action, "unsupported_action", "The action is not supported by this controller.")
 
-        self.execution = ActionExecution(
-            action=action,
-            target_id=decision.target_id,
-            remaining=duration,
-            total_duration=duration,
-            path=path,
-            direction=decision.direction,
-            started_at=world.sim_time,
-            metadata=metadata,
-        )
+        if not agent.awakening.presented:
+            agent.awakening.presented = True
+            agent.awakening.presented_at = world.sim_time
+        self.execution = ActionExecution(action, decision.target_id, duration, duration, path, decision.direction, world.sim_time, metadata)
         agent.current_action = self.execution.to_dict()
         agent.current_intention = decision.intent
         agent.last_decision_reason = decision.reason
@@ -142,8 +130,7 @@ class ActionController:
         return ActionResult(False, action, "interrupted", f"Action interrupted: {reason}.")
 
     def _complete(self, execution: ActionExecution, world: WorldState, agent: AgentState) -> ActionResult:
-        action = execution.action
-        target_id = execution.target_id
+        action, target_id = execution.action, execution.target_id
         if action in {"move", "move_to", "flee"}:
             return ActionResult(True, action, "completed", "The body reached the destination.", {"position": [round(agent.x, 2), round(agent.y, 2)]})
         if action == "pick_up":
@@ -164,14 +151,12 @@ class ActionController:
             nutrition, energy = 12.0, 2.0
             if source == "inventory":
                 agent.remove_item(kind, 1)
-                if kind == "berry":
-                    nutrition, energy = 22.0, 5.0
+                if kind == "berry": nutrition, energy = 22.0, 5.0
             else:
                 resource = world.resources[kind]
                 resource.quantity -= 1
                 resource.last_harvest_time = world.sim_time
-                nutrition, energy = resource.nutrition, resource.energy
-                kind = resource.kind
+                nutrition, energy, kind = resource.nutrition, resource.energy, resource.kind
             agent.hunger = max(0.0, agent.hunger - nutrition)
             agent.energy = min(100.0, agent.energy + energy)
             return ActionResult(True, action, "consumed", f"Ari ate {kind}.", {"nutrition": nutrition})
@@ -191,33 +176,41 @@ class ActionController:
                 return ActionResult(False, action, "location_changed", "The build location is no longer legal.")
             if agent.inventory.get("branch", 0) < 3 or agent.inventory.get("stone", 0) < 2:
                 return ActionResult(False, action, "materials_changed", "Required materials were no longer available.")
-            agent.remove_item("branch", 3)
-            agent.remove_item("stone", 2)
+            agent.remove_item("branch", 3); agent.remove_item("stone", 2)
             shelter_id = f"shelter_{len(world.shelters) + 1:02d}"
             shelter = Shelter(shelter_id, int(round(agent.x)), int(round(agent.y)), quality=0.65)
             world.shelters[shelter_id] = shelter
             agent.known_locations[shelter_id] = {"x": shelter.x, "y": shelter.y, "certainty": 1.0, "last_seen": world.sim_time}
             return ActionResult(True, action, "built", "A basic shelter was built from branches and stones.", shelter.to_dict())
         if action == "drop":
+            if target_id in agent.key_items:
+                return ActionResult(False, action, "key_item_protected", "Key items cannot be dropped.")
             if not target_id or not agent.remove_item(target_id, 1):
                 return ActionResult(False, action, "item_missing", "The item is no longer in inventory.")
-            rid = f"dropped_{target_id}_{int(world.sim_time * 10)}"
             from app.simulation.world import Resource
-
+            rid = f"dropped_{target_id}_{int(world.sim_time * 10)}"
             is_edible = target_id in {"berry", "edible_plant"}
-            world.resources[rid] = Resource(
-                rid,
-                target_id,
-                int(round(agent.x)),
-                int(round(agent.y)),
-                edible=is_edible,
+            world.resources[rid] = Resource(rid, target_id, int(round(agent.x)), int(round(agent.y)), edible=is_edible,
                 nutrition=22.0 if target_id == "berry" else (12.0 if is_edible else 0.0),
-                energy=5.0 if target_id == "berry" else (2.0 if is_edible else 0.0),
-            )
+                energy=5.0 if target_id == "berry" else (2.0 if is_edible else 0.0))
             return ActionResult(True, action, "dropped", f"Dropped 1 {target_id}.")
         if action == "inspect":
-            agent.beliefs[f"inspection:{target_id or 'surroundings'}"] = f"Inspected at simulation time {world.sim_time:.1f}; observations remain provisional."
             return ActionResult(True, action, "inspected", f"Inspected {target_id or 'the surroundings'}.")
+        if action == "view_map":
+            markers = [marker.to_dict() for marker in agent.map_markers.values() if marker.status != "archived"]
+            known = {key: value for key, value in agent.known_terrain.items()}
+            return ActionResult(True, action, "viewed", "Ari reviewed the field map.", {
+                "map_state": "blank" if not markers and not known else "partially_known",
+                "known_terrain": known,
+                "markers": markers,
+                "observer_truth_included": False,
+            })
+        if action == "view_task_journal":
+            tasks = [task.to_dict() for task in sorted(agent.tasks.values(), key=lambda item: (item.priority, item.created_at))]
+            return ActionResult(True, action, "viewed", "Ari reviewed the task journal.", {"tasks": tasks})
+        if action == "view_notebook":
+            notes = [note.to_dict() for note in agent.notes.values() if note.status == "active"]
+            return ActionResult(True, action, "viewed", "The field notebook is empty." if not notes else "Ari reviewed the field notebook.", {"notes": notes, "empty": not notes})
         if action == "look":
             return ActionResult(True, action, "observed", "Ari deliberately surveyed the nearby area.")
         if action == "speak":
@@ -227,32 +220,26 @@ class ActionController:
     def _resolve_goal(self, decision: ActionDecision, world: WorldState, agent: AgentState) -> tuple[int, int] | None:
         if decision.action == "flee":
             dangers = [npc for npc in world.npcs.values() if npc.dangerous]
-            if not dangers:
-                return None
+            if not dangers: return None
             nearest = min(dangers, key=lambda npc: math.hypot(npc.x - agent.x, npc.y - agent.y))
             dx, dy = agent.x - nearest.x, agent.y - nearest.y
             norm = max(0.001, math.hypot(dx, dy))
             for distance in (8, 6, 4, 2):
                 goal = (int(round(agent.x + dx / norm * distance)), int(round(agent.y + dy / norm * distance)))
-                if world.is_walkable(*goal):
-                    return goal
+                if world.is_walkable(*goal): return goal
         if decision.target_id:
             resource = world.resources.get(decision.target_id)
-            if resource:
-                return self._adjacent_walkable(world, resource.x, resource.y, agent)
+            if resource: return self._adjacent_walkable(world, resource.x, resource.y, agent)
             npc = world.npcs.get(decision.target_id)
-            if npc:
-                return self._adjacent_walkable(world, int(npc.x), int(npc.y), agent)
+            if npc: return self._adjacent_walkable(world, int(npc.x), int(npc.y), agent)
             location = agent.known_locations.get(decision.target_id)
-            if location:
-                return int(location["x"]), int(location["y"])
+            if location: return int(location["x"]), int(location["y"])
         if decision.direction:
             dx, dy = DIRECTION_DELTAS[decision.direction]
             distance = max(1, min(12, int(round(decision.duration_seconds * agent.movement_speed))))
             for dist in range(distance, 0, -1):
                 goal = (int(round(agent.x)) + dx * dist, int(round(agent.y)) + dy * dist)
-                if world.is_walkable(*goal):
-                    return goal
+                if world.is_walkable(*goal): return goal
         return None
 
     @staticmethod
@@ -264,37 +251,26 @@ class ActionController:
     @staticmethod
     def _near_water(world: WorldState, agent: AgentState) -> bool:
         ax, ay = int(round(agent.x)), int(round(agent.y))
-        return any(
-            world.is_water(x, y)
-            for y in range(max(0, ay - 1), min(world.size, ay + 2))
-            for x in range(max(0, ax - 1), min(world.size, ax + 2))
-        )
+        return any(world.is_water(x, y) for y in range(max(0, ay - 1), min(world.size, ay + 2)) for x in range(max(0, ax - 1), min(world.size, ax + 2)))
 
     @staticmethod
     def _find_edible(target_id: str | None, world: WorldState, agent: AgentState) -> tuple[str, str] | None:
-        if target_id and agent.inventory.get(target_id, 0) > 0 and target_id in {"berry", "edible_plant"}:
-            return "inventory", target_id
+        if target_id and agent.inventory.get(target_id, 0) > 0 and target_id in {"berry", "edible_plant"}: return "inventory", target_id
         for kind in ("berry", "edible_plant"):
-            if agent.inventory.get(kind, 0) > 0:
-                return "inventory", kind
+            if agent.inventory.get(kind, 0) > 0: return "inventory", kind
         if target_id and target_id in world.resources:
             resource = world.resources[target_id]
-            if resource.edible and resource.quantity > 0 and math.hypot(resource.x - agent.x, resource.y - agent.y) <= INTERACTION_RADIUS:
-                return "world", resource.id
+            if resource.edible and resource.quantity > 0 and math.hypot(resource.x - agent.x, resource.y - agent.y) <= INTERACTION_RADIUS: return "world", resource.id
         for resource in world.resources.values():
-            if resource.edible and resource.quantity > 0 and math.hypot(resource.x - agent.x, resource.y - agent.y) <= INTERACTION_RADIUS:
-                return "world", resource.id
+            if resource.edible and resource.quantity > 0 and math.hypot(resource.x - agent.x, resource.y - agent.y) <= INTERACTION_RADIUS: return "world", resource.id
         return None
 
     @staticmethod
     def _target_near(target_id: str, world: WorldState, agent: AgentState, radius: float) -> bool:
         if target_id in world.resources:
-            resource = world.resources[target_id]
-            return math.hypot(resource.x - agent.x, resource.y - agent.y) <= radius
+            resource = world.resources[target_id]; return math.hypot(resource.x - agent.x, resource.y - agent.y) <= radius
         if target_id in world.npcs:
-            npc = world.npcs[target_id]
-            return math.hypot(npc.x - agent.x, npc.y - agent.y) <= radius
+            npc = world.npcs[target_id]; return math.hypot(npc.x - agent.x, npc.y - agent.y) <= radius
         if target_id in agent.known_locations:
-            point = agent.known_locations[target_id]
-            return math.hypot(point["x"] - agent.x, point["y"] - agent.y) <= radius
+            point = agent.known_locations[target_id]; return math.hypot(point["x"] - agent.x, point["y"] - agent.y) <= radius
         return False
