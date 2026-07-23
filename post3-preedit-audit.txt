@@ -1,0 +1,665 @@
+OPERATION_GROUP_COUNT=573
+PRODUCTION_FILES_AUDITED=app/simulation/perception.py,app/simulation/actions.py,app/simulation/engine.py,app/simulation/scheduler.py,app/simulation/agent.py,app/simulation/cognition.py,app/llm/prompts.py,app/llm/fallback.py,app/storage/snapshots.py
+RELATED_FILES:
+.github/workflows/release.yml
+app/updater/__init__.py
+app/updater/manager.py
+app/updater/models.py
+app/updater/security.py
+app/version.py
+app/web/static/release-notes.js
+app/web/static/update-notes.js
+install-windows.ps1
+scripts/apply_update.py
+scripts/build_release.py
+scripts/release_notes.py
+tests/test_release_notes.py
+tests/test_update_shutdown.py
+tests/test_updater.py
+OPERATION_GROUPS:
+001|app/simulation/perception.py|_bounded_pairs|L55|For|for raw_key in sorted(value, key=lambda item: str(item)): key = _truncate(raw_key, key_limit) if not key: continue raw_value = value[raw_key] if isinstance(raw_value, (int, float, bool)): projected: Any = _safe_number(ra
+002|app/simulation/perception.py|_known_tile_summaries|L72|For|for raw_key, raw_terrain in agent.known_terrain.items(): if not isinstance(raw_key, str): continue try: x_text, y_text = raw_key.split(",", 1) world_x, world_y = int(x_text), int(y_text) except (AttributeError, TypeError
+003|app/simulation/perception.py|_belief_summary|L91|For|for key, belief in agent.beliefs.items(): status = str(belief.get("status", "hypothesis")) counts[status] = counts.get(status, 0) + 1 timestamp = _safe_number(belief.get("last_tested_at") or belief.get("first_formed_at")
+004|app/simulation/perception.py|_known_location_summaries|L112|For|for label, raw in sorted(agent.known_locations.items()): if not isinstance(raw, dict): continue x, y = _safe_number(raw.get("x"), math.nan), _safe_number(raw.get("y"), math.nan) if not math.isfinite(x) or not math.isfini
+005|app/simulation/perception.py|build_perception|L176|For|for y in range(max(0, ay - radius), min(world.size, ay + radius + 1)): for x in range(max(0, ax - radius), min(world.size, ax + radius + 1)): distance = math.hypot(x - ax, y - ay) if distance <= radius and has_line_of_si
+006|app/simulation/perception.py|build_perception|L195|For|for resource in world.resources.values(): if resource.quantity <= 0: continue distance = math.hypot(resource.x - agent.x, resource.y - agent.y) if distance <= radius and has_line_of_sight(world, ax, ay, resource.x, resou
+007|app/simulation/perception.py|build_perception|L211|For|for npc in world.npcs.values(): distance = math.hypot(npc.x - agent.x, npc.y - agent.y) if distance <= radius and has_line_of_sight(world, ax, ay, int(npc.x), int(npc.y)): classification = npc.kind if distance <= 4 else 
+008|app/simulation/perception.py|_bounded_pairs|L55|Call|sorted(value, key=lambda item: str(item))
+009|app/simulation/perception.py|_known_tile_summaries|L81|Call|records.sort(key=lambda item: (item[0], item[2], item[1], item[3]))
+010|app/simulation/perception.py|_belief_summary|L91|Call|agent.beliefs.items()
+011|app/simulation/perception.py|_belief_summary|L96|Call|records.sort(key=lambda item: (-item[0], item[1]))
+012|app/simulation/perception.py|_belief_summary|L97|ListComp|[ { "belief_id": _truncate(key, 96), "status": _truncate(belief.get("status", "hypothesis"), 32), "confidence": round(_safe_number(belief.get("confidence", 0.5), 0.5, minimum=0.0, maximum=1.0), 3), "claim": _truncate(bel
+013|app/simulation/perception.py|_known_location_summaries|L112|Call|sorted(agent.known_locations.items())
+014|app/simulation/perception.py|_known_location_summaries|L125|Call|result.sort(key=lambda item: (item["distance"], item["label"]))
+015|app/simulation/perception.py|_direction|L168|Subscript|labels[int((angle + 22.5) // 45) % 8]
+016|app/simulation/perception.py|build_perception|L177|For|for x in range(max(0, ax - radius), min(world.size, ax + radius + 1)): distance = math.hypot(x - ax, y - ay) if distance <= radius and has_line_of_sight(world, ax, ay, x, y): terrain = world.tile(x, y).value terrain_coun
+017|app/simulation/perception.py|build_perception|L224|Call|world.nearby_shelter(agent.x, agent.y, 3.0)
+018|app/simulation/perception.py|build_perception|L248|Call|round(_safe_number(agent.health), 1)
+019|app/simulation/perception.py|build_perception|L249|Call|round(_safe_number(agent.energy), 1)
+020|app/simulation/perception.py|build_perception|L250|Call|round(_safe_number(agent.hunger), 1)
+021|app/simulation/perception.py|build_perception|L251|Call|round(_safe_number(agent.hydration), 1)
+022|app/simulation/perception.py|build_perception|L252|Call|round(_safe_number(agent.sleep_pressure), 1)
+023|app/simulation/perception.py|build_perception|L253|Call|round(_safe_number(agent.body_temperature_c), 2)
+024|app/simulation/perception.py|build_perception|L254|Call|round(_safe_number(agent.pain), 1)
+025|app/simulation/perception.py|build_perception|L255|Call|SimpleNamespace( health=health_reserve, energy=energy_reserve, hunger=hunger_deficit, hydration=hydration_reserve, sleep_pressure=sleep_pressure, body_temperature_c=temperature_c, pain=pain, )
+026|app/simulation/perception.py|_known_tile_summaries|L81|Attribute|records.sort
+027|app/simulation/perception.py|_belief_summary|L91|Attribute|agent.beliefs.items
+028|app/simulation/perception.py|_belief_summary|L96|Attribute|records.sort
+029|app/simulation/perception.py|_belief_summary|L107|Call|len(agent.beliefs)
+030|app/simulation/perception.py|_belief_summary|L107|Call|dict(sorted(counts.items()))
+031|app/simulation/perception.py|_known_location_summaries|L112|Call|agent.known_locations.items()
+032|app/simulation/perception.py|_known_location_summaries|L119|Call|result.append({ "label": _truncate(label, 80), "direction": _direction(dx, dy), "distance": round(math.hypot(dx, dy), 1), "certainty": round(_safe_number(raw.get("certainty", 0.0), 0.0, minimum=0.0, maximum=1.0), 3), })
+033|app/simulation/perception.py|_known_location_summaries|L125|Attribute|result.sort
+034|app/simulation/perception.py|_safe_event_summary|L133|Call|_safe_number(event.get("sim_time"), 0.0)
+035|app/simulation/perception.py|_safe_event_summary|L136|Call|round(_safe_number(event.get("importance"), 0.0, minimum=0.0, maximum=1.0), 3)
+036|app/simulation/perception.py|_direction|L168|BinOp|int((angle + 22.5) // 45) % 8
+037|app/simulation/perception.py|build_perception|L172|Call|_safe_number(agent.x)
+038|app/simulation/perception.py|build_perception|L172|Call|_safe_number(agent.y)
+039|app/simulation/perception.py|build_perception|L173|Call|int(round(agent_x))
+040|app/simulation/perception.py|build_perception|L173|Call|int(round(agent_y))
+041|app/simulation/perception.py|build_perception|L196|Compare|resource.quantity <= 0
+042|app/simulation/perception.py|build_perception|L198|Call|math.hypot(resource.x - agent.x, resource.y - agent.y)
+043|app/simulation/perception.py|build_perception|L212|Call|math.hypot(npc.x - agent.x, npc.y - agent.y)
+044|app/simulation/perception.py|build_perception|L224|Attribute|agent.x
+045|app/simulation/perception.py|build_perception|L224|Attribute|agent.y
+046|app/simulation/perception.py|build_perception|L248|Call|_safe_number(agent.health)
+047|app/simulation/perception.py|build_perception|L249|Call|_safe_number(agent.energy)
+048|app/simulation/perception.py|build_perception|L250|Call|_safe_number(agent.hunger)
+049|app/simulation/perception.py|build_perception|L251|Call|_safe_number(agent.hydration)
+050|app/simulation/perception.py|build_perception|L252|Call|_safe_number(agent.sleep_pressure)
+051|app/simulation/perception.py|build_perception|L253|Call|_safe_number(agent.body_temperature_c)
+052|app/simulation/perception.py|build_perception|L254|Call|_safe_number(agent.pain)
+053|app/simulation/perception.py|build_perception|L267|Call|round(100.0 - hunger_deficit, 1)
+054|app/simulation/perception.py|build_perception|L273|Call|int(_safe_number(agent.inventory_capacity, 0.0, minimum=0.0, maximum=10000.0))
+055|app/simulation/perception.py|build_perception|L287|ListComp|[_truncate(item, KEY_ITEM_ID_LIMIT) for item in sorted(agent.key_items, key=str)[:KEY_ITEM_SUMMARY_LIMIT]]
+056|app/simulation/perception.py|build_perception|L288|Call|len(agent.tasks)
+057|app/simulation/perception.py|build_perception|L289|ListComp|[_truncate(task.title, TASK_TITLE_TEXT_LIMIT) for task in sorted(agent.tasks.values(), key=lambda item: (_safe_number(item.priority), _truncate(item.task_id, 96)))[:TASK_TITLE_SUMMARY_LIMIT]]
+058|app/simulation/perception.py|build_perception|L290|Call|len(agent.notes)
+059|app/simulation/perception.py|build_perception|L291|Call|len(agent.map_markers)
+060|app/simulation/perception.py|build_perception|L292|Call|len(agent.beliefs)
+061|app/simulation/perception.py|build_perception|L301|Subscript|sorted(objects, key=lambda item: item["distance"])[:30]
+062|app/simulation/perception.py|build_perception|L302|Subscript|sorted(entities, key=lambda item: item["distance"])[:12]
+063|app/simulation/perception.py|build_perception|L307|Attribute|world.ambient_temperature_c
+064|app/simulation/perception.py|build_perception|L309|Call|round(world.hour(), 1)
+065|app/simulation/perception.py|build_perception|L310|Call|round(world.daylight(), 2)
+066|app/simulation/perception.py|build_perception|L312|Call|sorted(set(affordances))
+067|app/simulation/perception.py|build_perception|L320|ListComp|[_safe_event_summary(event) for event in agent.recent_events[-10:]]
+068|app/simulation/perception.py|_safe_number|L39|Call|float(value)
+069|app/simulation/perception.py|_belief_summary|L91|Attribute|agent.beliefs
+070|app/simulation/perception.py|_belief_summary|L101|Call|round(_safe_number(belief.get("confidence", 0.5), 0.5, minimum=0.0, maximum=1.0), 3)
+071|app/simulation/perception.py|_belief_summary|L107|Call|sorted(counts.items())
+072|app/simulation/perception.py|_known_location_summaries|L112|Attribute|agent.known_locations.items
+073|app/simulation/perception.py|_known_location_summaries|L118|BinOp|x - _safe_number(agent.x)
+074|app/simulation/perception.py|_known_location_summaries|L118|BinOp|y - _safe_number(agent.y)
+075|app/simulation/perception.py|_safe_event_summary|L133|Call|event.get("sim_time")
+076|app/simulation/perception.py|_direction|L168|Call|int((angle + 22.5) // 45)
+077|app/simulation/perception.py|build_perception|L173|Call|round(agent_x)
+078|app/simulation/perception.py|build_perception|L173|Call|round(agent_y)
+079|app/simulation/perception.py|build_perception|L196|Attribute|resource.quantity
+080|app/simulation/perception.py|build_perception|L198|BinOp|resource.x - agent.x
+081|app/simulation/perception.py|build_perception|L198|BinOp|resource.y - agent.y
+082|app/simulation/perception.py|build_perception|L200|Call|objects.append({ "id": resource.id, "kind": resource.kind, "distance": round(distance, 1), "direction": _direction(resource.x - agent.x, resource.y - agent.y), "quantity": resource.quantity, "portable": resource.portable
+083|app/simulation/perception.py|build_perception|L212|BinOp|npc.x - agent.x
+084|app/simulation/perception.py|build_perception|L212|BinOp|npc.y - agent.y
+085|app/simulation/perception.py|build_perception|L213|Call|has_line_of_sight(world, ax, ay, int(npc.x), int(npc.y))
+086|app/simulation/perception.py|build_perception|L215|Call|entities.append({ "id": npc.id, "classification": classification, "distance": round(distance, 1), "direction": _direction(npc.x - agent.x, npc.y - agent.y), "behavior": npc.state, "danger_signs": npc.dangerous and distan
+087|app/simulation/perception.py|build_perception|L248|Attribute|agent.health
+088|app/simulation/perception.py|build_perception|L249|Attribute|agent.energy
+089|app/simulation/perception.py|build_perception|L250|Attribute|agent.hunger
+090|app/simulation/perception.py|build_perception|L251|Attribute|agent.hydration
+091|app/simulation/perception.py|build_perception|L252|Attribute|agent.sleep_pressure
+092|app/simulation/perception.py|build_perception|L253|Attribute|agent.body_temperature_c
+093|app/simulation/perception.py|build_perception|L254|Attribute|agent.pain
+094|app/simulation/perception.py|build_perception|L267|BinOp|100.0 - hunger_deficit
+095|app/simulation/perception.py|build_perception|L288|Attribute|agent.tasks
+096|app/simulation/perception.py|build_perception|L290|Attribute|agent.notes
+097|app/simulation/perception.py|build_perception|L291|Attribute|agent.map_markers
+098|app/simulation/perception.py|build_perception|L292|Attribute|agent.beliefs
+099|app/simulation/perception.py|build_perception|L301|Call|sorted(objects, key=lambda item: item["distance"])
+100|app/simulation/perception.py|build_perception|L302|Call|sorted(entities, key=lambda item: item["distance"])
+101|app/simulation/perception.py|build_perception|L321|Attribute|agent.recent_events
+102|app/simulation/perception.py|build_perception|L321|Call|_safe_event_summary(agent.recent_events[-1])
+103|app/simulation/perception.py|_known_tile_summaries|L77|Call|int(x_text)
+104|app/simulation/perception.py|_known_tile_summaries|L77|Call|int(y_text)
+105|app/simulation/perception.py|_belief_summary|L101|Call|_safe_number(belief.get("confidence", 0.5), 0.5, minimum=0.0, maximum=1.0)
+106|app/simulation/perception.py|_known_location_summaries|L112|Attribute|agent.known_locations
+107|app/simulation/perception.py|_known_location_summaries|L118|Call|_safe_number(agent.x)
+108|app/simulation/perception.py|_known_location_summaries|L118|Call|_safe_number(agent.y)
+109|app/simulation/perception.py|_known_location_summaries|L122|Call|round(math.hypot(dx, dy), 1)
+110|app/simulation/perception.py|_known_location_summaries|L123|Call|round(_safe_number(raw.get("certainty", 0.0), 0.0, minimum=0.0, maximum=1.0), 3)
+111|app/simulation/perception.py|build_perception|L213|Call|int(npc.x)
+112|app/simulation/perception.py|build_perception|L213|Call|int(npc.y)
+113|app/simulation/perception.py|build_perception|L287|Subscript|sorted(agent.key_items, key=str)[:KEY_ITEM_SUMMARY_LIMIT]
+114|app/simulation/perception.py|build_perception|L289|Subscript|sorted(agent.tasks.values(), key=lambda item: (_safe_number(item.priority), _truncate(item.task_id, 96)))[:TASK_TITLE_SUMMARY_LIMIT]
+115|app/simulation/perception.py|build_perception|L311|Call|round(shelter.quality, 3)
+116|app/simulation/perception.py|build_perception|L320|Subscript|agent.recent_events[-10:]
+117|app/simulation/perception.py|build_perception|L321|Subscript|agent.recent_events[-1]
+118|app/simulation/perception.py|_belief_summary|L101|Call|belief.get("confidence", 0.5)
+119|app/simulation/perception.py|_known_location_summaries|L118|Attribute|agent.x
+120|app/simulation/perception.py|_known_location_summaries|L118|Attribute|agent.y
+121|app/simulation/perception.py|build_perception|L187|Subscript|agent.known_locations["cave_entrance"]
+122|app/simulation/perception.py|build_perception|L203|Call|round(distance, 1)
+123|app/simulation/perception.py|build_perception|L204|Call|_direction(resource.x - agent.x, resource.y - agent.y)
+124|app/simulation/perception.py|build_perception|L219|Call|_direction(npc.x - agent.x, npc.y - agent.y)
+125|app/simulation/perception.py|build_perception|L287|Call|sorted(agent.key_items, key=str)
+126|app/simulation/perception.py|build_perception|L289|Call|sorted(agent.tasks.values(), key=lambda item: (_safe_number(item.priority), _truncate(item.task_id, 96)))
+127|app/simulation/perception.py|build_perception|L187|Attribute|agent.known_locations
+128|app/simulation/perception.py|build_perception|L187|Attribute|world.sim_time
+129|app/simulation/perception.py|build_perception|L189|Subscript|agent.known_locations["stable_clearing"]
+130|app/simulation/perception.py|build_perception|L289|Call|agent.tasks.values()
+131|app/simulation/perception.py|build_perception|L192|Subscript|agent.known_locations[water_key]
+132|app/simulation/perception.py|build_perception|L289|Attribute|agent.tasks.values
+133|app/simulation/perception.py|build_perception|L289|Call|_safe_number(item.priority)
+134|app/simulation/perception.py|build_perception|L289|Attribute|item.priority
+135|app/simulation/actions.py|_relative_direction|L38|Subscript|labels[int((angle + 22.5) // 45) % 8]
+136|app/simulation/actions.py|_ari_location_projection|L123|Call|_finite_number(location.get("confidence"))
+137|app/simulation/actions.py|_ari_location_projection|L124|Compare|confidence is not None
+138|app/simulation/actions.py|_ari_marker_projection|L142|Call|_safe_link_ids(getattr(marker, "linked_task_ids", []), set(agent.tasks))
+139|app/simulation/actions.py|_ari_marker_projection|L143|Call|_safe_link_ids(getattr(marker, "linked_note_ids", []), set(agent.notes))
+140|app/simulation/actions.py|_ari_priority|L181|Call|int(max(-1000.0, min(1000.0, number or 0.0)))
+141|app/simulation/actions.py|_ari_time|L186|Call|round(max(0.0, min(1_000_000_000.0, number or 0.0)), 3)
+142|app/simulation/actions.py|_ari_task_projection|L204|Call|_safe_link_ids(getattr(task, "linked_marker_ids", []), set(agent.map_markers))
+143|app/simulation/actions.py|_ari_task_projection|L205|Call|_safe_link_ids(getattr(task, "linked_note_ids", []), set(agent.notes))
+144|app/simulation/actions.py|_ari_note_projection|L236|Call|_safe_link_ids(getattr(note, "linked_task_ids", []), set(agent.tasks))
+145|app/simulation/actions.py|_ari_note_projection|L237|Call|_safe_link_ids(getattr(note, "linked_marker_ids", []), set(agent.map_markers))
+146|app/simulation/actions.py|_find_edible|L529|For|for resource in world.resources.values(): if resource.edible and resource.quantity > 0 and math.hypot(resource.x - agent.x, resource.y - agent.y) <= INTERACTION_RADIUS: return "world", resource.id
+147|app/simulation/actions.py|_relative_direction|L38|BinOp|int((angle + 22.5) // 45) % 8
+148|app/simulation/actions.py|_finite_number|L74|Call|float(value)
+149|app/simulation/actions.py|_safe_link_ids|L84|Call|sorted(values, key=lambda item: str(item))
+150|app/simulation/actions.py|_ari_location_projection|L119|Call|round(max(0.0, min(distance, 10000.0)), 1)
+151|app/simulation/actions.py|_ari_location_projection|L122|Call|round(max(0.0, min(1.0, uncertainty)), 3)
+152|app/simulation/actions.py|_ari_location_projection|L123|Call|location.get("confidence")
+153|app/simulation/actions.py|_ari_location_projection|L125|Subscript|projected["confidence"]
+154|app/simulation/actions.py|_ari_location_projection|L125|Call|round(max(0.0, min(1.0, confidence)), 3)
+155|app/simulation/actions.py|_ari_marker_projection|L136|Call|round(max(0.0, min(1.0, _finite_number(getattr(marker, "confidence", 0.0), 0.0) or 0.0)), 3)
+156|app/simulation/actions.py|_ari_marker_projection|L142|Call|set(agent.tasks)
+157|app/simulation/actions.py|_ari_marker_projection|L143|Call|set(agent.notes)
+158|app/simulation/actions.py|_ari_task_projection|L196|Call|_ari_priority(getattr(task, "priority", 0))
+159|app/simulation/actions.py|_ari_task_projection|L197|Call|_ari_time(getattr(task, "created_at", 0.0))
+160|app/simulation/actions.py|_ari_task_projection|L198|Call|_ari_time(getattr(task, "updated_at", 0.0))
+161|app/simulation/actions.py|_ari_task_projection|L202|Compare|parent in agent.tasks
+162|app/simulation/actions.py|_ari_task_projection|L204|Call|set(agent.map_markers)
+163|app/simulation/actions.py|_ari_task_projection|L205|Call|set(agent.notes)
+164|app/simulation/actions.py|_ari_note_projection|L220|Call|_ari_time(getattr(note, "created_at", 0.0))
+165|app/simulation/actions.py|_ari_note_projection|L221|Call|_ari_time(getattr(note, "updated_at", 0.0))
+166|app/simulation/actions.py|_ari_note_projection|L236|Call|set(agent.tasks)
+167|app/simulation/actions.py|_ari_note_projection|L237|Call|set(agent.map_markers)
+168|app/simulation/actions.py|start|L311|Call|ActionExecution(action, decision.target_id, duration, duration, path, decision.direction, world.sim_time, metadata)
+169|app/simulation/actions.py|_complete|L417|For|for key, terrain in known_terrain.items(): try: world_x, world_y = (int(part) for part in key.split(",", 1)) except (AttributeError, TypeError, ValueError, OverflowError): continue dx, dy = world_x - ax, world_y - ay cel
+170|app/simulation/actions.py|_complete|L457|For|for item in tasks: status_counts[item["status"]] = status_counts.get(item["status"], 0) + 1
+171|app/simulation/actions.py|_resolve_goal|L492|For|for distance in (8, 6, 4, 2): goal = (int(round(agent.x + dx / norm * distance)), int(round(agent.y + dy / norm * distance))) if world.is_walkable(*goal): return goal
+172|app/simulation/actions.py|_resolve_goal|L505|For|for dist in range(distance, 0, -1): goal = (int(round(agent.x)) + dx * dist, int(round(agent.y)) + dy * dist) if world.is_walkable(*goal): return goal
+173|app/simulation/actions.py|_target_near|L539|Compare|target_id in agent.known_locations
+174|app/simulation/actions.py|_relative_direction|L38|Call|int((angle + 22.5) // 45)
+175|app/simulation/actions.py|_ari_location_projection|L102|BinOp|world_x - _finite_number(agent.x, 0.0)
+176|app/simulation/actions.py|_ari_location_projection|L102|BinOp|world_y - _finite_number(agent.y, 0.0)
+177|app/simulation/actions.py|_ari_location_projection|L106|Call|round(math.hypot(dx, dy), 1)
+178|app/simulation/actions.py|_ari_location_projection|L107|Call|round(dx, 1)
+179|app/simulation/actions.py|_ari_location_projection|L108|Call|round(dy, 1)
+180|app/simulation/actions.py|_ari_location_projection|L125|Call|max(0.0, min(1.0, confidence))
+181|app/simulation/actions.py|_ari_marker_projection|L136|Call|max(0.0, min(1.0, _finite_number(getattr(marker, "confidence", 0.0), 0.0) or 0.0))
+182|app/simulation/actions.py|_ari_marker_projection|L142|Attribute|agent.tasks
+183|app/simulation/actions.py|_ari_marker_projection|L143|Attribute|agent.notes
+184|app/simulation/actions.py|_ari_task_projection|L196|Call|getattr(task, "priority", 0)
+185|app/simulation/actions.py|_ari_task_projection|L197|Call|getattr(task, "created_at", 0.0)
+186|app/simulation/actions.py|_ari_task_projection|L198|Call|getattr(task, "updated_at", 0.0)
+187|app/simulation/actions.py|_ari_task_projection|L202|Attribute|agent.tasks
+188|app/simulation/actions.py|_ari_task_projection|L204|Attribute|agent.map_markers
+189|app/simulation/actions.py|_ari_task_projection|L205|Attribute|agent.notes
+190|app/simulation/actions.py|_ari_note_projection|L220|Call|getattr(note, "created_at", 0.0)
+191|app/simulation/actions.py|_ari_note_projection|L221|Call|getattr(note, "updated_at", 0.0)
+192|app/simulation/actions.py|_ari_note_projection|L227|Call|sorted(raw_tags, key=lambda value: str(value))
+193|app/simulation/actions.py|_ari_note_projection|L236|Attribute|agent.tasks
+194|app/simulation/actions.py|_ari_note_projection|L237|Attribute|agent.map_markers
+195|app/simulation/actions.py|start|L263|Call|astar(world, (int(round(agent.x)), int(round(agent.y))), goal)
+196|app/simulation/actions.py|start|L266|Call|max(duration, max(0.5, len(path) / max(0.25, agent.movement_speed)))
+197|app/simulation/actions.py|start|L310|Attribute|world.sim_time
+198|app/simulation/actions.py|_complete|L347|Call|ActionResult(True, action, "completed", "The body reached the destination.", {"position": [round(agent.x, 2), round(agent.y, 2)]})
+199|app/simulation/actions.py|_complete|L355|Attribute|resource.quantity
+200|app/simulation/actions.py|_complete|L356|Attribute|world.sim_time
+201|app/simulation/actions.py|_complete|L372|Attribute|agent.hunger
+202|app/simulation/actions.py|_complete|L372|Call|max(0.0, agent.hunger - nutrition)
+203|app/simulation/actions.py|_complete|L373|Attribute|agent.energy
+204|app/simulation/actions.py|_complete|L373|Call|min(100.0, agent.energy + energy)
+205|app/simulation/actions.py|_complete|L374|Call|ActionResult(True, action, "consumed", f"Ari ate {kind}.", {"nutrition": nutrition})
+206|app/simulation/actions.py|_complete|L378|Attribute|agent.hydration
+207|app/simulation/actions.py|_complete|L378|Call|min(100.0, agent.hydration + 42.0)
+208|app/simulation/actions.py|_complete|L379|Call|ActionResult(True, action, "drank", "Ari drank from nearby water.", {"hydration_restored": 42.0})
+209|app/simulation/actions.py|_complete|L384|Call|min(100.0, agent.energy + 5.0)
+210|app/simulation/actions.py|_complete|L387|Compare|world.tile(int(round(agent.x)), int(round(agent.y))) != Terrain.BUILD_AREA
+211|app/simulation/actions.py|_complete|L393|Call|Shelter(shelter_id, int(round(agent.x)), int(round(agent.y)), quality=0.65)
+212|app/simulation/actions.py|_complete|L395|Subscript|agent.known_locations[shelter_id]
+213|app/simulation/actions.py|_complete|L405|Call|Resource(rid, target_id, int(round(agent.x)), int(round(agent.y)), edible=is_edible, nutrition=22.0 if target_id == "berry" else (12.0 if is_edible else 0.0), energy=5.0 if target_id == "berry" else (2.0 if is_edible els
+214|app/simulation/actions.py|_complete|L430|Call|cells.sort(key=lambda item: (item["distance"], item["offset_south"], item["offset_east"], item["terrain"]))
+215|app/simulation/actions.py|_complete|L439|Call|markers.sort(key=lambda item: (item.get("status", ""), item.get("label", ""), item.get("marker_id", "")))
+216|app/simulation/actions.py|_complete|L455|Call|tasks.sort(key=lambda item: (item["priority"], item["created_at"], item["task_id"]))
+217|app/simulation/actions.py|_complete|L459|Subscript|tasks[:ARI_TASK_LIMIT]
+218|app/simulation/actions.py|_complete|L460|Call|ActionResult(True, action, "viewed", "Ari reviewed the task journal.", { "tasks": visible, "total_tasks": len(tasks), "visible_tasks": len(visible), "status_counts": dict(sorted(status_counts.items())), })
+219|app/simulation/actions.py|_complete|L469|ListComp|[item for item in notes if item["status"] == "active"]
+220|app/simulation/actions.py|_complete|L470|Call|active.sort(key=lambda item: (-item["updated_at"], item["note_id"]))
+221|app/simulation/actions.py|_complete|L472|Call|ActionResult(True, action, "viewed", "The field notebook is empty." if not active else "Ari reviewed the field notebook.", { "notes": visible, "empty": not active, "total_notes": len(notes), "total_active_notes": len(act
+222|app/simulation/actions.py|_resolve_goal|L489|Call|min(dangers, key=lambda npc: math.hypot(npc.x - agent.x, npc.y - agent.y))
+223|app/simulation/actions.py|_resolve_goal|L500|Call|agent.known_locations.get(decision.target_id)
+224|app/simulation/actions.py|_resolve_goal|L504|Call|max(1, min(12, int(round(decision.duration_seconds * agent.movement_speed))))
+225|app/simulation/actions.py|_adjacent_walkable|L514|Call|min(valid, key=lambda point: math.hypot(point[0] - agent.x, point[1] - agent.y))
+226|app/simulation/actions.py|_near_water|L518|Call|int(round(agent.x))
+227|app/simulation/actions.py|_near_water|L518|Call|int(round(agent.y))
+228|app/simulation/actions.py|_target_near|L536|Compare|math.hypot(resource.x - agent.x, resource.y - agent.y) <= radius
+229|app/simulation/actions.py|_target_near|L538|Compare|math.hypot(npc.x - agent.x, npc.y - agent.y) <= radius
+230|app/simulation/actions.py|_target_near|L539|Attribute|agent.known_locations
+231|app/simulation/actions.py|_target_near|L540|Subscript|agent.known_locations[target_id]
+232|app/simulation/actions.py|_target_near|L540|Compare|math.hypot(point["x"] - agent.x, point["y"] - agent.y) <= radius
+233|app/simulation/actions.py|_ari_location_projection|L102|Call|_finite_number(agent.x, 0.0)
+234|app/simulation/actions.py|_ari_location_projection|L102|Call|_finite_number(agent.y, 0.0)
+235|app/simulation/actions.py|_ari_location_projection|L125|Call|min(1.0, confidence)
+236|app/simulation/actions.py|_ari_marker_projection|L136|Call|min(1.0, _finite_number(getattr(marker, "confidence", 0.0), 0.0) or 0.0)
+237|app/simulation/actions.py|start|L264|Compare|goal != (int(round(agent.x)), int(round(agent.y)))
+238|app/simulation/actions.py|start|L266|Call|max(0.5, len(path) / max(0.25, agent.movement_speed))
+239|app/simulation/actions.py|start|L272|Compare|math.hypot(resource.x - agent.x, resource.y - agent.y) > INTERACTION_RADIUS
+240|app/simulation/actions.py|_complete|L350|Compare|resource.quantity <= 0
+241|app/simulation/actions.py|_complete|L350|Compare|math.hypot(resource.x - agent.x, resource.y - agent.y) > INTERACTION_RADIUS
+242|app/simulation/actions.py|_complete|L372|BinOp|agent.hunger - nutrition
+243|app/simulation/actions.py|_complete|L373|BinOp|agent.energy + energy
+244|app/simulation/actions.py|_complete|L378|BinOp|agent.hydration + 42.0
+245|app/simulation/actions.py|_complete|L384|BinOp|agent.energy + 5.0
+246|app/simulation/actions.py|_complete|L387|Call|world.tile(int(round(agent.x)), int(round(agent.y)))
+247|app/simulation/actions.py|_complete|L393|Call|int(round(agent.x))
+248|app/simulation/actions.py|_complete|L393|Call|int(round(agent.y))
+249|app/simulation/actions.py|_complete|L395|Attribute|agent.known_locations
+250|app/simulation/actions.py|_complete|L412|Call|_finite_number(agent.x, 0.0)
+251|app/simulation/actions.py|_complete|L413|Call|_finite_number(agent.y, 0.0)
+252|app/simulation/actions.py|_complete|L414|Call|int(round(agent_x))
+253|app/simulation/actions.py|_complete|L414|Call|int(round(agent_y))
+254|app/simulation/actions.py|_complete|L423|Call|cells.append({ "offset_east": dx, "offset_south": dy, "distance": round(math.hypot(dx, dy), 1), "direction": _relative_direction(dx, dy), "terrain": _bounded_text(terrain, 64), })
+255|app/simulation/actions.py|_complete|L430|Attribute|cells.sort
+256|app/simulation/actions.py|_complete|L434|Call|isinstance(agent.map_markers, dict)
+257|app/simulation/actions.py|_complete|L434|Call|agent.map_markers.values()
+258|app/simulation/actions.py|_complete|L439|Attribute|markers.sort
+259|app/simulation/actions.py|_complete|L453|Call|isinstance(agent.tasks, dict)
+260|app/simulation/actions.py|_complete|L453|Call|list(agent.tasks.values())
+261|app/simulation/actions.py|_complete|L455|Attribute|tasks.sort
+262|app/simulation/actions.py|_complete|L467|Call|isinstance(agent.notes, dict)
+263|app/simulation/actions.py|_complete|L467|Call|list(agent.notes.values())
+264|app/simulation/actions.py|_complete|L470|Attribute|active.sort
+265|app/simulation/actions.py|_resolve_goal|L490|BinOp|agent.x - nearest.x
+266|app/simulation/actions.py|_resolve_goal|L490|BinOp|agent.y - nearest.y
+267|app/simulation/actions.py|_resolve_goal|L499|Call|self._adjacent_walkable(world, int(npc.x), int(npc.y), agent)
+268|app/simulation/actions.py|_resolve_goal|L500|Attribute|agent.known_locations.get
+269|app/simulation/actions.py|_resolve_goal|L504|Call|min(12, int(round(decision.duration_seconds * agent.movement_speed)))
+270|app/simulation/actions.py|_near_water|L518|Call|round(agent.x)
+271|app/simulation/actions.py|_near_water|L518|Call|round(agent.y)
+272|app/simulation/actions.py|_find_edible|L528|Compare|resource.quantity > 0
+273|app/simulation/actions.py|_find_edible|L528|Compare|math.hypot(resource.x - agent.x, resource.y - agent.y) <= INTERACTION_RADIUS
+274|app/simulation/actions.py|_target_near|L536|Call|math.hypot(resource.x - agent.x, resource.y - agent.y)
+275|app/simulation/actions.py|_target_near|L538|Call|math.hypot(npc.x - agent.x, npc.y - agent.y)
+276|app/simulation/actions.py|_target_near|L540|Call|math.hypot(point["x"] - agent.x, point["y"] - agent.y)
+277|app/simulation/actions.py|_ari_location_projection|L102|Attribute|agent.x
+278|app/simulation/actions.py|_ari_location_projection|L102|Attribute|agent.y
+279|app/simulation/actions.py|start|L263|Call|int(round(agent.x))
+280|app/simulation/actions.py|start|L263|Call|int(round(agent.y))
+281|app/simulation/actions.py|start|L266|BinOp|len(path) / max(0.25, agent.movement_speed)
+282|app/simulation/actions.py|start|L270|Compare|resource.quantity <= 0
+283|app/simulation/actions.py|start|L272|Call|math.hypot(resource.x - agent.x, resource.y - agent.y)
+284|app/simulation/actions.py|_complete|L350|Call|math.hypot(resource.x - agent.x, resource.y - agent.y)
+285|app/simulation/actions.py|_complete|L371|Attribute|resource.nutrition
+286|app/simulation/actions.py|_complete|L371|Attribute|resource.energy
+287|app/simulation/actions.py|_complete|L393|Call|round(agent.x)
+288|app/simulation/actions.py|_complete|L393|Call|round(agent.y)
+289|app/simulation/actions.py|_complete|L403|Call|int(world.sim_time * 10)
+290|app/simulation/actions.py|_complete|L412|Attribute|agent.x
+291|app/simulation/actions.py|_complete|L413|Attribute|agent.y
+292|app/simulation/actions.py|_complete|L414|Call|round(agent_x)
+293|app/simulation/actions.py|_complete|L414|Call|round(agent_y)
+294|app/simulation/actions.py|_complete|L434|Attribute|agent.map_markers
+295|app/simulation/actions.py|_complete|L434|Attribute|agent.map_markers.values
+296|app/simulation/actions.py|_complete|L453|Attribute|agent.tasks
+297|app/simulation/actions.py|_complete|L453|Call|agent.tasks.values()
+298|app/simulation/actions.py|_complete|L462|Call|len(tasks)
+299|app/simulation/actions.py|_complete|L464|Call|dict(sorted(status_counts.items()))
+300|app/simulation/actions.py|_complete|L467|Attribute|agent.notes
+301|app/simulation/actions.py|_complete|L467|Call|agent.notes.values()
+302|app/simulation/actions.py|_complete|L475|Call|len(notes)
+303|app/simulation/actions.py|_resolve_goal|L490|Attribute|agent.x
+304|app/simulation/actions.py|_resolve_goal|L490|Attribute|agent.y
+305|app/simulation/actions.py|_resolve_goal|L493|Call|int(round(agent.x + dx / norm * distance))
+306|app/simulation/actions.py|_resolve_goal|L493|Call|int(round(agent.y + dy / norm * distance))
+307|app/simulation/actions.py|_resolve_goal|L499|Call|int(npc.x)
+308|app/simulation/actions.py|_resolve_goal|L499|Call|int(npc.y)
+309|app/simulation/actions.py|_resolve_goal|L500|Attribute|agent.known_locations
+310|app/simulation/actions.py|_resolve_goal|L501|Call|int(location["x"])
+311|app/simulation/actions.py|_resolve_goal|L501|Call|int(location["y"])
+312|app/simulation/actions.py|_resolve_goal|L504|Call|int(round(decision.duration_seconds * agent.movement_speed))
+313|app/simulation/actions.py|_resolve_goal|L506|BinOp|int(round(agent.x)) + dx * dist
+314|app/simulation/actions.py|_resolve_goal|L506|BinOp|int(round(agent.y)) + dy * dist
+315|app/simulation/actions.py|_near_water|L518|Attribute|agent.x
+316|app/simulation/actions.py|_near_water|L518|Attribute|agent.y
+317|app/simulation/actions.py|_find_edible|L528|Attribute|resource.quantity
+318|app/simulation/actions.py|_find_edible|L528|Call|math.hypot(resource.x - agent.x, resource.y - agent.y)
+319|app/simulation/actions.py|_target_near|L536|BinOp|resource.x - agent.x
+320|app/simulation/actions.py|_target_near|L536|BinOp|resource.y - agent.y
+321|app/simulation/actions.py|_target_near|L538|BinOp|npc.x - agent.x
+322|app/simulation/actions.py|_target_near|L538|BinOp|npc.y - agent.y
+323|app/simulation/actions.py|_target_near|L540|BinOp|point["x"] - agent.x
+324|app/simulation/actions.py|_target_near|L540|BinOp|point["y"] - agent.y
+325|app/simulation/actions.py|_ari_marker_projection|L136|Call|_finite_number(getattr(marker, "confidence", 0.0), 0.0)
+326|app/simulation/actions.py|start|L263|Call|round(agent.x)
+327|app/simulation/actions.py|start|L263|Call|round(agent.y)
+328|app/simulation/actions.py|start|L266|Call|max(0.25, agent.movement_speed)
+329|app/simulation/actions.py|start|L270|Attribute|resource.quantity
+330|app/simulation/actions.py|start|L272|BinOp|resource.x - agent.x
+331|app/simulation/actions.py|start|L272|BinOp|resource.y - agent.y
+332|app/simulation/actions.py|_complete|L347|Call|round(agent.x, 2)
+333|app/simulation/actions.py|_complete|L347|Call|round(agent.y, 2)
+334|app/simulation/actions.py|_complete|L350|BinOp|resource.x - agent.x
+335|app/simulation/actions.py|_complete|L350|BinOp|resource.y - agent.y
+336|app/simulation/actions.py|_complete|L403|BinOp|world.sim_time * 10
+337|app/simulation/actions.py|_complete|L419|Call|int(part)
+338|app/simulation/actions.py|_complete|L426|Call|round(math.hypot(dx, dy), 1)
+339|app/simulation/actions.py|_complete|L453|Attribute|agent.tasks.values
+340|app/simulation/actions.py|_complete|L464|Call|sorted(status_counts.items())
+341|app/simulation/actions.py|_complete|L467|Attribute|agent.notes.values
+342|app/simulation/actions.py|_resolve_goal|L489|Call|math.hypot(npc.x - agent.x, npc.y - agent.y)
+343|app/simulation/actions.py|_resolve_goal|L493|Call|round(agent.x + dx / norm * distance)
+344|app/simulation/actions.py|_resolve_goal|L493|Call|round(agent.y + dy / norm * distance)
+345|app/simulation/actions.py|_resolve_goal|L504|Call|round(decision.duration_seconds * agent.movement_speed)
+346|app/simulation/actions.py|_resolve_goal|L506|Call|int(round(agent.x))
+347|app/simulation/actions.py|_resolve_goal|L506|Call|int(round(agent.y))
+348|app/simulation/actions.py|_adjacent_walkable|L514|Call|math.hypot(point[0] - agent.x, point[1] - agent.y)
+349|app/simulation/actions.py|_find_edible|L528|BinOp|resource.x - agent.x
+350|app/simulation/actions.py|_find_edible|L528|BinOp|resource.y - agent.y
+351|app/simulation/actions.py|_target_near|L536|Attribute|agent.x
+352|app/simulation/actions.py|_target_near|L536|Attribute|agent.y
+353|app/simulation/actions.py|_ari_marker_projection|L136|Call|getattr(marker, "confidence", 0.0)
+354|app/simulation/actions.py|start|L263|Attribute|agent.x
+355|app/simulation/actions.py|start|L263|Attribute|agent.y
+356|app/simulation/actions.py|start|L266|Attribute|agent.movement_speed
+357|app/simulation/actions.py|start|L285|Compare|world.tile(int(round(agent.x)), int(round(agent.y))) != Terrain.BUILD_AREA
+358|app/simulation/actions.py|start|L289|Call|world.nearby_shelter(agent.x, agent.y, 2.0)
+359|app/simulation/actions.py|_complete|L455|Subscript|item["priority"]
+360|app/simulation/actions.py|_complete|L455|Subscript|item["created_at"]
+361|app/simulation/actions.py|_resolve_goal|L489|BinOp|npc.x - agent.x
+362|app/simulation/actions.py|_resolve_goal|L489|BinOp|npc.y - agent.y
+363|app/simulation/actions.py|_resolve_goal|L493|BinOp|agent.x + dx / norm * distance
+364|app/simulation/actions.py|_resolve_goal|L493|BinOp|agent.y + dy / norm * distance
+365|app/simulation/actions.py|_resolve_goal|L504|BinOp|decision.duration_seconds * agent.movement_speed
+366|app/simulation/actions.py|_resolve_goal|L506|Call|round(agent.x)
+367|app/simulation/actions.py|_resolve_goal|L506|Call|round(agent.y)
+368|app/simulation/actions.py|_adjacent_walkable|L514|BinOp|point[0] - agent.x
+369|app/simulation/actions.py|_adjacent_walkable|L514|BinOp|point[1] - agent.y
+370|app/simulation/actions.py|_find_edible|L528|Attribute|agent.x
+371|app/simulation/actions.py|_find_edible|L528|Attribute|agent.y
+372|app/simulation/actions.py|start|L285|Call|world.tile(int(round(agent.x)), int(round(agent.y)))
+373|app/simulation/actions.py|_complete|L470|Subscript|item["updated_at"]
+374|app/simulation/actions.py|_resolve_goal|L504|Attribute|agent.movement_speed
+375|app/simulation/actions.py|_adjacent_walkable|L514|Attribute|agent.x
+376|app/simulation/actions.py|_adjacent_walkable|L514|Attribute|agent.y
+377|app/simulation/engine.py|_recent_action_outcomes|L58|For|for event in self.events: if event.get("kind") == "decision": current_decision = (event.get("data") or {}).get("decision") or {} continue if event.get("kind") != "action_result": continue result = event.get("data") or {}
+378|app/simulation/engine.py|make_decision|L301|For|for key, value in decision.belief_updates.items(): safe_key = key.strip()[:100] safe_value = value.strip()[:500] if safe_key and safe_value: self.agent.beliefs[safe_key] = safe_value
+379|app/simulation/engine.py|_verified_memory_request_from|L218|Call|MemoryWrite( category=candidate["category"], title=f"Verified {result.action.replace('_', ' ')} outcome: {target}"[:120], content=content, importance=float(candidate.get("importance", 0.5)), tags=tags, )
+380|app/simulation/engine.py|make_decision|L242|Call|next( (event for event in self.agent.recent_events[-4:] if event.get("kind") == "consolidation_due"), None, )
+381|app/simulation/engine.py|make_decision|L270|Call|retrieve_memories( self.vault.list_records(), " ".join(query_parts), tags=tags, sim_time=self.world.sim_time, limit=6, )
+382|app/simulation/engine.py|make_decision|L286|Call|self.database.add_model_response(self.world.sim_time, result)
+383|app/simulation/engine.py|_recent_action_outcomes|L67|Call|outcomes.append( { "sim_time": event.get("sim_time"), "action": result.get("action") or (current_decision or {}).get("action"), "target_id": (current_decision or {}).get("target_id"), "success": bool(result.get("success"
+384|app/simulation/engine.py|make_decision|L248|Attribute|self.agent.recent_events
+385|app/simulation/engine.py|make_decision|L248|ListComp|[ event for event in self.agent.recent_events if event.get("kind") != "consolidation_due" ]
+386|app/simulation/engine.py|make_decision|L286|Attribute|self.world.sim_time
+387|app/simulation/engine.py|_resolve_pending_memory|L390|Call|self.vault.write(request, self.world.sim_time)
+388|app/simulation/engine.py|_verified_memory_request_from|L222|Call|float(candidate.get("importance", 0.5))
+389|app/simulation/engine.py|make_decision|L305|Subscript|self.agent.beliefs[safe_key]
+390|app/simulation/engine.py|_resolve_pending_memory|L390|Attribute|self.world.sim_time
+391|app/simulation/engine.py|_recent_action_outcomes|L69|Call|event.get("sim_time")
+392|app/simulation/engine.py|make_decision|L243|Subscript|self.agent.recent_events[-4:]
+393|app/simulation/engine.py|make_decision|L305|Attribute|self.agent.beliefs
+394|app/simulation/engine.py|_correct_decision|L140|Compare|target_id not in self.agent.known_locations
+395|app/simulation/engine.py|_correct_decision|L140|Attribute|self.agent.known_locations
+396|app/simulation/scheduler.py|make_decision|L259|For|for key, value in decision.belief_updates.items(): safe_key = key.strip()[:100] safe_value = value.strip()[:500] if safe_key and safe_value: self.agent.beliefs[safe_key] = safe_value
+397|app/simulation/scheduler.py|_new_world|L88|Call|AgentState(x=float(self.world.spawn[0]), y=float(self.world.spawn[1]))
+398|app/simulation/scheduler.py|_new_world|L89|Attribute|self.agent.beliefs
+399|app/simulation/scheduler.py|advance|L150|Compare|self.world.sim_time - self._last_persist_time >= 30.0
+400|app/simulation/scheduler.py|_advance_substep|L174|For|for shelter in self.world.shelters.values(): if self.world._coord_value(self.world.seed, int(self.world.sim_time), shelter.x + shelter.y, shelter.id) > 0.985: shelter.durability = max(0.0, shelter.durability - 0.4 * dt) 
+401|app/simulation/scheduler.py|make_decision|L226|Call|next( (event for event in self.agent.recent_events[-4:] if event.get("kind") == "consolidation_due"), None, )
+402|app/simulation/scheduler.py|make_decision|L239|Call|retrieve_memories( self.vault.list_records(), " ".join(query_parts), tags=tags, sim_time=self.world.sim_time, limit=6, )
+403|app/simulation/scheduler.py|make_decision|L254|Call|self.database.add_model_response(self.world.sim_time, result)
+404|app/simulation/scheduler.py|_verified_memory_request|L320|Call|MemoryWrite( category=candidate["category"], title=f"Verified {result.action.replace('_', ' ')} outcome: {target}"[:120], content=content, importance=float(candidate.get("importance", 0.5)), tags=tags, )
+405|app/simulation/scheduler.py|_record|L412|Call|Event(self.world.sim_time if hasattr(self, "world") else 0.0, kind, message, data or {}, importance).to_dict()
+406|app/simulation/scheduler.py|_restore|L457|Attribute|self.world.sim_time
+407|app/simulation/scheduler.py|_persist_current|L463|Attribute|self.world.sim_time
+408|app/simulation/scheduler.py|load_snapshot|L477|Call|self.database.set_metadata("last_snapshot_load_audit", { "name": name, "sim_time": self.world.sim_time, "run_id": self.run_id, "world_generation_id": self.world_generation_id, })
+409|app/simulation/scheduler.py|reset|L496|Call|self._new_world( seed if seed is not None else int(time.time()) % 2_147_483_647, clean_experiment=True, )
+410|app/simulation/scheduler.py|advance|L150|BinOp|self.world.sim_time - self._last_persist_time
+411|app/simulation/scheduler.py|_interrupt_reason|L212|Compare|"energy_critical" in conditions
+412|app/simulation/scheduler.py|_interrupt_reason|L212|Compare|self.agent.energy <= 8
+413|app/simulation/scheduler.py|_interrupt_reason|L214|Compare|"hydration_critical" in conditions
+414|app/simulation/scheduler.py|_interrupt_reason|L214|Compare|self.agent.hydration <= 7
+415|app/simulation/scheduler.py|_interrupt_reason|L219|Call|any(npc.dangerous and math.hypot(npc.x - self.agent.x, npc.y - self.agent.y) <= 5 for npc in self.world.npcs.values())
+416|app/simulation/scheduler.py|make_decision|L232|Attribute|self.agent.recent_events
+417|app/simulation/scheduler.py|make_decision|L232|ListComp|[event for event in self.agent.recent_events if event.get("kind") != "consolidation_due"]
+418|app/simulation/scheduler.py|make_decision|L254|Attribute|self.world.sim_time
+419|app/simulation/scheduler.py|_resolve_pending_memory|L351|Call|self.vault.write(request, self.world.sim_time)
+420|app/simulation/scheduler.py|_consolidate|L377|Call|consolidate_sleep( self.brain, self.vault, self.agent, day=self.world.day, sim_time=self.world.sim_time, events=list(self.events), )
+421|app/simulation/scheduler.py|_record|L412|Attribute|Event(self.world.sim_time if hasattr(self, "world") else 0.0, kind, message, data or {}, importance).to_dict
+422|app/simulation/scheduler.py|_record|L418|Call|self.agent.recent_events.append(event)
+423|app/simulation/scheduler.py|_record|L419|Attribute|self.agent.recent_events
+424|app/simulation/scheduler.py|_record|L419|Subscript|self.agent.recent_events[-50:]
+425|app/simulation/scheduler.py|save_snapshot|L470|Attribute|self.world.sim_time
+426|app/simulation/scheduler.py|load_snapshot|L484|Attribute|self.world.sim_time
+427|app/simulation/scheduler.py|observer_state|L544|Call|dict(self.agent.beliefs)
+428|app/simulation/scheduler.py|_new_world|L88|Call|float(self.world.spawn[0])
+429|app/simulation/scheduler.py|_new_world|L88|Call|float(self.world.spawn[1])
+430|app/simulation/scheduler.py|advance|L150|Attribute|self.world.sim_time
+431|app/simulation/scheduler.py|_advance_substep|L175|Compare|self.world._coord_value(self.world.seed, int(self.world.sim_time), shelter.x + shelter.y, shelter.id) > 0.985
+432|app/simulation/scheduler.py|_advance_substep|L191|Call|self.agent.recent_events.append( { "sim_time": self.world.sim_time, "kind": "consolidation_due", "message": "A waking memory-consolidation pass is due.", "importance": 0.7, "data": {}, } )
+433|app/simulation/scheduler.py|_interrupt_reason|L212|Attribute|self.agent.energy
+434|app/simulation/scheduler.py|_interrupt_reason|L214|Attribute|self.agent.hydration
+435|app/simulation/scheduler.py|make_decision|L263|Subscript|self.agent.beliefs[safe_key]
+436|app/simulation/scheduler.py|_verified_memory_request|L324|Call|float(candidate.get("importance", 0.5))
+437|app/simulation/scheduler.py|_resolve_pending_memory|L351|Attribute|self.world.sim_time
+438|app/simulation/scheduler.py|_record|L412|Call|Event(self.world.sim_time if hasattr(self, "world") else 0.0, kind, message, data or {}, importance)
+439|app/simulation/scheduler.py|_record|L418|Attribute|self.agent.recent_events.append
+440|app/simulation/scheduler.py|reset|L497|BinOp|int(time.time()) % 2_147_483_647
+441|app/simulation/scheduler.py|observer_state|L531|Call|round(self.world.sim_time, 2)
+442|app/simulation/scheduler.py|observer_state|L533|Call|round(self.world.hour(), 2)
+443|app/simulation/scheduler.py|observer_state|L534|Call|round(self.world.daylight(), 3)
+444|app/simulation/scheduler.py|observer_state|L536|Attribute|self.world.ambient_temperature_c
+445|app/simulation/scheduler.py|observer_state|L537|ListComp|[r.to_dict() for r in self.world.resources.values() if r.quantity > 0]
+446|app/simulation/scheduler.py|observer_state|L540|Attribute|self.world.truth_notes
+447|app/simulation/scheduler.py|observer_state|L544|Attribute|self.agent.beliefs
+448|app/simulation/scheduler.py|_advance_substep|L175|Call|self.world._coord_value(self.world.seed, int(self.world.sim_time), shelter.x + shelter.y, shelter.id)
+449|app/simulation/scheduler.py|_advance_substep|L191|Attribute|self.agent.recent_events.append
+450|app/simulation/scheduler.py|make_decision|L227|Subscript|self.agent.recent_events[-4:]
+451|app/simulation/scheduler.py|make_decision|L263|Attribute|self.agent.beliefs
+452|app/simulation/scheduler.py|_consolidate|L382|Attribute|self.world.sim_time
+453|app/simulation/scheduler.py|reset|L497|Call|int(time.time())
+454|app/simulation/scheduler.py|observer_state|L531|Attribute|self.world.sim_time
+455|app/simulation/scheduler.py|_advance_substep|L175|Call|int(self.world.sim_time)
+456|app/simulation/scheduler.py|_advance_substep|L191|Attribute|self.agent.recent_events
+457|app/simulation/scheduler.py|_advance_substep|L193|Attribute|self.world.sim_time
+458|app/simulation/scheduler.py|_interrupt_reason|L219|Compare|math.hypot(npc.x - self.agent.x, npc.y - self.agent.y) <= 5
+459|app/simulation/scheduler.py|_record|L412|Attribute|self.world.sim_time
+460|app/simulation/scheduler.py|observer_state|L537|Compare|r.quantity > 0
+461|app/simulation/scheduler.py|_interrupt_reason|L219|Call|math.hypot(npc.x - self.agent.x, npc.y - self.agent.y)
+462|app/simulation/scheduler.py|observer_state|L537|Attribute|r.quantity
+463|app/simulation/scheduler.py|_interrupt_reason|L219|BinOp|npc.x - self.agent.x
+464|app/simulation/scheduler.py|_interrupt_reason|L219|BinOp|npc.y - self.agent.y
+465|app/simulation/scheduler.py|_interrupt_reason|L219|Attribute|self.agent.x
+466|app/simulation/scheduler.py|_interrupt_reason|L219|Attribute|self.agent.y
+467|app/simulation/agent.py|module|L61|Call|field(default_factory=starter_tasks)
+468|app/simulation/agent.py|module|L64|Call|field(default_factory=BeliefStore)
+469|app/simulation/agent.py|can_add|L96|Compare|self.inventory_used + quantity <= self.inventory_capacity
+470|app/simulation/agent.py|add_item|L101|BinOp|self.inventory.get(kind, 0) + quantity
+471|app/simulation/agent.py|to_dict|L114|Call|sorted(self.explored)
+472|app/simulation/agent.py|to_dict|L115|Subscript|data["beliefs"]
+473|app/simulation/agent.py|to_dict|L115|DictComp|{key: value.to_dict() for key, value in self.beliefs.items()}
+474|app/simulation/agent.py|from_dict|L126|Subscript|copied["tasks"]
+475|app/simulation/agent.py|from_dict|L127|Subscript|copied["notes"]
+476|app/simulation/agent.py|from_dict|L127|Call|_load_records(copied.get("notes"), NoteRecord, "note_id")
+477|app/simulation/agent.py|from_dict|L128|Subscript|copied["map_markers"]
+478|app/simulation/agent.py|from_dict|L128|Call|_load_records(copied.get("map_markers"), MapMarker, "marker_id")
+479|app/simulation/agent.py|from_dict|L129|Subscript|copied["beliefs"]
+480|app/simulation/agent.py|from_dict|L129|Call|BeliefStore(copied.get("beliefs"))
+481|app/simulation/agent.py|__setattr__|L87|Compare|name == "beliefs"
+482|app/simulation/agent.py|__setattr__|L88|Call|BeliefStore(value)
+483|app/simulation/agent.py|can_add|L96|BinOp|self.inventory_used + quantity
+484|app/simulation/agent.py|remove_item|L105|Compare|self.inventory.get(kind, 0) < quantity
+485|app/simulation/agent.py|from_dict|L125|Compare|"tasks" in copied
+486|app/simulation/agent.py|from_dict|L125|Call|copied.get("tasks")
+487|app/simulation/agent.py|from_dict|L126|Compare|"tasks" not in copied
+488|app/simulation/agent.py|from_dict|L126|Call|starter_tasks()
+489|app/simulation/agent.py|from_dict|L126|Call|_load_records(raw_tasks, TaskRecord, "task_id")
+490|app/simulation/agent.py|from_dict|L127|Call|copied.get("notes")
+491|app/simulation/agent.py|from_dict|L128|Call|copied.get("map_markers")
+492|app/simulation/agent.py|from_dict|L129|Call|copied.get("beliefs")
+493|app/simulation/agent.py|from_dict|L133|Call|int(copied.get("cognition_schema_version", 1))
+494|app/simulation/agent.py|__setattr__|L87|Call|isinstance(value, BeliefStore)
+495|app/simulation/agent.py|add_item|L99|Call|self.can_add(quantity)
+496|app/simulation/agent.py|to_dict|L115|Call|self.beliefs.items()
+497|app/simulation/agent.py|to_dict|L115|Attribute|self.beliefs.items
+498|app/simulation/agent.py|to_dict|L115|Attribute|self.beliefs
+499|app/simulation/cognition.py|starter_tasks|L376|For|for priority, title in enumerate(titles, start=1): task_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"embodied-alife:v0.4.0:starter-task:{priority}")) result[task_id] = TaskRecord( task_id=task_id, title=title, description="
+500|app/simulation/cognition.py|_integer|L34|Call|int(_number(value, float(default), minimum=-1_000_000_000, maximum=1_000_000_000))
+501|app/simulation/cognition.py|migrate_legacy_beliefs|L397|For|for key, raw in value.items(): if isinstance(raw, dict) and "claim" in raw: try: record = BeliefRecord.from_dict({"belief_id": str(raw.get("belief_id") or key), **raw}) except (KeyError, TypeError, ValueError): continue 
+502|app/simulation/cognition.py|_integer|L34|Call|_number(value, float(default), minimum=-1_000_000_000, maximum=1_000_000_000)
+503|app/simulation/cognition.py|_list|L62|Call|sorted(value, key=lambda item: str(item))
+504|app/simulation/cognition.py|from_dict|L183|Call|cls( task_id=_text(value.get("task_id"), limit=160), title=_text(value.get("title"), "Untitled task", 240), description=_text(value.get("description"), limit=1000), created_by=_text(value.get("created_by"), "system_initi
+505|app/simulation/cognition.py|from_dict|L218|Call|cls( note_id=_text(value.get("note_id"), limit=160), title=_text(value.get("title"), "Untitled note", 240), content=_text(value.get("content"), limit=4000), tags=_string_list(value.get("tags"), count_limit=32, text_limit
+506|app/simulation/cognition.py|from_dict|L252|Call|cls( marker_id=_text(value.get("marker_id"), limit=160), label=_text(value.get("label"), "Unknown marker", 240), marker_type=_text(value.get("marker_type"), "unknown", 80), believed_location=_dict(value.get("believed_loc
+507|app/simulation/cognition.py|from_dict|L287|Call|cls( belief_id=_text(value.get("belief_id"), limit=160), claim=_text(value.get("claim"), limit=2000), confidence=_bounded(value.get("confidence"), 0.5), basis=_text(value.get("basis"), limit=2000), status=_status(value.g
+508|app/simulation/cognition.py|from_dict|L323|Call|cls( episode_id=_text(value.get("episode_id"), limit=160), source_event_id=value.get("source_event_id"), simulation_timestamp=_number(value.get("simulation_timestamp", 0.0)), summary=_text(value.get("summary"), limit=200
+509|app/simulation/cognition.py|starter_key_items|L364|Call|KeyItem("field_notebook", "Field Notebook", "A notebook for Ari's own observations and notes.", source)
+510|app/simulation/cognition.py|starter_tasks|L377|Call|str(uuid.uuid5(uuid.NAMESPACE_URL, f"embodied-alife:v0.4.0:starter-task:{priority}"))
+511|app/simulation/cognition.py|starter_tasks|L378|Call|TaskRecord( task_id=task_id, title=title, description="A broad starter reminder, not a mandatory quest or claim about hidden world state.", created_by="starter_journal", status=TaskStatus.PROPOSED.value, priority=priorit
+512|app/simulation/cognition.py|_number|L21|Call|float(value)
+513|app/simulation/cognition.py|_integer|L34|Call|float(default)
+514|app/simulation/cognition.py|starter_tasks|L377|Call|uuid.uuid5(uuid.NAMESPACE_URL, f"embodied-alife:v0.4.0:starter-task:{priority}")
+515|app/simulation/cognition.py|from_dict|L188|Call|_status(value.get("status"), TaskStatus, TaskStatus.PROPOSED)
+516|app/simulation/cognition.py|from_dict|L189|Call|_integer(value.get("priority", 0))
+517|app/simulation/cognition.py|from_dict|L190|Call|_number(value.get("created_at", 0.0))
+518|app/simulation/cognition.py|from_dict|L191|Call|_number(value.get("updated_at", value.get("created_at", 0.0)))
+519|app/simulation/cognition.py|from_dict|L223|Call|_status(value.get("status"), NoteStatus, NoteStatus.ACTIVE)
+520|app/simulation/cognition.py|from_dict|L257|Call|_bounded(value.get("confidence"), 0.0)
+521|app/simulation/cognition.py|from_dict|L259|Call|_text(value.get("notes"), limit=2000)
+522|app/simulation/cognition.py|from_dict|L290|Call|_bounded(value.get("confidence"), 0.5)
+523|app/simulation/cognition.py|from_dict|L292|Call|_status(value.get("status"), BeliefStatus, BeliefStatus.HYPOTHESIS)
+524|app/simulation/cognition.py|from_dict|L329|Call|_bounded(value.get("salience"), 0.5)
+525|app/simulation/cognition.py|starter_tasks|L383|Attribute|TaskStatus.PROPOSED.value
+526|app/simulation/cognition.py|from_dict|L188|Attribute|TaskStatus.PROPOSED
+527|app/simulation/cognition.py|from_dict|L189|Call|value.get("priority", 0)
+528|app/simulation/cognition.py|from_dict|L190|Call|value.get("created_at", 0.0)
+529|app/simulation/cognition.py|from_dict|L191|Call|value.get("updated_at", value.get("created_at", 0.0))
+530|app/simulation/cognition.py|from_dict|L223|Attribute|NoteStatus.ACTIVE
+531|app/simulation/cognition.py|from_dict|L257|Call|value.get("confidence")
+532|app/simulation/cognition.py|from_dict|L259|Call|value.get("notes")
+533|app/simulation/cognition.py|from_dict|L292|Attribute|BeliefStatus.HYPOTHESIS
+534|app/simulation/cognition.py|from_dict|L329|Call|value.get("salience")
+535|app/simulation/cognition.py|starter_tasks|L383|Attribute|TaskStatus.PROPOSED
+536|app/simulation/cognition.py|migrate_legacy_beliefs|L404|Call|BeliefRecord( belief_id=str(key), claim=str(raw), confidence=0.5, basis="Migrated from the pre-v0.4.0 subjective belief dictionary.", status=BeliefStatus.WORKING.value, first_formed_at=sim_time, last_tested_at=None, sour
+537|app/simulation/cognition.py|migrate_legacy_beliefs|L409|Attribute|BeliefStatus.WORKING.value
+538|app/simulation/cognition.py|migrate_legacy_beliefs|L409|Attribute|BeliefStatus.WORKING
+539|app/llm/prompts.py|_project|L70|For|for raw_key in sorted(value, key=lambda item: str(item))[:dict_limit]: key = _text(raw_key, 96) if not key: continue projected = _project(value[raw_key], depth=depth + 1, list_limit=list_limit, dict_limit=dict_limit) if 
+540|app/llm/prompts.py|consolidation_messages|L162|Call|context.get("beliefs", {})
+541|app/llm/prompts.py|_project|L70|Subscript|sorted(value, key=lambda item: str(item))[:dict_limit]
+542|app/llm/prompts.py|consolidation_messages|L167|DictComp|{key: value.to_dict() if hasattr(value, "to_dict") else value for key, value in beliefs.items()}
+543|app/llm/prompts.py|_project|L70|Call|sorted(value, key=lambda item: str(item))
+544|app/llm/prompts.py|decision_messages|L157|Call|json.dumps(payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+545|app/llm/prompts.py|consolidation_messages|L174|Call|json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+546|app/llm/prompts.py|decision_messages|L157|Attribute|json.dumps
+547|app/llm/prompts.py|consolidation_messages|L167|Call|beliefs.items()
+548|app/llm/prompts.py|consolidation_messages|L174|Attribute|json.dumps
+549|app/llm/prompts.py|consolidation_messages|L167|Attribute|beliefs.items
+550|app/llm/fallback.py|decide|L30|Compare|body["hydration"] <= 28
+551|app/llm/fallback.py|decide|L61|Compare|body["hunger"] >= 55
+552|app/llm/fallback.py|decide|L138|Subscript|directions[(self.decision_count + int(perception.get("day", 1))) % len(directions)]
+553|app/llm/fallback.py|decide|L139|Call|ActionDecision( intent="Continue learning the shape of the unfamiliar environment.", action="move", direction=direction, duration_seconds=3.5, interrupt_if=["danger_detected", "target_unreachable", "energy_critical"], re
+554|app/llm/fallback.py|decide|L30|Subscript|body["hydration"]
+555|app/llm/fallback.py|decide|L41|Call|next((key for key in perception.get("known_locations", {}) if key.startswith("water_")), None)
+556|app/llm/fallback.py|decide|L53|Compare|body["hunger"] >= 62
+557|app/llm/fallback.py|decide|L54|Call|ActionDecision( intent="Reduce hunger using carried food.", action="eat", target_id=edible_inventory, duration_seconds=2, reason="Hunger is high and edible food is in inventory.", )
+558|app/llm/fallback.py|decide|L61|Subscript|body["hunger"]
+559|app/llm/fallback.py|decide|L81|Compare|body["sleep_pressure"] >= 72
+560|app/llm/fallback.py|decide|L81|Compare|body["energy"] <= 22
+561|app/llm/fallback.py|decide|L90|Call|next((key for key in perception.get("known_locations", {}) if key.startswith("shelter_")), None)
+562|app/llm/fallback.py|decide|L138|BinOp|(self.decision_count + int(perception.get("day", 1))) % len(directions)
+563|app/llm/fallback.py|decide|L32|Call|ActionDecision( intent="Relieve severe thirst.", action="drink", duration_seconds=2, reason="Hydration is low and water is within reach.", )
+564|app/llm/fallback.py|decide|L40|Call|self._move_toward_local(water_tile, "Find water while hydration is low.")
+565|app/llm/fallback.py|decide|L43|Call|ActionDecision( intent="Return to remembered water.", action="move_to", target_id=known_water, duration_seconds=8, interrupt_if=["danger_detected", "target_unreachable"], reason="Hydration is low and this is a remembered
+566|app/llm/fallback.py|decide|L72|Call|ActionDecision( intent="Approach visible food.", action="move_to", target_id=edible["id"], duration_seconds=5, interrupt_if=["danger_detected", "target_unreachable"], reason="Hunger is elevated and visible food may help.
+567|app/llm/fallback.py|decide|L81|Subscript|body["sleep_pressure"]
+568|app/llm/fallback.py|decide|L81|Subscript|body["energy"]
+569|app/llm/fallback.py|decide|L83|Call|ActionDecision( intent="Sleep until the body recovers.", action="sleep", duration_seconds=55, interrupt_if=["danger_detected", "damage_taken", "weather_worsens"], reason="Energy is low or sleep pressure is high.", )
+570|app/llm/fallback.py|decide|L138|BinOp|self.decision_count + int(perception.get("day", 1))
+571|app/llm/fallback.py|decide|L65|Call|ActionDecision( intent="Eat nearby food.", action="eat", target_id=edible["id"], duration_seconds=2, reason="Hunger is elevated and an edible object is within reach.", )
+572|app/llm/fallback.py|decide|L138|Call|int(perception.get("day", 1))
+573|app/llm/fallback.py|decide|L41|Call|perception.get("known_locations", {})
+VERSION_ORDER=0.4.0<0.4.0.post1<0.4.0.post2<0.4.0.post3
+POST3_GT_ALL=True
+TAG_PARSE=0.4.0.post3
+--- .github/workflows/release.yml ---
+17:     runs-on: ubuntu-latest
+31:           APP_VERSION="$(python -c 'from app.version import __version__; print(__version__)')"
+34:           echo "RELEASE_TAG=v${PACKAGE_VERSION}" >> "$GITHUB_ENV"
+73:           if git ls-remote --exit-code --tags origin "refs/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
+74:             TAG_SHA="$(git rev-list -n 1 "${RELEASE_TAG}" 2>/dev/null || true)"
+76:               echo "${RELEASE_TAG} already points to a different commit" >&2
+82:             git tag "${RELEASE_TAG}" "$GITHUB_SHA"
+83:             git push origin "${RELEASE_TAG}"
+91:           if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+92:             gh release upload "${RELEASE_TAG}" \
+96:             gh release edit "${RELEASE_TAG}" \
+97:               --title "Embodied Artificial Life ${RELEASE_TAG}" \
+99:               --latest
+101:             gh release create "${RELEASE_TAG}" \
+105:               --title "Embodied Artificial Life ${RELEASE_TAG}" \
+107:               --latest
+--- app/updater/manager.py ---
+14: from packaging.version import InvalidVersion, Version
+25: from app.version import __version__
+55:             current_version=__version__,
+69:             "User-Agent": f"embodied-alife/{__version__}",
+144:                     endpoint = f"https://api.github.com/repos/{repository}/releases/latest"
+152:                 latest = Version(release.version)
+153:                 current = Version(__version__)
+154:                 available = latest > current
+158:                 self.status.latest_version = release.version
+179:             raise UpdateError("The latest release is still a draft")
+182:             raise UpdateError("The latest release is a prerelease but UPDATE_CHANNEL is stable")
+183:         tag_name = str(payload["tag_name"])
+184:         version = tag_name.removeprefix("v")
+185:         Version(version)
+190:                 f"Release {tag_name} does not contain {self.settings.update_asset_name}"
+199:             tag_name=tag_name,
+200:             name=str(payload.get("name") or tag_name),
+--- app/updater/models.py ---
+19:     tag_name: str
+37:     latest_version: str | None = None
+--- app/updater/security.py ---
+11: MANIFEST_NAME = "update-manifest.json"
+--- app/version.py ---
+3: # Public release version; keep synchronized with project.version in pyproject.toml.
+4: __version__ = "0.4.0.post2"
+--- install-windows.ps1 ---
+63:     Write-Step "Reading the latest published GitHub release"
+64:     $releaseUri = "https://api.github.com/repos/$Repository/releases/latest"
+68:         throw "Release $($release.tag_name) does not contain $AssetName."
+74:     Write-Step "Downloading and verifying $($release.tag_name)"
+119:     $manifestPath = Join-Path $stagedPath "update-manifest.json"
+121:         throw "The release package has no update-manifest.json."
+127:     $releaseVersion = [string]$release.tag_name
+--- scripts/apply_update.py ---
+110:     installed_manifest_path = runtime_dir / "installed-update-manifest.json"
+--- scripts/build_release.py ---
+18: def project_version() -> str:
+23:     if namespace.get("__version__") != version:
+46:         if path.name in {"update-manifest.json", ".env"}:
+53:     version = project_version()
+67:         archive.writestr("update-manifest.json", json.dumps(manifest, indent=2) + "\n")
+--- tests/test_updater.py ---
+16: from app.version import __version__
+31:         archive.writestr("update-manifest.json", json.dumps(manifest))
+42:         "tag_name": f"v{version}",
+76:         if request.url.path.endswith("/releases/latest"):
+94:     assert status["latest_version"] == test_version
+148:     (root / "data" / "runtime" / "installed-update-manifest.json").write_text(
+219:             "current_version": __version__,
+223:             "latest_version": "0.3.0",
+255:         assert status.json()["latest_version"] == "0.3.0"
+265:         assert client.get("/health").json()["version"] == __version__
