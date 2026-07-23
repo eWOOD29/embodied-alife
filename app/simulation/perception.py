@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from types import SimpleNamespace
 from typing import Any
 
 from app.simulation.agent import AgentState
@@ -244,19 +245,30 @@ def build_perception(world: WorldState, agent: AgentState, radius: int = 10) -> 
     if world.tile(ax, ay) == Terrain.BUILD_AREA:
         affordances.append("build")
 
+    health_reserve = round(_safe_number(agent.health), 1)
+    energy_reserve = round(_safe_number(agent.energy), 1)
     hunger_deficit = round(_safe_number(agent.hunger), 1)
+    hydration_reserve = round(_safe_number(agent.hydration), 1)
+    sleep_pressure = round(_safe_number(agent.sleep_pressure), 1)
+    temperature_c = round(_safe_number(agent.body_temperature_c), 2)
+    pain = round(_safe_number(agent.pain), 1)
+    safe_needs = SimpleNamespace(
+        health=health_reserve, energy=energy_reserve, hunger=hunger_deficit,
+        hydration=hydration_reserve, sleep_pressure=sleep_pressure,
+        body_temperature_c=temperature_c, pain=pain,
+    )
     body = {
         "position": {"subjective_origin": "self"},
         "facing": _truncate(agent.facing, 32),
         "movement": "sleeping" if agent.sleeping else ("active" if agent.current_action else "stationary"),
-        "health_reserve": round(_safe_number(agent.health), 1),
-        "energy_reserve": round(_safe_number(agent.energy), 1),
+        "health_reserve": health_reserve,
+        "energy_reserve": energy_reserve,
         "hunger_deficit": hunger_deficit,
-        "satiety": round(100.0 - agent.hunger, 1),
-        "hydration_reserve": round(_safe_number(agent.hydration), 1),
-        "sleep_pressure": round(_safe_number(agent.sleep_pressure), 1),
-        "temperature_c": round(_safe_number(agent.body_temperature_c), 2),
-        "pain": round(_safe_number(agent.pain), 1),
+        "satiety": round(100.0 - hunger_deficit, 1),
+        "hydration_reserve": hydration_reserve,
+        "sleep_pressure": sleep_pressure,
+        "temperature_c": temperature_c,
+        "pain": pain,
         "inventory": _bounded_pairs(agent.inventory, count_limit=INVENTORY_SUMMARY_LIMIT, key_limit=80, value_limit=40),
         "inventory_capacity": int(_safe_number(agent.inventory_capacity, 0.0, minimum=0.0, maximum=10000.0)),
         "key_items": [_truncate(item.display_name, 120) for item in list(agent.key_items.values())[:KEY_ITEM_SUMMARY_LIMIT]],
@@ -285,7 +297,7 @@ def build_perception(world: WorldState, agent: AgentState, radius: int = 10) -> 
         "awakening": agent.awakening.narrative if not agent.awakening.presented else None,
         "body": body,
         "cognitive_tools": cognition_summary,
-        "drive_labels": drive_labels(agent),
+        "drive_labels": drive_labels(safe_needs),
         "visible_objects": sorted(objects, key=lambda item: item["distance"])[:30],
         "visible_entities": sorted(entities, key=lambda item: item["distance"])[:12],
         "terrain_summary": terrain_counts,

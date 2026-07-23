@@ -147,6 +147,100 @@ def _ari_marker_projection(marker: Any, agent: AgentState) -> dict[str, Any]:
         item["linked_note_ids"] = note_links
     return item
 
+ARI_MAP_CELL_LIMIT = 64
+ARI_MAP_MARKER_LIMIT = 32
+ARI_TASK_LIMIT = 32
+ARI_NOTE_LIMIT = 24
+ARI_TASK_TITLE_LIMIT = 160
+ARI_TASK_DESCRIPTION_LIMIT = 480
+ARI_NOTE_TITLE_LIMIT = 160
+ARI_NOTE_CONTENT_LIMIT = 800
+ARI_TAG_LIMIT = 12
+ARI_TAG_TEXT_LIMIT = 64
+
+ARI_FORBIDDEN_TEXT_FRAGMENTS = (
+    "cave_truth", "recipe", "hidden_entity", "hidden_resource",
+    "observer_id", "observerid", "database_id", "internal_metadata",
+    "absolute_coordinates", "private_path", "hostname", "operational_log",
+)
+
+
+def _ari_boundary_text(value: Any, limit: int) -> str:
+    text = _bounded_text(value, limit)
+    lowered = text.lower().replace(" ", "_")
+    return "" if any(fragment in lowered for fragment in ARI_FORBIDDEN_TEXT_FRAGMENTS) else text
+
+
+def _safe_status(value: Any, allowed: set[str], default: str) -> str:
+    candidate = _bounded_text(value, 32).lower()
+    return candidate if candidate in allowed else default
+
+
+def _ari_priority(value: Any) -> int:
+    number = _finite_number(value, 0.0)
+    return int(max(-1000.0, min(1000.0, number or 0.0)))
+
+
+def _ari_time(value: Any) -> float:
+    number = _finite_number(value, 0.0)
+    return round(max(0.0, min(1_000_000_000.0, number or 0.0)), 3)
+
+
+def _ari_task_projection(task: Any, agent: AgentState) -> dict[str, Any]:
+    source_type = _bounded_text(getattr(getattr(task, "provenance", None), "source_type", ""), 48).lower()
+    item = {
+        "task_id": _bounded_text(getattr(task, "task_id", ""), 96),
+        "title": _ari_boundary_text(getattr(task, "title", "Untitled task"), ARI_TASK_TITLE_LIMIT) or "Untitled task",
+        "description": _ari_boundary_text(getattr(task, "description", ""), ARI_TASK_DESCRIPTION_LIMIT),
+        "status": _safe_status(getattr(task, "status", "proposed"), {"proposed", "active", "suspended", "blocked", "completed", "abandoned", "superseded"}, "proposed"),
+        "priority": _ari_priority(getattr(task, "priority", 0)),
+        "created_at": _ari_time(getattr(task, "created_at", 0.0)),
+        "updated_at": _ari_time(getattr(task, "updated_at", 0.0)),
+        "provenance_category": ARI_PROVENANCE_CATEGORIES.get(source_type, "subjective"),
+    }
+    parent = _bounded_text(getattr(task, "parent_task_id", ""), 96)
+    if parent and parent in agent.tasks:
+        item["parent_task_id"] = parent
+    marker_links = _safe_link_ids(getattr(task, "linked_marker_ids", []), set(agent.map_markers))
+    note_links = _safe_link_ids(getattr(task, "linked_note_ids", []), set(agent.notes))
+    if marker_links:
+        item["linked_marker_ids"] = marker_links
+    if note_links:
+        item["linked_note_ids"] = note_links
+    return item
+
+
+def _ari_note_projection(note: Any, agent: AgentState) -> dict[str, Any]:
+    source_type = _bounded_text(getattr(getattr(note, "provenance", None), "source_type", ""), 48).lower()
+    item = {
+        "note_id": _bounded_text(getattr(note, "note_id", ""), 96),
+        "title": _ari_boundary_text(getattr(note, "title", "Untitled note"), ARI_NOTE_TITLE_LIMIT) or "Untitled note",
+        "content": _ari_boundary_text(getattr(note, "content", ""), ARI_NOTE_CONTENT_LIMIT),
+        "status": _safe_status(getattr(note, "status", "active"), {"active", "archived"}, "active"),
+        "created_at": _ari_time(getattr(note, "created_at", 0.0)),
+        "updated_at": _ari_time(getattr(note, "updated_at", 0.0)),
+        "provenance_category": ARI_PROVENANCE_CATEGORIES.get(source_type, "subjective"),
+    }
+    tags = []
+    raw_tags = getattr(note, "tags", [])
+    if isinstance(raw_tags, (list, tuple, set)):
+        iterable = sorted(raw_tags, key=lambda value: str(value)) if isinstance(raw_tags, set) else raw_tags
+        for raw in iterable:
+            tag = _ari_boundary_text(raw, ARI_TAG_TEXT_LIMIT)
+            if tag and tag not in tags:
+                tags.append(tag)
+            if len(tags) >= ARI_TAG_LIMIT:
+                break
+    if tags:
+        item["tags"] = tags
+    task_links = _safe_link_ids(getattr(note, "linked_task_ids", []), set(agent.tasks))
+    marker_links = _safe_link_ids(getattr(note, "linked_marker_ids", []), set(agent.map_markers))
+    if task_links:
+        item["linked_task_ids"] = task_links
+    if marker_links:
+        item["linked_marker_ids"] = marker_links
+    return item
+
 
 class ActionController:
     def __init__(self) -> None:
@@ -315,12 +409,15 @@ class ActionController:
         if action == "inspect":
             return ActionResult(True, action, "inspected", f"Inspected {target_id or 'the surroundings'}.")
         if action == "view_map":
-            ax, ay = int(round(agent.x)), int(round(agent.y))
+            agent_x = _finite_number(agent.x, 0.0) or 0.0
+            agent_y = _finite_number(agent.y, 0.0) or 0.0
+            ax, ay = int(round(agent_x)), int(round(agent_y))
             cells: list[dict[str, Any]] = []
-            for key, terrain in agent.known_terrain.items():
+            known_terrain = agent.known_terrain if isinstance(agent.known_terrain, dict) else {}
+            for key, terrain in known_terrain.items():
                 try:
                     world_x, world_y = (int(part) for part in key.split(",", 1))
-                except (AttributeError, TypeError, ValueError):
+                except (AttributeError, TypeError, ValueError, OverflowError):
                     continue
                 dx, dy = world_x - ax, world_y - ay
                 cells.append({
@@ -328,27 +425,57 @@ class ActionController:
                     "offset_south": dy,
                     "distance": round(math.hypot(dx, dy), 1),
                     "direction": _relative_direction(dx, dy),
-                    "terrain": str(terrain),
+                    "terrain": _bounded_text(terrain, 64),
                 })
-            cells.sort(key=lambda item: (item["distance"], item["offset_south"], item["offset_east"]))
+            cells.sort(key=lambda item: (item["distance"], item["offset_south"], item["offset_east"], item["terrain"]))
+            total_cells = len(cells)
+            cells = cells[:ARI_MAP_CELL_LIMIT]
             markers: list[dict[str, Any]] = []
-            for marker in agent.map_markers.values():
-                if str(getattr(marker, "status", "active")) == "archived":
+            marker_values = agent.map_markers.values() if isinstance(agent.map_markers, dict) else []
+            for marker in marker_values:
+                if _safe_status(getattr(marker, "status", "active"), {"active", "stale", "archived"}, "active") == "archived":
                     continue
                 markers.append(_ari_marker_projection(marker, agent))
             markers.sort(key=lambda item: (item.get("status", ""), item.get("label", ""), item.get("marker_id", "")))
+            total_markers = len(markers)
+            markers = markers[:ARI_MAP_MARKER_LIMIT]
             return ActionResult(True, action, "viewed", "Ari reviewed the field map.", {
                 "map_state": "blank" if not markers and not cells else "partially_known",
                 "subjective_origin": "Ari's current position",
                 "known_cells": cells,
                 "markers": markers,
+                "total_known_cells": total_cells,
+                "visible_known_cells": len(cells),
+                "total_markers": total_markers,
+                "visible_markers": len(markers),
             })
         if action == "view_task_journal":
-            tasks = [task.to_dict() for task in sorted(agent.tasks.values(), key=lambda item: (item.priority, item.created_at))]
-            return ActionResult(True, action, "viewed", "Ari reviewed the task journal.", {"tasks": tasks})
+            task_values = list(agent.tasks.values()) if isinstance(agent.tasks, dict) else []
+            tasks = [_ari_task_projection(task, agent) for task in task_values]
+            tasks.sort(key=lambda item: (item["priority"], item["created_at"], item["task_id"]))
+            status_counts: dict[str, int] = {}
+            for item in tasks:
+                status_counts[item["status"]] = status_counts.get(item["status"], 0) + 1
+            visible = tasks[:ARI_TASK_LIMIT]
+            return ActionResult(True, action, "viewed", "Ari reviewed the task journal.", {
+                "tasks": visible,
+                "total_tasks": len(tasks),
+                "visible_tasks": len(visible),
+                "status_counts": dict(sorted(status_counts.items())),
+            })
         if action == "view_notebook":
-            notes = [note.to_dict() for note in agent.notes.values() if note.status == "active"]
-            return ActionResult(True, action, "viewed", "The field notebook is empty." if not notes else "Ari reviewed the field notebook.", {"notes": notes, "empty": not notes})
+            note_values = list(agent.notes.values()) if isinstance(agent.notes, dict) else []
+            notes = [_ari_note_projection(note, agent) for note in note_values]
+            active = [item for item in notes if item["status"] == "active"]
+            active.sort(key=lambda item: (-item["updated_at"], item["note_id"]))
+            visible = active[:ARI_NOTE_LIMIT]
+            return ActionResult(True, action, "viewed", "The field notebook is empty." if not active else "Ari reviewed the field notebook.", {
+                "notes": visible,
+                "empty": not active,
+                "total_notes": len(notes),
+                "total_active_notes": len(active),
+                "visible_notes": len(visible),
+            })
         if action == "look":
             return ActionResult(True, action, "observed", "Ari deliberately surveyed the nearby area.")
         if action == "speak":

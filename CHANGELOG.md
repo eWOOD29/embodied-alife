@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.4.0.post3] — 2026-07-23
+
+### Fixed
+
+- Computed satiety exclusively from normalized hunger input so malformed persisted or directly mutated hunger cannot crash perception construction.
+- Replaced raw task and note record serialization with explicit bounded Ari-facing projections while retaining complete subjective records for persistence and observer diagnostics.
+- Added deterministic fixed limits and useful totals to map, task-journal, and notebook action results.
+- Added direct-mutation, exact-field sentinel, non-finite JSON, and 10/100/1,000-record boundary tests.
+
 ## [0.4.0.post2] — 2026-07-23
 
 ### Fixed
