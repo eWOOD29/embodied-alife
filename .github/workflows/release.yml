@@ -37,6 +37,8 @@ jobs:
         run: |
           APP_VERSION="$(python -c 'from app.version import __version__; print(__version__)')"
           test "$APP_VERSION" = "$PACKAGE_VERSION"
+      - name: Embed build identity
+        run: python scripts/write_build_info.py "$GITHUB_SHA" "$PACKAGE_VERSION"
       - name: Test
         run: python -m pytest -q
       - name: Compile
