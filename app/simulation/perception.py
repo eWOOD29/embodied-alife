@@ -7,6 +7,8 @@ from app.simulation.agent import AgentState
 from app.simulation.needs import drive_labels
 from app.simulation.world import BLOCKING_TERRAIN, Terrain, WorldState
 
+INTERACTION_RADIUS = 2.2
+
 
 def _line_points(x0: int, y0: int, x1: int, y1: int) -> list[tuple[int, int]]:
     points: list[tuple[int, int]] = []
@@ -101,9 +103,9 @@ def build_perception(world: WorldState, agent: AgentState, radius: int = 10) -> 
 
     shelter = world.nearby_shelter(agent.x, agent.y, 3.0)
     affordances = ["look", "move", "move_to", "inspect", "wait", "rest", "speak", "flee"]
-    if any(obj["distance"] <= 1.6 and obj["portable"] for obj in objects):
+    if any(obj["distance"] <= INTERACTION_RADIUS and (obj["portable"] or obj["kind"] == "berry_bush") for obj in objects):
         affordances.append("pick_up")
-    if any(obj["distance"] <= 1.6 and obj["appears_edible"] for obj in objects) or any(
+    if any(obj["distance"] <= INTERACTION_RADIUS and obj["appears_edible"] for obj in objects) or any(
         key in agent.inventory for key in ("berry", "berry_bush", "edible_plant")
     ):
         affordances.append("eat")
@@ -120,21 +122,36 @@ def build_perception(world: WorldState, agent: AgentState, radius: int = 10) -> 
     if world.tile(ax, ay) == Terrain.BUILD_AREA:
         affordances.append("build")
 
-    return {
-        "body": {
-            "position": {"x": round(agent.x, 1), "y": round(agent.y, 1)},
-            "facing": agent.facing,
-            "movement": "sleeping" if agent.sleeping else ("active" if agent.current_action else "stationary"),
-            "health": round(agent.health, 1),
-            "energy": round(agent.energy, 1),
-            "hunger": round(agent.hunger, 1),
-            "hydration": round(agent.hydration, 1),
-            "sleep_pressure": round(agent.sleep_pressure, 1),
-            "temperature_c": round(agent.body_temperature_c, 2),
-            "pain": round(agent.pain, 1),
-            "inventory": dict(agent.inventory),
-            "inventory_capacity": agent.inventory_capacity,
+    hunger_deficit = round(agent.hunger, 1)
+    body = {
+        "position": {"x": round(agent.x, 1), "y": round(agent.y, 1)},
+        "facing": agent.facing,
+        "movement": "sleeping" if agent.sleeping else ("active" if agent.current_action else "stationary"),
+        "health_reserve": round(agent.health, 1),
+        "energy_reserve": round(agent.energy, 1),
+        "hunger_deficit": hunger_deficit,
+        "satiety": round(100.0 - agent.hunger, 1),
+        "hydration_reserve": round(agent.hydration, 1),
+        "sleep_pressure": round(agent.sleep_pressure, 1),
+        "temperature_c": round(agent.body_temperature_c, 2),
+        "pain": round(agent.pain, 1),
+        "inventory": dict(agent.inventory),
+        "inventory_capacity": agent.inventory_capacity,
+        "scale_explanation": {
+            "hunger_deficit": "0 is fully fed; 100 is starving",
+            "satiety": "100 is fully fed; 0 is starving",
+            "health_energy_hydration": "100 is best; 0 is critical",
+            "sleep_pressure_and_pain": "0 is best; 100 is critical",
         },
+        # Backward-compatible numeric aliases for the observer and older integrations.
+        "health": round(agent.health, 1),
+        "energy": round(agent.energy, 1),
+        "hunger": hunger_deficit,
+        "hydration": round(agent.hydration, 1),
+    }
+
+    return {
+        "body": body,
         "drive_labels": drive_labels(agent),
         "visible_objects": sorted(objects, key=lambda item: item["distance"])[:30],
         "visible_entities": sorted(entities, key=lambda item: item["distance"])[:12],
