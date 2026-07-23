@@ -19,19 +19,14 @@ ActionName = Literal[
     "speak",
     "flee",
     "wait",
+    "view_map",
+    "view_task_journal",
+    "view_notebook",
 ]
 
 
 class GrammarSafeOutput(BaseModel):
-    """Use a minimal server grammar while retaining the complete validation schema.
-
-    LM Studio's llama.cpp grammar compiler can reject otherwise-valid Pydantic JSON
-    Schema features such as nested refs, nullable unions, constrained dictionaries,
-    and array constraints. `model_json_schema()` is therefore intentionally minimal
-    for the API response grammar. Prompts must use `full_json_schema()` so the model
-    still sees the exact field contract. Returned objects are always validated against
-    the complete Pydantic model in-process.
-    """
+    """Use a minimal server grammar while retaining the complete validation schema."""
 
     @classmethod
     def model_json_schema(cls, *args: Any, **kwargs: Any) -> dict[str, Any]:
