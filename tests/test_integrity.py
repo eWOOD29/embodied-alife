@@ -71,6 +71,7 @@ async def test_successful_action_creates_only_verified_outcome_memory(settings) 
         brain=StubBrain(_decision("eat")),
         load_existing=False,
     )
+    engine.agent.hunger = 50.0
     engine.agent.inventory["edible_plant"] = 1
     try:
         await engine.make_decision()
