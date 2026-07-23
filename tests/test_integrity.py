@@ -66,16 +66,17 @@ async def test_successful_action_creates_only_verified_outcome_memory(settings) 
         settings,
         database=database,
         vault=vault,
-        brain=StubBrain(_decision("wait")),
+        brain=StubBrain(_decision("eat")),
         load_existing=False,
     )
+    engine.agent.inventory["edible_plant"] = 1
     try:
         await engine.make_decision()
         assert vault.list_records() == []
         await engine.advance(0.3, allow_decision=False)
         records = vault.list_records()
         assert len(records) == 1
-        assert records[0].title.startswith("Verified wait outcome")
+        assert records[0].title.startswith("Verified eat outcome")
         assert "Authoritative outcome" in records[0].content
         assert "This candidate must not be trusted" not in records[0].content
     finally:
