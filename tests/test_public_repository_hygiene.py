@@ -4,11 +4,13 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+THIS_FILE = Path(__file__).resolve()
 TEXT_SUFFIXES = {".md", ".py", ".ps1", ".bat", ".toml", ".yml", ".yaml", ".json", ".txt", ".example"}
 IGNORED_ROOTS = {".git", ".venv", "data", "dist", "__pycache__"}
 
 # These exact markers were found in early internal documentation and must never
-# reappear in the current public tree. Generic environment-variable examples are allowed.
+# reappear elsewhere in the current public tree. Generic environment-variable
+# examples are allowed. This file is excluded because it defines the markers.
 FORBIDDEN_MARKERS = {
     "c:\\users\\ethan",
     "/c/users/ethan",
@@ -22,7 +24,7 @@ FORBIDDEN_MARKERS = {
 def _public_text_files() -> list[Path]:
     files: list[Path] = []
     for path in ROOT.rglob("*"):
-        if not path.is_file():
+        if not path.is_file() or path.resolve() == THIS_FILE:
             continue
         if any(part in IGNORED_ROOTS for part in path.relative_to(ROOT).parts):
             continue
