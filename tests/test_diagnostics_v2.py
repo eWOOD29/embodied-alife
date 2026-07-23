@@ -52,7 +52,7 @@ def test_model_response_provider_metadata_round_trip(settings) -> None:
         database.close()
 
 
-def test_diagnostic_bundle_v2_contains_runtime_metrics_and_no_secrets(engine) -> None:
+def test_diagnostic_bundle_v3_contains_runtime_metrics_soak_readiness_and_no_secrets(engine) -> None:
     engine.database.add_model_response(
         engine.world.sim_time,
         ObservedBrainResult(
@@ -88,7 +88,7 @@ def test_diagnostic_bundle_v2_contains_runtime_metrics_and_no_secrets(engine) ->
     )
 
     header = bundle["diagnostic_bundle"]
-    assert header["schema_version"] == 2
+    assert header["schema_version"] == 3
     assert header["run_id"] == engine.run_id
     assert header["world_generation_id"] == engine.world_generation_id
     assert header["privacy"]["api_keys_included"] is False
@@ -102,11 +102,19 @@ def test_diagnostic_bundle_v2_contains_runtime_metrics_and_no_secrets(engine) ->
 
     metrics = bundle["metrics"]
     assert metrics["model"]["total"] == 1
+    assert metrics["model"]["finish_reason_counts"]["stop"] == 1
     assert metrics["events"]["decisions"] == 1
     assert metrics["events"]["final_action_success_rate"] == 1.0
     assert bundle["anomaly_checks"]["multiple_live_engines_detected"] is False
     assert bundle["model_responses"][0]["provider"]["finish_reason"] == "stop"
 
+    readiness = bundle["soak_readiness"]
+    assert readiness["protocol_version"] == 1
+    assert readiness["run_id"] == engine.run_id
+    assert readiness["ready_for_full_audit"] is False
+    assert "multiple_day_night_cycles" in readiness["missing_required_scenarios"]
+    assert readiness["instructions"]
+
     serialized = str(bundle).lower()
-    assert "api_key" not in serialized or "api_keys_included" in serialized
     assert "authorization: bearer" not in serialized
+    assert "raw_prompts_included': true" not in serialized
