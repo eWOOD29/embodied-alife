@@ -63,7 +63,7 @@ jobs:
               required={'app/serialization.py','app/simulation/actions.py','app/simulation/engine.py','app/simulation/perception.py','app/simulation/scheduler.py','app/storage/database.py','tests/test_v040_post4_remediation.py','CHANGELOG.md','docs/ARCHITECTURE.md'}
               assert required<=set(names)
               texts={n:a.read(n).decode('utf-8') for n in required if n.endswith('.py') or n.endswith('.md')}
-              assert 'project_recent_view_result' in texts['app/simulation/engine.py'] and 'ari_record_origin_is_safe' in texts['app/simulation/actions.py']
+              assert 'project_view_result_for_recent_outcome' in texts['app/simulation/engine.py'] and 'ari_record_origin_is_safe' in texts['app/simulation/actions.py']
               assert 'math.hypot(resource.x - agent.x' not in texts['app/simulation/perception.py']
               private=['Ethan Assistant System','Post4 Remediation Implementation Report','1OjBiXqLsPfBI0sNAc4XfDRXMeWQ98BrGwNAmAhBMyjE']
               readable=0
