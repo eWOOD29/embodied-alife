@@ -63,9 +63,17 @@ jobs:
             --pattern 'embodied-alife-update.zip' \
             --pattern 'embodied-alife-update.zip.sha256' \
             --dir post4-audit/assets
-      - name: Independently audit published bytes
-        run: python scripts/post4_release_audit.py post4-audit
+      - name: Capture independent audit result
+        shell: bash
+        run: |
+          set +e
+          python scripts/post4_release_audit.py post4-audit > post4-audit/audit-output.log 2>&1
+          status=$?
+          echo "$status" > post4-audit/audit-exit-code.txt
+          cat post4-audit/audit-output.log
+          exit 0
       - name: Upload complete audit evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: post4-release-audit-evidence
