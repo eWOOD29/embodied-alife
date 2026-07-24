@@ -1,6 +1,0 @@
-*** Error compiling 'tests/test_public_repository_hygiene.py'...
-  File "tests/test_public_repository_hygiene.py", line 42
-    lambda: "api_key="" + "synthetic-secret-value-1234567890" + """,
-            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-SyntaxError: invalid syntax. Perhaps you forgot a comma?
-
