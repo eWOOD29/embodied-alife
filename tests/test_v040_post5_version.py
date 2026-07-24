@@ -74,7 +74,7 @@ def test_release_workflow_derives_exact_tag_from_dynamic_package_version() -> No
     root = Path(__file__).resolve().parents[1]
     workflow = (root / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
     installer = (root / "install-windows.ps1").read_text(encoding="utf-8")
-    assert 'TAG="v${PACKAGE_VERSION}"' in workflow
+    assert 'RELEASE_TAG=v${PACKAGE_VERSION}' in workflow
     assert "0.4.0.post4" not in workflow
     assert "0.4.0.post5" not in installer
     assert "post4" not in installer.lower()
