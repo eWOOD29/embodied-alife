@@ -1,0 +1,60 @@
+name: post4-byte-debug
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Capture release and archive evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set +e
+          mkdir -p byte-debug/assets
+          gh api repos/${GITHUB_REPOSITORY}/releases/tags/v0.4.0.post4 > byte-debug/release.json 2> byte-debug/commands.txt
+          gh api repos/${GITHUB_REPOSITORY}/releases/latest > byte-debug/latest.json 2>> byte-debug/commands.txt
+          git fetch --force origin refs/tags/v0.4.0.post4:refs/tags/v0.4.0.post4 2>> byte-debug/commands.txt
+          git rev-list -n 1 v0.4.0.post4 > byte-debug/tag-target.txt 2>> byte-debug/commands.txt
+          gh release download v0.4.0.post4 --repo "$GITHUB_REPOSITORY" --pattern embodied-alife-update.zip --pattern embodied-alife-update.zip.sha256 --dir byte-debug/assets 2>> byte-debug/commands.txt
+          python - <<'PY' > byte-debug/analysis.txt 2>&1
+          import hashlib,json,traceback,zipfile
+          from pathlib import Path
+          try:
+              r=Path('byte-debug'); z=r/'assets/embodied-alife-update.zip'; c=r/'assets/embodied-alife-update.zip.sha256'
+              rel=json.loads((r/'release.json').read_text()); latest=json.loads((r/'latest.json').read_text()); target=(r/'tag-target.txt').read_text().strip()
+              print('release',rel['id'],rel['tag_name'],rel['draft'],rel['prerelease'],rel['created_at'],rel['published_at'])
+              print('latest',latest['id'],latest['tag_name']); print('target',target)
+              digest=hashlib.sha256(z.read_bytes()).hexdigest(); print('digest',digest); print('checksum',c.read_text().strip())
+              print('assets',[(a['id'],a['name'],a['size'],a['created_at'],a['updated_at'],a.get('digest')) for a in rel['assets']])
+              with zipfile.ZipFile(z) as a:
+                  names=a.namelist(); print('entries',len(names)); print('testzip',a.testzip())
+                  m=json.loads(a.read('update-manifest.json')); print('manifest',m['app_id'],m['schema_version'],m['version'],len(m['managed_paths']),m['preserved_roots'])
+                  print('set_equal',set(names)==set(m['managed_paths'])|{'update-manifest.json'})
+                  print('temp_entries',[n for n in names if any(x in n.lower() for x in ('post4-apply','post4-pr-audit','post4-release-audit','test-output','__pycache__','.pytest_cache','.ruff_cache'))])
+                  required={'app/serialization.py','app/simulation/actions.py','app/simulation/engine.py','app/simulation/perception.py','app/simulation/scheduler.py','app/storage/database.py','tests/test_v040_post4_remediation.py','CHANGELOG.md','docs/ARCHITECTURE.md'}
+                  print('missing_required',sorted(required-set(names)))
+                  private=['Ethan Assistant System','Post4 Remediation Implementation Report','1OjBiXqLsPfBI0sNAc4XfDRXMeWQ98BrGwNAmAhBMyjE']
+                  hits=[]
+                  for n in names:
+                      try: text=a.read(n).decode('utf-8')
+                      except UnicodeDecodeError: continue
+                      for x in private:
+                          if x in text: hits.append((n,x))
+                  print('private_hits',hits)
+          except Exception:
+              traceback.print_exc()
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: post4-byte-debug
+          path: byte-debug
