@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from app.diagnostics import build_diagnostic_bundle
-from app.serialization import json_safe
+from app.serialization import finite_number, json_safe, json_safe_dict
 from app.updater.manager import UpdateError
 from app.version import __version__
 
@@ -63,7 +63,7 @@ def _health_payload(request: Request) -> dict:
         "paused": engine.paused,
         "alive": engine.agent.alive,
         "seed": engine.world.seed,
-        "sim_time": round(engine.world.sim_time, 2),
+        "sim_time": round(finite_number(getattr(engine.world, "sim_time", None), 0.0) or 0.0, 2),
         "model_mode": engine.brain.status.get("mode"),
         "model_available": engine.brain.status.get("available"),
         "generation_healthy": engine.brain.status.get("generation_healthy"),
@@ -113,7 +113,20 @@ def snapshots(request: Request) -> list[dict]:
 
 @router.get("/api/memories")
 def memories(request: Request) -> list[dict]:
-    return json_safe([record.to_dict() for record in _engine(request).vault.list_records()], max_depth=8, max_items=1000, max_text=4000, max_nodes=50000)
+    engine = _engine(request)
+    try:
+        records = engine.vault.list_records(limit=1000, scan_limit=4096)
+    except Exception:
+        records = []
+    result: list[dict] = []
+    for record in records:
+        try:
+            projected = json_safe_dict(record.to_dict(), max_depth=8, max_items=512, max_text=4000, max_nodes=5000, max_source_items=10000)
+        except Exception:
+            projected = {}
+        if projected:
+            result.append(projected)
+    return result
 
 
 @router.get("/api/llm/settings")
