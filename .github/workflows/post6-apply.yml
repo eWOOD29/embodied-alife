@@ -1,15 +1,15 @@
 name: post6-apply
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/v0.4.0-post6-remediation
+      - main
 
 permissions:
   contents: write
 
 jobs:
-  apply:
+  apply-and-validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -26,6 +26,55 @@ jobs:
           git apply --index /tmp/post6.patch
           rm -rf .post6-patch
           rm -f .github/workflows/post6-apply.yml
+          git add -A
+          git diff --cached --check
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install
+        run: python -m pip install -e '.[dev]'
+      - name: Focused Post6 exploit and semantic suite
+        run: >-
+          python -m pytest -q
+          tests/test_v040_post6_remediation.py
+          tests/test_v040_post6_version.py
+          tests/test_v040_post5_remediation.py
+          tests/test_v040_post4_remediation.py
+          tests/test_v040_post3_remediation.py
+          tests/test_v040_remediation.py
+          tests/test_v040_cognitive_foundations.py
+      - name: Complete test suite
+        run: python -m pytest -q
+      - name: Updater and installer suite
+        run: >-
+          python -m pytest -q
+          tests/test_updater.py
+          tests/test_update_shutdown.py
+          tests/test_config_and_serve.py
+          tests/test_v040_post6_version.py
+      - name: Compile
+        run: python -m compileall -q app tests scripts
+      - name: Advisory Ruff
+        continue-on-error: true
+        run: python -m ruff check app tests scripts
+      - name: Clean generated validation files
+        shell: bash
+        run: |
+          find app tests scripts -type d -name __pycache__ -prune -exec rm -rf {} +
+          rm -rf .pytest_cache .ruff_cache
+          find data/runtime -maxdepth 1 -type f ! -name .gitkeep -delete
+      - name: Validate source package
+        run: python scripts/validate_package.py
+      - name: Build local candidate archive
+        run: python scripts/build_release.py --output dist/embodied-alife-update.zip
+      - name: Validate archive, manifest, checksum, hygiene, and privacy
+        run: python scripts/validate_candidate_archive.py dist/embodied-alife-update.zip
+      - name: Commit frozen candidate
+        shell: bash
+        run: |
+          set -euo pipefail
           git add -A
           git diff --cached --check
           git config user.name "OpenAI"
