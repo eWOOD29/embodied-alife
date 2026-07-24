@@ -1,0 +1,108 @@
+name: post5-final-cleanup
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPOSITORY: eWOOD29/embodied-alife
+      FINAL_MAIN: a51d589268cd889d5f84c5c611c4e08cb3a25602
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Verify final source and published distribution before deleting temporary refs
+        shell: bash
+        run: |
+          set -euo pipefail
+          E="$GITHUB_WORKSPACE/post5-cleanup-evidence"
+          mkdir -p "$E"
+          git ls-tree -r --name-only "$FINAL_MAIN" > "$E/final-main-files.txt"
+          git show "$FINAL_MAIN:app/version.py" > "$E/final-app-version.py"
+          git show "$FINAL_MAIN:pyproject.toml" > "$E/final-pyproject.toml"
+          git show "$FINAL_MAIN:appdock.json" > "$E/final-appdock.json"
+          gh api "repos/$REPOSITORY/pulls/18" > "$E/pr18.json"
+          gh api "repos/$REPOSITORY/pulls/19" > "$E/pr19-before-cleanup.json"
+          gh api "repos/$REPOSITORY/releases/latest" > "$E/latest-release.json"
+          gh api "repos/$REPOSITORY/releases/tags/v0.4.0.post4" > "$E/post4-release.json"
+          gh api "repos/$REPOSITORY/git/ref/tags/v0.4.0.post4" > "$E/post4-tag.json"
+          gh api "repos/$REPOSITORY/releases/tags/v0.4.0.post5" > "$E/post5-release.json"
+          EVIDENCE="$E" python - <<'PY' > "$E/verification.txt"
+          import hashlib, json, os, subprocess, zipfile
+          from pathlib import Path, PurePosixPath
+          e=Path(os.environ['EVIDENCE'])
+          files=(e/'final-main-files.txt').read_text().splitlines()
+          temp=[p for p in files if (p.startswith('.github/workflows/') and any(x in p.lower() for x in ('post5','audit','finalization','containment','cleanup'))) or (p.startswith('scripts/') and any(x in p.lower() for x in ('post5_','apply_phase','audit','finalization')))]
+          if temp:
+              raise SystemExit(f'temporary main files: {temp}')
+          if '__version__ = "0.4.0.post5"' not in (e/'final-app-version.py').read_text():
+              raise SystemExit('main runtime version mismatch')
+          if 'version = "0.4.0.post5"' not in (e/'final-pyproject.toml').read_text():
+              raise SystemExit('main package version mismatch')
+          appdock=json.loads((e/'final-appdock.json').read_text())
+          if appdock.get('projectDirectory') != '.' or appdock.get('workingDirectoryPolicy') != 'projectDirectory':
+              raise SystemExit('main AppDock portability mismatch')
+          pr18=json.loads((e/'pr18.json').read_text())
+          if not pr18.get('merged') or pr18.get('merge_commit_sha') != os.environ['FINAL_MAIN']:
+              raise SystemExit('PR18 merge identity mismatch')
+          latest=json.loads((e/'latest-release.json').read_text())
+          post4=json.loads((e/'post4-release.json').read_text())
+          post4tag=json.loads((e/'post4-tag.json').read_text())['object']
+          post5=json.loads((e/'post5-release.json').read_text())
+          if latest.get('id') != post5.get('id') or latest.get('tag_name') != 'v0.4.0.post5':
+              raise SystemExit('Post5 not latest')
+          if post4.get('assets'):
+              raise SystemExit(f'Post4 updater assets remain: {post4.get("assets")}')
+          if post4tag.get('sha') != '1b4204d6a8b0caea13d30a34a71f86d6fcc0216b':
+              raise SystemExit('Post4 tag target changed')
+          assets={a['name']:a for a in post5.get('assets',[])}
+          if set(assets) != {'embodied-alife-update.zip','embodied-alife-update.zip.sha256'}:
+              raise SystemExit('Post5 asset set mismatch')
+          for name,a in assets.items():
+              with (e/name).open('wb') as out:
+                  subprocess.run(['gh','api','-H','Accept: application/octet-stream',f"repos/{os.environ['REPOSITORY']}/releases/assets/{a['id']}"],check=True,stdout=out)
+          digest=hashlib.sha256((e/'embodied-alife-update.zip').read_bytes()).hexdigest()
+          if digest != (e/'embodied-alife-update.zip.sha256').read_text().split()[0]:
+              raise SystemExit('Post5 checksum mismatch')
+          with zipfile.ZipFile(e/'embodied-alife-update.zip') as z:
+              if z.testzip() is not None:
+                  raise SystemExit('Post5 archive integrity failure')
+              names=z.namelist()
+              temporary=[n for n in names if (n.startswith('.github/workflows/') and any(x in n.lower() for x in ('post5','audit','finalization','containment','cleanup'))) or n.startswith('post5-') or '/post5-' in n or any(p in {'__pycache__','.pytest_cache','.ruff_cache'} for p in PurePosixPath(n).parts)]
+              if temporary:
+                  raise SystemExit(f'temporary archive members: {temporary}')
+          print(f'final_main={os.environ["FINAL_MAIN"]}')
+          print('final_main_hygiene=passed')
+          print('final_archive_hygiene=passed')
+          print(f'post5_release_id={post5["id"]}')
+          print(f'post5_sha256={digest}')
+          print('post4_assets=absent')
+          print(f'post4_tag_target={post4tag["sha"]}')
+          print('pr18=merged')
+          PY
+          printf 'pre_cleanup_verification=0\n' > "$E/status.txt"
+      - name: Upload final cleanup verification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: post5-final-cleanup-verification
+          path: post5-cleanup-evidence
+          if-no-files-found: error
+      - name: Close temporary PR and delete temporary branches
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --method PATCH "repos/$REPOSITORY/pulls/19" -f state=closed > /dev/null
+          if gh api "repos/$REPOSITORY/git/ref/heads/remediation/v0.4.0-post5" > /dev/null 2>&1; then
+            gh api --method DELETE "repos/$REPOSITORY/git/refs/heads/remediation/v0.4.0-post5"
+          fi
+          gh api --method DELETE "repos/$REPOSITORY/git/refs/heads/audit/v0.4.0-post5-finalization"
