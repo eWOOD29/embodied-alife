@@ -13,7 +13,7 @@ The deterministic world engine is authoritative. You may request exactly one act
 
 You possess a field map, task journal, and field notebook. Use view_map, view_task_journal, or view_notebook when their contents would help. These tools contain only your own knowledge; never infer that they reveal hidden observer truth.
 
-Use the executable-action map as a hard constraint. If a target is visible but out of reach, choose move_to before inspect, pick_up, or eat. Do not request eat unless the map says eating_recommended is true. Do not request build unless the map says it is executable now.
+Use the executable-action map as a hard constraint. If a target is visible but out of reach, choose move_to before inspect, pick_up, or eat. Do not request eat unless the map says eating_recommended is true. Do not request build unless the map says it is executable now. When position or distance is unknown, do not infer reachability, direction, shelter proximity, or a plausible location.
 
 Need scales are not interchangeable. hunger is a deficit: 0 means fully fed and 100 means starving. hydration and energy are reserves: high values are good. Use the explicit need_semantics and urgency labels.
 
@@ -40,9 +40,16 @@ MEMORY_TEXT_LIMIT = 400
 
 
 def _text(value: Any, limit: int = DECISION_STRING_LIMIT) -> str:
-    if not isinstance(value, (str, int, float, bool)):
+    if isinstance(value, str):
+        text = value.replace("\n", " ").strip()
+    elif isinstance(value, int) and not isinstance(value, bool):
+        text = str(value)
+    elif isinstance(value, float) and math.isfinite(value):
+        text = str(value)
+    elif isinstance(value, bool):
+        text = "true" if value else "false"
+    else:
         return ""
-    text = str(value).replace("\n", " ").strip()
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
@@ -68,22 +75,43 @@ def _project(value: Any, *, depth: int = 0, list_limit: int = DECISION_LIST_LIMI
         return _text(value)
     if isinstance(value, dict):
         result: dict[str, Any] = {}
-        for raw_key in sorted(value, key=lambda item: str(item))[:dict_limit]:
+        scanned = 0
+        for raw_key, raw_value in value.items():
+            scanned += 1
+            if scanned > dict_limit:
+                if len(result) >= dict_limit and result:
+                    result.pop(next(reversed(result)))
+                result["__truncated__"] = True
+                break
             key = _text(raw_key, 96)
             if not key:
                 continue
-            projected = _project(value[raw_key], depth=depth + 1, list_limit=list_limit, dict_limit=dict_limit)
+            projected = _project(raw_value, depth=depth + 1, list_limit=list_limit, dict_limit=dict_limit)
             if projected is not None:
                 result[key] = projected
         return result
-    if isinstance(value, (list, tuple, set)):
-        source = sorted(value, key=lambda item: str(item)) if isinstance(value, set) else value
-        result = []
-        for item in list(source)[:list_limit]:
+    if isinstance(value, (list, tuple)):
+        result: list[Any] = []
+        for index, item in enumerate(value):
+            if index >= list_limit:
+                if result:
+                    result[-1] = "<truncated>"
+                else:
+                    result.append("<truncated>")
+                break
             projected = _project(item, depth=depth + 1, list_limit=list_limit, dict_limit=dict_limit)
             if projected is not None:
                 result.append(projected)
         return result
+    if isinstance(value, (set, frozenset)):
+        if len(value) > list_limit:
+            return ["<unordered-omitted>"]
+        projected = []
+        for item in value:
+            item_value = _project(item, depth=depth + 1, list_limit=list_limit, dict_limit=dict_limit)
+            if item_value is not None:
+                projected.append(item_value)
+        return sorted(projected, key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":"), allow_nan=False))
     return None
 
 
@@ -117,7 +145,7 @@ def _memory_summary(raw: Any) -> dict[str, Any] | None:
     importance = _number(raw.get("importance"))
     if importance is not None:
         result["importance"] = importance
-    tags = _project(raw.get("tags", []), list_limit=8, dict_limit=0)
+    tags = _project(raw.get("tags", []), list_limit=8, dict_limit=1)
     if tags:
         result["tags"] = tags
     return result or None
@@ -137,12 +165,13 @@ def _memory_summaries(value: Any) -> list[dict[str, Any]]:
 
 
 def decision_messages(context: dict) -> list[dict[str, str]]:
+    safe_context = context if isinstance(context, dict) else {}
     payload = {
-        "perception": _project(context.get("perception", {}), list_limit=64, dict_limit=64),
-        "executable_action_map": _project(context.get("action_affordances", {}), list_limit=32, dict_limit=64),
-        "active_plan": _plan_summary(context.get("active_plan", [])),
-        "retrieved_long_term_memories": _memory_summaries(context.get("retrieved_memories", [])),
-        "recent_action_outcomes": _project(context.get("recent_outcomes", []), list_limit=OUTCOME_LIMIT, dict_limit=32),
+        "perception": _project(safe_context.get("perception", {}), list_limit=64, dict_limit=64),
+        "executable_action_map": _project(safe_context.get("action_affordances", {}), list_limit=32, dict_limit=64),
+        "active_plan": _plan_summary(safe_context.get("active_plan", [])),
+        "retrieved_long_term_memories": _memory_summaries(safe_context.get("retrieved_memories", [])),
+        "recent_action_outcomes": _project(safe_context.get("recent_outcomes", []), list_limit=OUTCOME_LIMIT, dict_limit=32),
         "decision_policy": {
             "action": "Choose one action that is executable now. Use move_to before a target-specific action when the target is out of reach. Cognitive-tool view actions are always available while awake.",
             "needs": "Treat hunger as a deficit where 0 is fully fed and 100 is starving; hydration and energy are reserves.",
@@ -155,22 +184,22 @@ def decision_messages(context: dict) -> list[dict[str, str]]:
     }
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": json.dumps(json_safe(payload, max_depth=8, max_items=512, max_text=4000, max_nodes=50000), ensure_ascii=False, separators=(",", ":"), allow_nan=False)},
+        {"role": "user", "content": json.dumps(json_safe(payload, max_depth=8, max_items=512, max_text=4000, max_nodes=50000, max_source_items=100000), ensure_ascii=False, separators=(",", ":"), allow_nan=False)},
     ]
 
 
 def consolidation_messages(context: dict) -> list[dict[str, str]]:
-    beliefs = context.get("beliefs", {})
+    safe_context = context if isinstance(context, dict) else {}
     payload = {
-        "day": context.get("day"),
-        "body": context.get("body"),
-        "events": context.get("events", [])[-50:],
-        "existing_beliefs": {key: value.to_dict() if hasattr(value, "to_dict") else value for key, value in beliefs.items()},
-        "recent_memories": context.get("memories", [])[-12:],
+        "day": safe_context.get("day"),
+        "body": _project(safe_context.get("body"), list_limit=64, dict_limit=64),
+        "events": _project(safe_context.get("events", []), list_limit=50, dict_limit=32),
+        "existing_beliefs": _project(safe_context.get("beliefs", {}), list_limit=16, dict_limit=64),
+        "recent_memories": _project(safe_context.get("memories", []), list_limit=12, dict_limit=32),
         "instruction": "Return every required field. Select only durable memories and avoid near-duplicates. /no_think",
         "schema": ConsolidationResult.full_json_schema(),
     }
     return [
         {"role": "system", "content": REFLECTION_PROMPT},
-        {"role": "user", "content": json.dumps(json_safe(payload, max_depth=8, max_items=512, max_text=4000, max_nodes=50000), ensure_ascii=False, separators=(",", ":"), allow_nan=False)},
+        {"role": "user", "content": json.dumps(json_safe(payload, max_depth=8, max_items=512, max_text=4000, max_nodes=50000, max_source_items=100000), ensure_ascii=False, separators=(",", ":"), allow_nan=False)},
     ]
