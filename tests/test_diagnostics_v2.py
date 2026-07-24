@@ -97,7 +97,8 @@ def test_diagnostic_bundle_v3_contains_runtime_metrics_soak_readiness_and_no_sec
     runtime = bundle["build_and_runtime"]
     assert runtime["python_version"]
     assert runtime["process_id"] > 0
-    assert runtime["database_path"] == str(engine.database.path)
+    assert runtime["database_path"] == "<local-path-omitted>"
+    assert runtime["memory_path"] == "<local-path-omitted>"
     assert "fastapi" in runtime["dependency_versions"]
 
     metrics = bundle["metrics"]
