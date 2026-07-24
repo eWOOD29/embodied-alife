@@ -68,6 +68,32 @@ def _mapping(value: Any, limit: int = 10000) -> dict[str, Any]:
     return result
 
 
+def _nested_mapping(value: Any, limit: int = 10000) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for key, raw in _mapping(value, limit).items():
+        if isinstance(raw, dict):
+            result[key] = dict(list(raw.items())[:1000])
+    return result
+
+
+def _text_mapping(value: Any, limit: int = 10000) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for key, raw in _mapping(value, limit).items():
+        text = _scalar_text(raw, 4000)
+        if text:
+            result[key] = text
+    return result
+
+
+def _number_mapping(value: Any, limit: int = 1000) -> dict[str, float]:
+    result: dict[str, float] = {}
+    for key, raw in _mapping(value, limit).items():
+        number = finite_number(raw, None, minimum=-1_000_000.0, maximum=1_000_000.0)
+        if number is not None:
+            result[key] = number
+    return result
+
+
 def _string_list(value: Any, limit: int) -> list[str]:
     if not isinstance(value, (list, tuple, set, frozenset)):
         return []
@@ -83,6 +109,18 @@ def _string_list(value: Any, limit: int) -> list[str]:
         item = _scalar_text(raw, 4000)
         if item:
             result.append(item)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def _record_list(value: Any, limit: int) -> list[dict[str, Any]]:
+    if not isinstance(value, (list, tuple)):
+        return []
+    result: list[dict[str, Any]] = []
+    for raw in value:
+        if isinstance(raw, dict):
+            result.append(dict(list(raw.items())[:1000]))
         if len(result) >= limit:
             break
     return result
@@ -105,8 +143,8 @@ def _inventory(value: Any) -> dict[str, int]:
 @dataclass(slots=True)
 class AgentState:
     name: str = "Ari"
-    x: float = 0.0
-    y: float = 0.0
+    x: float | None = 0.0
+    y: float | None = 0.0
     facing: str = "north"
     movement_speed: float = 2.0
     collision_radius: float = 0.35
@@ -155,7 +193,8 @@ class AgentState:
 
     @property
     def inventory_used(self) -> int:
-        return sum(quantity for quantity in self.inventory.values() if isinstance(quantity, int) and not isinstance(quantity, bool) and quantity > 0)
+        inventory = self.inventory if isinstance(self.inventory, dict) else {}
+        return sum(quantity for quantity in inventory.values() if isinstance(quantity, int) and not isinstance(quantity, bool) and quantity > 0)
 
     def can_add(self, quantity: int = 1) -> bool:
         requested = quantity if isinstance(quantity, int) and not isinstance(quantity, bool) and quantity > 0 else 0
@@ -163,18 +202,24 @@ class AgentState:
         return self.inventory_used + requested <= int(capacity)
 
     def add_item(self, kind: str, quantity: int = 1) -> bool:
-        if kind in self.key_items or not self.can_add(quantity):
+        key_items = self.key_items if isinstance(self.key_items, dict) else {}
+        inventory = self.inventory if isinstance(self.inventory, dict) else {}
+        if kind in key_items or not self.can_add(quantity):
             return False
-        self.inventory[kind] = self.inventory.get(kind, 0) + quantity
+        inventory[kind] = inventory.get(kind, 0) + quantity
+        self.inventory = inventory
         return True
 
     def remove_item(self, kind: str, quantity: int = 1) -> bool:
-        available = self.inventory.get(kind, 0)
-        if kind in self.key_items or not isinstance(available, int) or isinstance(available, bool) or available < quantity:
+        key_items = self.key_items if isinstance(self.key_items, dict) else {}
+        inventory = self.inventory if isinstance(self.inventory, dict) else {}
+        available = inventory.get(kind, 0)
+        if kind in key_items or not isinstance(available, int) or isinstance(available, bool) or available < quantity:
             return False
-        self.inventory[kind] -= quantity
-        if self.inventory[kind] <= 0:
-            del self.inventory[kind]
+        inventory[kind] -= quantity
+        if inventory[kind] <= 0:
+            del inventory[kind]
+        self.inventory = inventory
         return True
 
     def to_dict(self) -> dict[str, Any]:
@@ -183,7 +228,7 @@ class AgentState:
             for field_info in fields(self)
             if not field_info.name.startswith("_")
         }
-        explored = self.explored if isinstance(self.explored, (list, tuple, set)) else []
+        explored = self.explored if isinstance(self.explored, (list, tuple, set, frozenset)) else []
         safe_explored = []
         for raw in explored:
             item = _scalar_text(raw)
@@ -192,7 +237,14 @@ class AgentState:
             if len(safe_explored) >= 10000:
                 break
         data["explored"] = sorted(set(safe_explored))
-        return json_safe_dict(data, max_depth=10, max_items=10000, max_text=4000, max_nodes=100000)
+        return json_safe_dict(
+            data,
+            max_depth=10,
+            max_items=10000,
+            max_text=4000,
+            max_nodes=100000,
+            max_source_items=120000,
+        )
 
     @classmethod
     def from_dict(cls, data: Any) -> "AgentState":
@@ -200,9 +252,39 @@ class AgentState:
             return cls()
         allowed = {field_info.name for field_info in fields(cls) if not field_info.name.startswith("_")}
         copied = {key: value for key, value in data.items() if key in allowed}
+        defaults = cls()
 
-        explored = copied.get("explored", [])
-        copied["explored"] = set(_string_list(explored, 10000)) if isinstance(explored, (list, tuple, set)) else set()
+        for name in ("name", "facing", "current_intention", "last_decision_reason", "decision_source"):
+            if name in copied:
+                copied[name] = _scalar_text(copied[name], 4000) or getattr(defaults, name)
+        if "injury" in copied:
+            copied["injury"] = _scalar_text(copied["injury"], 1000) or None
+        for name in ("x", "y"):
+            if name in copied:
+                copied[name] = finite_number(copied[name], None)
+        for name in (
+            "movement_speed",
+            "collision_radius",
+            "health",
+            "energy",
+            "hunger",
+            "hydration",
+            "body_temperature_c",
+            "sleep_pressure",
+            "pain",
+            "grace_seconds_remaining",
+            "last_damage_time",
+        ):
+            if name in copied:
+                copied[name] = finite_number(copied[name], getattr(defaults, name))
+        if "inventory_capacity" in copied:
+            capacity = finite_number(copied["inventory_capacity"], float(defaults.inventory_capacity), minimum=0.0, maximum=1_000_000.0)
+            copied["inventory_capacity"] = int(capacity if capacity is not None else defaults.inventory_capacity)
+        for name in ("alive", "sleeping"):
+            if name in copied:
+                copied[name] = copied[name] if isinstance(copied[name], bool) else getattr(defaults, name)
+
+        copied["explored"] = set(_string_list(copied.get("explored", []), 10000))
         copied["inventory"] = _inventory(copied.get("inventory"))
 
         raw_key_items = copied.get("key_items") if "key_items" in copied else None
@@ -215,16 +297,14 @@ class AgentState:
         copied["short_term_episodes"] = _load_records(copied.get("short_term_episodes"), EpisodeRecord, "episode_id")
         copied["awakening"] = AwakeningState.from_dict(copied.get("awakening"))
 
-        copied["known_locations"] = _mapping(copied.get("known_locations"))
-        copied["known_terrain"] = _mapping(copied.get("known_terrain"))
-        copied["personality_traits"] = _mapping(copied.get("personality_traits"), 1000)
-        copied["ari_knowledge_proofs"] = _mapping(copied.get("ari_knowledge_proofs"), 20000)
-        copied["current_action"] = copied.get("current_action") if isinstance(copied.get("current_action"), dict) else None
+        copied["known_locations"] = _nested_mapping(copied.get("known_locations"))
+        copied["known_terrain"] = _text_mapping(copied.get("known_terrain"))
+        copied["personality_traits"] = _number_mapping(copied.get("personality_traits"), 1000)
+        copied["ari_knowledge_proofs"] = _nested_mapping(copied.get("ari_knowledge_proofs"), 20000)
+        copied["current_action"] = dict(list(copied["current_action"].items())[:1000]) if isinstance(copied.get("current_action"), dict) else None
         copied["active_plan"] = _string_list(copied.get("active_plan"), 1000)
-        copied["recent_events"] = list(copied.get("recent_events", []))[:1000] if isinstance(copied.get("recent_events"), (list, tuple)) else []
-        copied["retrieved_memories"] = list(copied.get("retrieved_memories", []))[:1000] if isinstance(copied.get("retrieved_memories"), (list, tuple)) else []
-        try:
-            copied["cognition_schema_version"] = int(copied.get("cognition_schema_version", 1))
-        except (TypeError, ValueError, OverflowError):
-            copied["cognition_schema_version"] = 1
+        copied["recent_events"] = _record_list(copied.get("recent_events"), 1000)
+        copied["retrieved_memories"] = _record_list(copied.get("retrieved_memories"), 1000)
+        version = finite_number(copied.get("cognition_schema_version", 1), 1.0, minimum=1.0, maximum=1_000_000.0)
+        copied["cognition_schema_version"] = int(version if version is not None else 1)
         return cls(**copied)
