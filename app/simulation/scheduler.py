@@ -15,6 +15,18 @@ from app.memory.consolidation import consolidate_sleep
 from app.memory.retrieval import retrieve_memories
 from app.memory.vault import MemoryValidationError, MemoryVault
 from app.serialization import finite_number, json_safe, json_safe_dict
+from app.simulation.integrity import (
+    agent_key,
+    attach_key,
+    load_or_create_key,
+    safe_message,
+    seal_deterministic_starters,
+    seal_memory_record,
+    seal_record,
+    sign_payload,
+    state_contains_proofs,
+    verify_memory_record,
+)
 from app.simulation.actions import ActionController, ActionResult
 from app.simulation.agent import AgentState
 from app.simulation.events import Event
@@ -63,6 +75,10 @@ class SimulationEngine:
 
         self._migrate_memory_integrity()
         existing = self.database.get_metadata("current_state") if load_existing else None
+        self._ari_integrity_key = load_or_create_key(
+            settings.runtime_dir,
+            allow_create=not state_contains_proofs(existing),
+        )
         if existing:
             self._restore(existing)
             self._record("system", "Restored the latest local runtime state.", 0.4)
@@ -87,10 +103,26 @@ class SimulationEngine:
         self.database.set_metadata("world_generation_id", self.world_generation_id)
         self.world = WorldState.generate(seed, self.settings.world_size)
         self.agent = AgentState(x=float(self.world.spawn[0]), y=float(self.world.spawn[1]))
+        attach_key(self.agent, self._ari_integrity_key)
+        seal_deterministic_starters(self.agent, self._ari_integrity_key)
         self.agent.beliefs = {
             "self": "I have a physical body in an unfamiliar place.",
             "world": "The environment appears real and partially observable; my interpretations may be wrong.",
         }
+        for belief_id, belief in self.agent.beliefs.items():
+            if isinstance(belief, dict):
+                belief["source_type"] = "system_initialization"
+                provenance = belief.get("provenance")
+                if isinstance(provenance, dict):
+                    provenance["source_type"] = "system_initialization"
+            seal_record(
+                "belief",
+                belief,
+                self._ari_integrity_key,
+                "deterministic_starter",
+                source_type="system_initialization",
+                source_ref=f"initial-belief:{belief_id}",
+            )
         self.controller = ActionController()
         self.events.clear()
         self.memory_writes.clear()
@@ -240,8 +272,13 @@ class SimulationEngine:
         query_parts.extend(obj["kind"] for obj in perception["visible_objects"][:8])
         query_parts.extend(entity["classification"] for entity in perception["visible_entities"][:5])
         tags = {item for item in self.agent.inventory}
+        verified_memory_records = [
+            record
+            for record in self.vault.list_records()
+            if verify_memory_record(self.settings.runtime_dir, record, self._ari_integrity_key)
+        ]
         memories = retrieve_memories(
-            self.vault.list_records(),
+            verified_memory_records,
             " ".join(query_parts),
             tags=tags,
             sim_time=self.world.sim_time,
@@ -265,6 +302,20 @@ class SimulationEngine:
             safe_value = value.strip()[:500]
             if safe_key and safe_value:
                 self.agent.beliefs[safe_key] = safe_value
+                belief = self.agent.beliefs.get(safe_key)
+                if isinstance(belief, dict):
+                    belief["source_type"] = "model_belief_update"
+                    provenance = belief.get("provenance")
+                    if isinstance(provenance, dict):
+                        provenance["source_type"] = "model_belief_update"
+                seal_record(
+                    "belief",
+                    belief,
+                    self._ari_integrity_key,
+                    "validated_model_response",
+                    source_type="model_belief_update",
+                    source_ref=f"model-response:{model_response_id}:{safe_key}",
+                )
         self.last_decision = decision.model_dump()
         decision_event = self._record(
             "decision",
@@ -353,6 +404,14 @@ class SimulationEngine:
             return
         try:
             record = self.vault.write(request, self.world.sim_time)
+            if not seal_memory_record(
+                self.settings.runtime_dir,
+                record,
+                self._ari_integrity_key,
+                "validated_action_event",
+                source_ref=f"action-result:{action_event['id']}:{record.id}",
+            ):
+                raise MemoryValidationError("memory_integrity_proof_failed")
             self.database.add_memory(record)
             payload = record.to_dict()
             payload["provenance"] = {
@@ -403,6 +462,16 @@ class SimulationEngine:
 
     def _handle_action_result(self, result: ActionResult) -> None:
         payload = result.to_dict()
+        if result.reason != "started":
+            evidence = sign_payload(
+                self.agent,
+                "recent_outcome",
+                payload,
+                "validated_action_event",
+                source_ref=uuid.uuid4().hex,
+            )
+            if evidence is not None:
+                payload["_ari_integrity"] = evidence
         self.last_action_result = payload
         event = self._record(
             "action_result",
@@ -413,7 +482,7 @@ class SimulationEngine:
         self._resolve_pending_memory(result, event)
 
     def _record(self, kind: str, message: str, importance: float = 0.3, data: dict[str, Any] | None = None) -> dict[str, Any]:
-        event = Event(self.world.sim_time if hasattr(self, "world") else 0.0, kind, str(message)[:4000], json_safe_dict(data or {}, max_depth=10, max_items=1000, max_text=4000, max_nodes=50000), finite_number(importance, 0.3) or 0.3).to_dict()
+        event = Event(self.world.sim_time if hasattr(self, "world") else 0.0, kind, safe_message(message, 4000), json_safe_dict(data or {}, max_depth=10, max_items=1000, max_text=4000, max_nodes=50000), finite_number(importance, 0.3) or 0.3).to_dict()
         event["id"] = self.database.add_event(event)
         event["run_id"] = self.run_id
         event["world_generation_id"] = self.world_generation_id
@@ -446,7 +515,9 @@ class SimulationEngine:
         self.run_id = state.get("run_id") or uuid.uuid4().hex
         self.world_generation_id = state.get("world_generation_id") or uuid.uuid4().hex
         self.world = WorldState.from_dict(state["world"])
-        self.agent = AgentState.from_dict(state["agent"])
+        self.agent = AgentState.from_dict(state.get("agent"))
+        attach_key(self.agent, self._ari_integrity_key)
+        seal_deterministic_starters(self.agent, self._ari_integrity_key)
         self.controller = ActionController()
         if state.get("controller"):
             self.controller.execution = ActionExecution.from_dict(state["controller"])

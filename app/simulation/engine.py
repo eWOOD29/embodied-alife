@@ -12,6 +12,7 @@ from app.memory.vault import MemoryValidationError, MemoryVault
 from app.simulation.actions import ActionResult, VIEW_ACTIONS, project_view_result_for_recent_outcome
 from app.simulation.affordances import build_action_affordances
 from app.simulation.perception import build_perception
+from app.simulation.integrity import seal_memory_record, seal_record, verify_memory_record, verify_payload
 from app.simulation.scheduler import SimulationEngine as BaseSimulationEngine
 from app.storage.database import Database
 
@@ -61,7 +62,13 @@ class SimulationEngine(BaseSimulationEngine):
                 continue
             if event.get("kind") != "action_result":
                 continue
-            result = event.get("data") or {}
+            raw_result = event.get("data") if isinstance(event, dict) else None
+            if not isinstance(raw_result, dict):
+                continue
+            evidence = raw_result.get("_ari_integrity")
+            result = {key: value for key, value in raw_result.items() if key != "_ari_integrity"}
+            if not verify_payload(self.agent, "recent_outcome", result, evidence):
+                continue
             if result.get("reason") == "started":
                 continue
             action = result.get("action") or (current_decision or {}).get("action")
@@ -284,8 +291,13 @@ class SimulationEngine(BaseSimulationEngine):
         query_parts.extend(obj["kind"] for obj in perception["visible_objects"][:8])
         query_parts.extend(entity["classification"] for entity in perception["visible_entities"][:5])
         tags = {item for item in self.agent.inventory}
+        verified_memory_records = [
+            record
+            for record in self.vault.list_records()
+            if verify_memory_record(self.settings.runtime_dir, record, self._ari_integrity_key)
+        ]
         memories = retrieve_memories(
-            self.vault.list_records(),
+            verified_memory_records,
             " ".join(query_parts),
             tags=tags,
             sim_time=self.world.sim_time,
@@ -320,6 +332,20 @@ class SimulationEngine(BaseSimulationEngine):
             safe_value = value.strip()[:500]
             if safe_key and safe_value:
                 self.agent.beliefs[safe_key] = safe_value
+                belief = self.agent.beliefs.get(safe_key)
+                if isinstance(belief, dict):
+                    belief["source_type"] = "model_belief_update"
+                    provenance = belief.get("provenance")
+                    if isinstance(provenance, dict):
+                        provenance["source_type"] = "model_belief_update"
+                seal_record(
+                    "belief",
+                    belief,
+                    self._ari_integrity_key,
+                    "validated_model_response",
+                    source_type="model_belief_update",
+                    source_ref=f"model-response:{model_response_id}:{safe_key}",
+                )
         self.last_decision = decision.model_dump()
         provider = {
             "finish_reason": getattr(result, "finish_reason", None),
@@ -405,6 +431,14 @@ class SimulationEngine(BaseSimulationEngine):
         request = self._verified_memory_request_from(pending, result, action_event["id"])
         try:
             record = self.vault.write(request, self.world.sim_time)
+            if not seal_memory_record(
+                self.settings.runtime_dir,
+                record,
+                self._ari_integrity_key,
+                "validated_action_event",
+                source_ref=f"action-result:{action_event['id']}:{record.id}",
+            ):
+                raise MemoryValidationError("memory_integrity_proof_failed")
             self.database.add_memory(record)
             payload = record.to_dict()
             payload["provenance"] = {

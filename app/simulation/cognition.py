@@ -128,14 +128,26 @@ class Provenance:
     source_type: str
     source_id: str | None = None
     detail: str | None = None
+    creation_path: str | None = None
+    proof_version: int | None = None
+    proof: str | None = None
 
     @classmethod
-    def from_dict(cls, value: dict[str, Any] | None, *, default_source: str = "unknown") -> "Provenance":
-        value = value or {}
+    def from_dict(cls, value: Any, *, default_source: str = "unknown") -> "Provenance":
+        value = value if isinstance(value, dict) else {}
+        proof_version = value.get("proof_version")
+        try:
+            parsed_version = int(proof_version) if proof_version is not None and not isinstance(proof_version, bool) else None
+        except (TypeError, ValueError, OverflowError):
+            parsed_version = None
+        proof = _text(value.get("proof"), limit=128) or None
         return cls(
             source_type=_text(value.get("source_type"), default_source, 64),
             source_id=_text(value.get("source_id"), limit=160) or None,
             detail=_text(value.get("detail"), limit=240) or None,
+            creation_path=_text(value.get("creation_path"), limit=80) or None,
+            proof_version=parsed_version,
+            proof=proof,
         )
 
 
@@ -347,8 +359,8 @@ class AwakeningState:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, value: dict[str, Any] | None) -> "AwakeningState":
-        value = value or {}
+    def from_dict(cls, value: Any) -> "AwakeningState":
+        value = value if isinstance(value, dict) else {}
         return cls(
             narrative=_text(value.get("narrative"), AWAKENING_NARRATIVE, 4000),
             presented=bool(value.get("presented", False)),

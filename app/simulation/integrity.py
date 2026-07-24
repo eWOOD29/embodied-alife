@@ -461,3 +461,40 @@ def verify_memory_record(runtime_dir: Path, record: Any, key: bytes | None) -> b
     if creation_path not in {"validated_action_event", "validated_consolidation"} or _number(evidence.get("proof_version")) != PROOF_VERSION or len(proof) != 64:
         return False
     return hmac.compare_digest(proof, _digest(key, _memory_payload(record, creation_path, source_ref)))
+
+
+
+def safe_message(value: Any, limit: int = 4000) -> str:
+    return _text(value, limit)
+
+
+def _same_record(family: str, left: Any, right: Any) -> bool:
+    left_payload = record_payload(family, left, creation_path="deterministic_starter", source_ref="starter")
+    right_payload = record_payload(family, right, creation_path="deterministic_starter", source_ref="starter")
+    if left_payload is None or right_payload is None:
+        return False
+    left_payload["source_type"] = "system_initialization"
+    right_payload["source_type"] = "system_initialization"
+    return left_payload["identity"] == right_payload["identity"] and left_payload["content"] == right_payload["content"]
+
+
+def seal_deterministic_starters(agent: Any, key: bytes | None) -> None:
+    if key is None:
+        return
+    from app.simulation.cognition import starter_key_items, starter_tasks
+
+    expected_items = starter_key_items()
+    actual_items = _member(agent, "key_items")
+    if isinstance(actual_items, Mapping):
+        for identity, expected in expected_items.items():
+            actual = actual_items.get(identity)
+            if actual is not None and _same_record("key_item", actual, expected):
+                seal_record("key_item", actual, key, "deterministic_starter", source_type="system_initialization", source_ref="v0.4.0-starter-kit")
+
+    expected_tasks = starter_tasks()
+    actual_tasks = _member(agent, "tasks")
+    if isinstance(actual_tasks, Mapping):
+        for identity, expected in expected_tasks.items():
+            actual = actual_tasks.get(identity)
+            if actual is not None and _same_record("task", actual, expected):
+                seal_record("task", actual, key, "deterministic_starter", source_type="system_initialization", source_ref="v0.4.0-starter-journal")
