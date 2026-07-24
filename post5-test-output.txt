@@ -1,0 +1,2338 @@
+...FF.F...F.........F.F................................................. [ 48%]
+F..FF................FFFFFFFFFFFFF.FFFF.FFFFFFFFFFFFFFF..FF...F.F....... [ 97%]
+....                                                                     [100%]
+=================================== FAILURES ===================================
+_____________________________ test_gather_and_eat ______________________________
+
+    def test_gather_and_eat() -> None:
+        world = WorldState.generate(3, 40)
+        agent = AgentState(x=world.spawn[0], y=world.spawn[1], hunger=80)
+        resource = Resource("berry_bush_test", "berry_bush", int(agent.x), int(agent.y), quantity=2, max_quantity=2, portable=False, edible=True, nutrition=22, energy=5)
+        world.resources[resource.id] = resource
+        controller = ActionController()
+        started = controller.start(ActionDecision(intent="gather", action="pick_up", target_id=resource.id, duration_seconds=0.5, reason="food"), world, agent)
+        assert started.success
+        result = complete(controller, world, agent)
+        assert result and result.success
+        assert agent.inventory["berry"] == 1
+        before = agent.hunger
+        assert controller.start(ActionDecision(intent="eat", action="eat", target_id="berry", duration_seconds=0.5, reason="hungry"), world, agent).success
+>       eaten = complete(controller, world, agent)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_actions.py:59: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_actions.py:19: in complete
+    _, result, _ = controller.step(0.5, world, agent)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/simulation/actions.py:468: in step
+    result = self._complete(execution, world, agent)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <app.simulation.actions.ActionController object at 0x7fd2e3b92e90>
+execution = ActionExecution(action='eat', target_id='berry', remaining=0.0, total_duration=0.5, path=[], direction=None, started_at=0.0, metadata={'interrupt_if': []})
+world = WorldState(seed=3, size=40, tiles=[['meadow', 'meadow', 'meadow', 'meadow', 'meadow', 'meadow', 'meadow', 'meadow', 'm...mes cold and exposed at night.', 'build_area': 'The central clearing has stable ground suitable for a basic shelter.'})
+agent = AgentState(name='Ari', x=20, y=28, facing='north', movement_speed=2.0, collision_radius=0.35, health=100.0, energy=78....ining=240.0, last_damage_time=-1.0, last_decision_reason='hungry', decision_source='fallback', ari_knowledge_proofs={})
+
+    def _complete(self, execution: ActionExecution, world: WorldState, agent: AgentState) -> ActionResult:
+        action, target_id = execution.action, execution.target_id
+        agent_x = _finite_number(getattr(agent, "x", None))
+        agent_y = _finite_number(getattr(agent, "y", None))
+        if action not in VIEW_ACTIONS | {"wait", "rest", "speak"} and (agent_x is None or agent_y is None):
+            return ActionResult(False, action, "position_unknown", "The body's position became invalid; location-dependent completion is unknown.")
+        safe_agent_x = agent_x if agent_x is not None else 0.0
+        safe_agent_y = agent_y if agent_y is not None else 0.0
+        if action in {"move", "move_to", "flee"}:
+            return ActionResult(True, action, "completed", "The body reached the destination.", {"position": [round(safe_agent_x, 2), round(safe_agent_y, 2)]})
+        if action == "pick_up":
+            resources = world.resources if isinstance(getattr(world, "resources", None), dict) else {}
+            resource = resources.get(target_id or "")
+            quantity = _finite_number(getattr(resource, "quantity", None)) if resource is not None else None
+            resource_x = _finite_number(getattr(resource, "x", None)) if resource is not None else None
+            resource_y = _finite_number(getattr(resource, "y", None)) if resource is not None else None
+            if resource is None or quantity is None or quantity <= 0 or resource_x is None or resource_y is None or math.hypot(resource_x - safe_agent_x, resource_y - safe_agent_y) > INTERACTION_RADIUS:
+                return ActionResult(False, action, "target_changed", "The resource is no longer available within reach.")
+            item_kind = "berry" if getattr(resource, "kind", "") == "berry_bush" else _bounded_text(getattr(resource, "kind", ""), 80)
+            if not item_kind:
+                return ActionResult(False, action, "target_changed", "The resource kind is no longer valid.")
+            if not agent.add_item(item_kind, 1):
+                return ActionResult(False, action, "inventory_full", "The inventory became full.")
+            resource.quantity = quantity - 1
+            resource.last_harvest_time = _finite_number(getattr(world, "sim_time", None), 0.0) or 0.0
+            return ActionResult(True, action, "gathered", f"Picked up 1 {item_kind}.", {"item": item_kind})
+        if action == "eat":
+            edible = self._find_edible(target_id, world, agent)
+            if not edible:
+                return ActionResult(False, action, "edible_missing", "The edible item is no longer available.")
+            source, kind = edible
+            nutrition, energy = 12.0, 2.0
+            if source == "inventory":
+                agent.remove_item(kind, 1)
+                if kind == "berry": nutrition, energy = 22.0, 5.0
+            else:
+                resource = world.resources[kind]
+                resource.quantity -= 1
+                resource.last_harvest_time = world.sim_time
+                nutrition, energy, kind = resource.nutrition, resource.energy, resource.kind
+>           hunger = _finite_number(getattr(agent, "hunger", None), 0.0, minimum=0.0, maximum=100.0) or 0.0
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: _finite_number() got an unexpected keyword argument 'minimum'
+
+app/simulation/actions.py:523: TypeError
+_____________ test_drinking_requires_water_and_restores_hydration ______________
+
+    def test_drinking_requires_water_and_restores_hydration() -> None:
+        world = WorldState.generate(4, 40)
+        water = next((x, y) for y in range(world.size) for x in range(world.size) if world.tile(x, y) == Terrain.SHALLOW_WATER)
+        agent = AgentState(x=water[0], y=water[1], hydration=20)
+        controller = ActionController()
+        assert controller.start(ActionDecision(intent="drink", action="drink", duration_seconds=0.5, reason="thirst"), world, agent).success
+>       result = complete(controller, world, agent)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_actions.py:71: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_actions.py:19: in complete
+    _, result, _ = controller.step(0.5, world, agent)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/simulation/actions.py:468: in step
+    result = self._complete(execution, world, agent)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <app.simulation.actions.ActionController object at 0x7fd2e3c7c290>
+execution = ActionExecution(action='drink', target_id=None, remaining=0.0, total_duration=0.5, path=[], direction=None, started_at=0.0, metadata={'interrupt_if': []})
+world = WorldState(seed=4, size=40, tiles=[['meadow', 'meadow', 'meadow', 'meadow', 'meadow', 'meadow', 'meadow', 'meadow', 'm...mes cold and exposed at night.', 'build_area': 'The central clearing has stable ground suitable for a basic shelter.'})
+agent = AgentState(name='Ari', x=25, y=0, facing='north', movement_speed=2.0, collision_radius=0.35, health=100.0, energy=78.0...ining=240.0, last_damage_time=-1.0, last_decision_reason='thirst', decision_source='fallback', ari_knowledge_proofs={})
+
+    def _complete(self, execution: ActionExecution, world: WorldState, agent: AgentState) -> ActionResult:
+        action, target_id = execution.action, execution.target_id
+        agent_x = _finite_number(getattr(agent, "x", None))
+        agent_y = _finite_number(getattr(agent, "y", None))
+        if action not in VIEW_ACTIONS | {"wait", "rest", "speak"} and (agent_x is None or agent_y is None):
+            return ActionResult(False, action, "position_unknown", "The body's position became invalid; location-dependent completion is unknown.")
+        safe_agent_x = agent_x if agent_x is not None else 0.0
+        safe_agent_y = agent_y if agent_y is not None else 0.0
+        if action in {"move", "move_to", "flee"}:
+            return ActionResult(True, action, "completed", "The body reached the destination.", {"position": [round(safe_agent_x, 2), round(safe_agent_y, 2)]})
+        if action == "pick_up":
+            resources = world.resources if isinstance(getattr(world, "resources", None), dict) else {}
+            resource = resources.get(target_id or "")
+            quantity = _finite_number(getattr(resource, "quantity", None)) if resource is not None else None
+            resource_x = _finite_number(getattr(resource, "x", None)) if resource is not None else None
+            resource_y = _finite_number(getattr(resource, "y", None)) if resource is not None else None
+            if resource is None or quantity is None or quantity <= 0 or resource_x is None or resource_y is None or math.hypot(resource_x - safe_agent_x, resource_y - safe_agent_y) > INTERACTION_RADIUS:
+                return ActionResult(False, action, "target_changed", "The resource is no longer available within reach.")
+            item_kind = "berry" if getattr(resource, "kind", "") == "berry_bush" else _bounded_text(getattr(resource, "kind", ""), 80)
+            if not item_kind:
+                return ActionResult(False, action, "target_changed", "The resource kind is no longer valid.")
+            if not agent.add_item(item_kind, 1):
+                return ActionResult(False, action, "inventory_full", "The inventory became full.")
+            resource.quantity = quantity - 1
+            resource.last_harvest_time = _finite_number(getattr(world, "sim_time", None), 0.0) or 0.0
+            return ActionResult(True, action, "gathered", f"Picked up 1 {item_kind}.", {"item": item_kind})
+        if action == "eat":
+            edible = self._find_edible(target_id, world, agent)
+            if not edible:
+                return ActionResult(False, action, "edible_missing", "The edible item is no longer available.")
+            source, kind = edible
+            nutrition, energy = 12.0, 2.0
+            if source == "inventory":
+                agent.remove_item(kind, 1)
+                if kind == "berry": nutrition, energy = 22.0, 5.0
+            else:
+                resource = world.resources[kind]
+                resource.quantity -= 1
+                resource.last_harvest_time = world.sim_time
+                nutrition, energy, kind = resource.nutrition, resource.energy, resource.kind
+            hunger = _finite_number(getattr(agent, "hunger", None), 0.0, minimum=0.0, maximum=100.0) or 0.0
+            current_energy = _finite_number(getattr(agent, "energy", None), 0.0, minimum=0.0, maximum=100.0) or 0.0
+            agent.hunger = max(0.0, hunger - nutrition)
+            agent.energy = min(100.0, current_energy + energy)
+            return ActionResult(True, action, "consumed", f"Ari ate {kind}.", {"nutrition": nutrition})
+        if action == "drink":
+            if not self._near_water(world, agent):
+                return ActionResult(False, action, "water_unreachable", "Water is no longer within reach.")
+>           hydration = _finite_number(getattr(agent, "hydration", None), 0.0, minimum=0.0, maximum=100.0) or 0.0
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: _finite_number() got an unexpected keyword argument 'minimum'
+
+app/simulation/actions.py:531: TypeError
+__________________ test_build_rules_and_material_consumption ___________________
+
+    def test_build_rules_and_material_consumption() -> None:
+        world = WorldState.generate(10, 40)
+        x, y = world.build_area
+        agent = AgentState(x=x, y=y, inventory={"branch": 3, "stone": 2})
+        controller = ActionController()
+        decision = ActionDecision(intent="make cover", action="build", duration_seconds=12, reason="materials and stable ground")
+        assert controller.start(decision, world, agent).success
+>       result = complete(controller, world, agent)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_actions.py:96: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_actions.py:19: in complete
+    _, result, _ = controller.step(0.5, world, agent)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/simulation/actions.py:468: in step
+    result = self._complete(execution, world, agent)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <app.simulation.actions.ActionController object at 0x7fd2e3cb9ed0>
+execution = ActionExecution(action='build', target_id=None, remaining=0.0, total_duration=12.0, path=[], direction=None, started_at=0.0, metadata={'interrupt_if': []})
+world = WorldState(seed=10, size=40, tiles=[['meadow', 'meadow', 'meadow', 'meadow', 'meadow', 'meadow', 'meadow', 'meadow', '...mes cold and exposed at night.', 'build_area': 'The central clearing has stable ground suitable for a basic shelter.'})
+agent = AgentState(name='Ari', x=22, y=22, facing='north', movement_speed=2.0, collision_radius=0.35, health=100.0, energy=78....age_time=-1.0, last_decision_reason='materials and stable ground', decision_source='fallback', ari_knowledge_proofs={})
+
+    def _complete(self, execution: ActionExecution, world: WorldState, agent: AgentState) -> ActionResult:
+        action, target_id = execution.action, execution.target_id
+        agent_x = _finite_number(getattr(agent, "x", None))
+        agent_y = _finite_number(getattr(agent, "y", None))
+        if action not in VIEW_ACTIONS | {"wait", "rest", "speak"} and (agent_x is None or agent_y is None):
+            return ActionResult(False, action, "position_unknown", "The body's position became invalid; location-dependent completion is unknown.")
+        safe_agent_x = agent_x if agent_x is not None else 0.0
+        safe_agent_y = agent_y if agent_y is not None else 0.0
+        if action in {"move", "move_to", "flee"}:
+            return ActionResult(True, action, "completed", "The body reached the destination.", {"position": [round(safe_agent_x, 2), round(safe_agent_y, 2)]})
+        if action == "pick_up":
+            resources = world.resources if isinstance(getattr(world, "resources", None), dict) else {}
+            resource = resources.get(target_id or "")
+            quantity = _finite_number(getattr(resource, "quantity", None)) if resource is not None else None
+            resource_x = _finite_number(getattr(resource, "x", None)) if resource is not None else None
+            resource_y = _finite_number(getattr(resource, "y", None)) if resource is not None else None
+            if resource is None or quantity is None or quantity <= 0 or resource_x is None or resource_y is None or math.hypot(resource_x - safe_agent_x, resource_y - safe_agent_y) > INTERACTION_RADIUS:
+                return ActionResult(False, action, "target_changed", "The resource is no longer available within reach.")
+            item_kind = "berry" if getattr(resource, "kind", "") == "berry_bush" else _bounded_text(getattr(resource, "kind", ""), 80)
+            if not item_kind:
+                return ActionResult(False, action, "target_changed", "The resource kind is no longer valid.")
+            if not agent.add_item(item_kind, 1):
+                return ActionResult(False, action, "inventory_full", "The inventory became full.")
+            resource.quantity = quantity - 1
+            resource.last_harvest_time = _finite_number(getattr(world, "sim_time", None), 0.0) or 0.0
+            return ActionResult(True, action, "gathered", f"Picked up 1 {item_kind}.", {"item": item_kind})
+        if action == "eat":
+            edible = self._find_edible(target_id, world, agent)
+            if not edible:
+                return ActionResult(False, action, "edible_missing", "The edible item is no longer available.")
+            source, kind = edible
+            nutrition, energy = 12.0, 2.0
+            if source == "inventory":
+                agent.remove_item(kind, 1)
+                if kind == "berry": nutrition, energy = 22.0, 5.0
+            else:
+                resource = world.resources[kind]
+                resource.quantity -= 1
+                resource.last_harvest_time = world.sim_time
+                nutrition, energy, kind = resource.nutrition, resource.energy, resource.kind
+            hunger = _finite_number(getattr(agent, "hunger", None), 0.0, minimum=0.0, maximum=100.0) or 0.0
+            current_energy = _finite_number(getattr(agent, "energy", None), 0.0, minimum=0.0, maximum=100.0) or 0.0
+            agent.hunger = max(0.0, hunger - nutrition)
+            agent.energy = min(100.0, current_energy + energy)
+            return ActionResult(True, action, "consumed", f"Ari ate {kind}.", {"nutrition": nutrition})
+        if action == "drink":
+            if not self._near_water(world, agent):
+                return ActionResult(False, action, "water_unreachable", "Water is no longer within reach.")
+            hydration = _finite_number(getattr(agent, "hydration", None), 0.0, minimum=0.0, maximum=100.0) or 0.0
+            agent.hydration = min(100.0, hydration + 42.0)
+            return ActionResult(True, action, "drank", "Ari drank from nearby water.", {"hydration_restored": 42.0})
+        if action == "sleep":
+            agent.sleeping = False
+            return ActionResult(True, action, "woke", "Ari woke after real elapsed sleep time.")
+        if action == "rest":
+            current_energy = _finite_number(getattr(agent, "energy", None), 0.0, minimum=0.0, maximum=100.0) or 0.0
+            agent.energy = min(100.0, current_energy + 5.0)
+            return ActionResult(True, action, "rested", "Ari rested briefly.")
+        if action == "build":
+            if world.tile(int(round(safe_agent_x)), int(round(safe_agent_y))) != Terrain.BUILD_AREA:
+                return ActionResult(False, action, "location_changed", "The build location is no longer legal.")
+            inventory = agent.inventory if isinstance(getattr(agent, "inventory", None), dict) else {}
+>           branches = _finite_number(inventory.get("branch"), None, minimum=0.0, maximum=1_000_000.0)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: _finite_number() got an unexpected keyword argument 'minimum'
+
+app/simulation/actions.py:545: TypeError
+___________ test_diagnostic_bundle_is_complete_and_excludes_secrets ____________
+
+engine = <app.simulation.engine.SimulationEngine object at 0x7fd2e4095710>
+
+    def test_diagnostic_bundle_is_complete_and_excludes_secrets(engine) -> None:
+        engine.settings.llm_api_key = "diagnostic-secret-must-not-leak"
+        app = create_app(engine.settings, engine=engine, start_background=False)
+    
+        with TestClient(app) as client:
+            response = client.get("/api/diagnostics/download")
+    
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("application/json")
+        disposition = response.headers["content-disposition"]
+        assert "attachment" in disposition
+        assert f"v{__version__}" in disposition
+    
+        bundle = response.json()
+>       assert bundle["diagnostic_bundle"]["schema_version"] == 3
+E       assert 4 == 3
+
+tests/test_api.py:48: AssertionError
+_ test_diagnostic_bundle_v3_contains_runtime_metrics_soak_readiness_and_no_secrets _
+
+engine = <app.simulation.engine.SimulationEngine object at 0x7fd2e3abff10>
+
+    def test_diagnostic_bundle_v3_contains_runtime_metrics_soak_readiness_and_no_secrets(engine) -> None:
+        engine.database.add_model_response(
+            engine.world.sim_time,
+            ObservedBrainResult(
+                _decision(),
+                "llm",
+                "ok",
+                latency_ms=10.0,
+                prompt_tokens=50,
+                completion_tokens=10,
+                finish_reason="stop",
+                provider_response_id="chatcmpl-test",
+                request_attempts=1,
+            ),
+        )
+        engine._record(
+            "decision",
+            "Ari chose wait: test",
+            0.5,
+            {"decision": _decision().model_dump(), "provider": {"finish_reason": "stop"}},
+        )
+        engine._record(
+            "action_result",
+            "wait: completed",
+            0.5,
+            {"success": True, "action": "wait", "reason": "completed", "details": "Action wait completed."},
+        )
+    
+        bundle = build_diagnostic_bundle(
+            engine=engine,
+            updater=DummyUpdater(),
+            health={"status": "ok", "version": __version__},
+            application_version=__version__,
+        )
+    
+        header = bundle["diagnostic_bundle"]
+>       assert header["schema_version"] == 3
+E       assert 4 == 3
+
+tests/test_diagnostics_v2.py:91: AssertionError
+_________ test_successful_action_creates_only_verified_outcome_memory __________
+
+settings = Settings(host='0.0.0.0', port=8797, data_dir=PosixPath('/tmp/pytest-of-runner/pytest-0/test_successful_action_creates0...te_max_extract_bytes=262144000, update_max_release_notes_chars=12000, update_auto_restart=True, update_github_token='')
+
+    async def test_successful_action_creates_only_verified_outcome_memory(settings) -> None:
+        database = Database(settings.database_path)
+        vault = MemoryVault(settings.memory_dir)
+        engine = SimulationEngine(
+            settings,
+            database=database,
+            vault=vault,
+            brain=StubBrain(_decision("eat")),
+            load_existing=False,
+        )
+        engine.agent.hunger = 50.0
+        engine.agent.inventory["edible_plant"] = 1
+        try:
+            await engine.make_decision()
+            assert vault.list_records() == []
+>           await engine.advance(0.3, allow_decision=False)
+
+tests/test_integrity.py:79: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+app/simulation/scheduler.py:190: in advance
+    self._advance_substep(dt)
+app/simulation/scheduler.py:210: in _advance_substep
+    completed, result, moving = self.controller.step(dt, self.world, self.agent)
+                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/simulation/actions.py:468: in step
+    result = self._complete(execution, world, agent)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <app.simulation.actions.ActionController object at 0x7fd2e3e4ac90>
+execution = ActionExecution(action='eat', target_id=None, remaining=-0.09999999999999998, total_duration=0.2, path=[], direction=None, started_at=0.0, metadata={'interrupt_if': []})
+world = WorldState(seed=12345, size=48, tiles=[['meadow', 'meadow', 'meadow', 'meadow', 'meadow', 'meadow', 'meadow', 'meadow'...mes cold and exposed at night.', 'build_area': 'The central clearing has stable ground suitable for a basic shelter.'})
+agent = AgentState(name='Ari', x=24.0, y=34.0, facing='north', movement_speed=2.0, collision_radius=0.35, health=100.0, energy...', 'source_ref': 'perception:0.0:24,44', 'proof': '6661b461ae78b90f9be288cd88a824fc40ce8753428542cc161ce96fdbe0571c'}})
+
+    def _complete(self, execution: ActionExecution, world: WorldState, agent: AgentState) -> ActionResult:
+        action, target_id = execution.action, execution.target_id
+        agent_x = _finite_number(getattr(agent, "x", None))
+        agent_y = _finite_number(getattr(agent, "y", None))
+        if action not in VIEW_ACTIONS | {"wait", "rest", "speak"} and (agent_x is None or agent_y is None):
+            return ActionResult(False, action, "position_unknown", "The body's position became invalid; location-dependent completion is unknown.")
+        safe_agent_x = agent_x if agent_x is not None else 0.0
+        safe_agent_y = agent_y if agent_y is not None else 0.0
+        if action in {"move", "move_to", "flee"}:
+            return ActionResult(True, action, "completed", "The body reached the destination.", {"position": [round(safe_agent_x, 2), round(safe_agent_y, 2)]})
+        if action == "pick_up":
+            resources = world.resources if isinstance(getattr(world, "resources", None), dict) else {}
+            resource = resources.get(target_id or "")
+            quantity = _finite_number(getattr(resource, "quantity", None)) if resource is not None else None
+            resource_x = _finite_number(getattr(resource, "x", None)) if resource is not None else None
+            resource_y = _finite_number(getattr(resource, "y", None)) if resource is not None else None
+            if resource is None or quantity is None or quantity <= 0 or resource_x is None or resource_y is None or math.hypot(resource_x - safe_agent_x, resource_y - safe_agent_y) > INTERACTION_RADIUS:
+                return ActionResult(False, action, "target_changed", "The resource is no longer available within reach.")
+            item_kind = "berry" if getattr(resource, "kind", "") == "berry_bush" else _bounded_text(getattr(resource, "kind", ""), 80)
+            if not item_kind:
+                return ActionResult(False, action, "target_changed", "The resource kind is no longer valid.")
+            if not agent.add_item(item_kind, 1):
+                return ActionResult(False, action, "inventory_full", "The inventory became full.")
+            resource.quantity = quantity - 1
+            resource.last_harvest_time = _finite_number(getattr(world, "sim_time", None), 0.0) or 0.0
+            return ActionResult(True, action, "gathered", f"Picked up 1 {item_kind}.", {"item": item_kind})
+        if action == "eat":
+            edible = self._find_edible(target_id, world, agent)
+            if not edible:
+                return ActionResult(False, action, "edible_missing", "The edible item is no longer available.")
+            source, kind = edible
+            nutrition, energy = 12.0, 2.0
+            if source == "inventory":
+                agent.remove_item(kind, 1)
+                if kind == "berry": nutrition, energy = 22.0, 5.0
+            else:
+                resource = world.resources[kind]
+                resource.quantity -= 1
+                resource.last_harvest_time = world.sim_time
+                nutrition, energy, kind = resource.nutrition, resource.energy, resource.kind
+>           hunger = _finite_number(getattr(agent, "hunger", None), 0.0, minimum=0.0, maximum=100.0) or 0.0
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: _finite_number() got an unexpected keyword argument 'minimum'
+
+app/simulation/actions.py:523: TypeError
+_ test_view_actions_return_only_agent_knowledge_and_do_not_create_inventory_items _
+
+    def test_view_actions_return_only_agent_knowledge_and_do_not_create_inventory_items() -> None:
+        world = WorldState.generate(42, 48)
+        agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+        agent.notes["n1"] = NoteRecord("n1", "Test", "Ari-authored note", [], "active", 0, 0, provenance=Provenance("agent"))
+        agent.map_markers["m1"] = MapMarker("m1", "Possible water", "water", {"relative": "west"}, 0.4, "active", "uncertain", 0, 0, provenance=Provenance("inference"))
+        controller = ActionController()
+        agent.known_terrain["41,7"] = "known meadow"
+        map_result = _complete(controller, world, agent, "view_map")
+        assert "observer_truth_included" not in map_result.data
+        assert "known_terrain" not in map_result.data
+        serialized = json.dumps(map_result.data)
+        assert "41,7" not in serialized
+        assert "wolf" not in serialized and world.truth_notes["cave"] not in serialized
+>       assert len(_complete(controller, world, agent, "view_task_journal").data["tasks"]) == 4
+E       assert 0 == 4
+E        +  where 0 = len([])
+
+tests/test_v040_cognitive_foundations.py:71: AssertionError
+_______ test_snapshot_restart_and_reset_round_trip_all_cognitive_stores ________
+
+engine = <app.simulation.engine.SimulationEngine object at 0x7fd2e39ee9d0>
+settings = Settings(host='0.0.0.0', port=8797, data_dir=PosixPath('/tmp/pytest-of-runner/pytest-0/test_snapshot_restart_and_rese0...te_max_extract_bytes=262144000, update_max_release_notes_chars=12000, update_auto_restart=True, update_github_token='')
+
+    def test_snapshot_restart_and_reset_round_trip_all_cognitive_stores(engine, settings) -> None:
+        engine.agent.notes["n1"] = NoteRecord("n1", "Note", "content", ["tag"], "active", 1, 1, provenance=Provenance("agent"))
+        engine.agent.map_markers["m1"] = MapMarker("m1", "Marker", "unknown", {"relative": "north"}, 0.3, "active", "", 1, 1, provenance=Provenance("agent"))
+        engine.agent.beliefs["b1"] = "A subjective working belief."
+        engine.agent.short_term_episodes["e1"] = EpisodeRecord("e1", 1, 1, "episode", "test", 0.5, "recent", provenance=Provenance("agent"))
+        expected = _cognition(AgentState.from_dict(engine.agent.to_dict()))
+        engine.save_snapshot("cognition")
+        assert _cognition(AgentState.from_dict(engine.snapshots.load("cognition")["agent"])) == expected
+        engine.agent.notes.clear()
+        engine.load_snapshot("cognition")
+>       assert _cognition(engine.agent) == expected
+E       assert {'awakening':..., ...}}}, ...} == {'awakening':..., ...}}}, ...}
+E         
+E         Omitting 7 identical items, use -vv to show
+E         Differing items:
+E         {'key_items': {'blank_field_map': {'description': "A blank field map for recording Ari's own knowledge.", 'display_nam... starter kit', 'proof': '6515473f48595ef05f34be90d82b3ad67250db69b32ce85c7696219d6736ca09', 'proof_version': 1, ...}}}} != {'key_items': {'blank_field_map': {'description': "A blank field map for recording Ari's own knowledge.", 'display_nam... starter kit', 'proof': '49cc5930a7fffb40b51ebf920208596370a9d37cb4a1e5325a0034d1614bbfa2', 'proof_version': 1, ...}}}}
+E         
+E         Full diff:
+E           {
+E               'awakening': {
+E                   'narrative': 'I wake beneath an unfamiliar sky with no memory of how I arrived. My '
+E                   'body feels real, vulnerable, and entirely my responsibility. I do not '
+E                   'know this land, what lives here, or whether anyone else is nearby.\n'
+E                   '\n'
+E                   'I have only a few possessions: a blank map, a task journal, and a '
+E                   'field notebook. The journal contains a handful of basic survival '
+E                   'reminders—find water, secure food, and establish somewhere safe to '
+E                   'rest—but what I do beyond that is up to me.\n'
+E                   '\n'
+E                   'If I am going to survive here, and perhaps eventually build a life '
+E                   'worth living, I should begin by understanding my situation. The map '
+E                   'and task journal may be the best place to start.',
+E                   'presented': False,
+E                   'presented_at': None,
+E               },
+E               'beliefs': {
+E                   'b1': {
+E                       'basis': 'Subjective model belief update; not observer truth.',
+E                       'belief_id': 'b1',
+E                       'claim': 'A subjective working belief.',
+E                       'confidence': 0.5,
+E                       'contradicting_evidence_ids': [],
+E                       'first_formed_at': 0.0,
+E                       'last_tested_at': None,
+E                       'provenance': {
+E                           'creation_path': None,
+E                           'detail': None,
+E                           'proof': None,
+E                           'proof_version': None,
+E                           'source_id': 'b1',
+E                           'source_type': 'model_belief_update',
+E                       },
+E                       'source_type': 'inference',
+E                       'status': 'working',
+E                       'supporting_evidence_ids': [],
+E                   },
+E                   'self': {
+E                       'basis': 'Migrated from the pre-v0.4.0 subjective belief dictionary.',
+E                       'belief_id': 'self',
+E                       'claim': 'I have a physical body in an unfamiliar place.',
+E                       'confidence': 0.5,
+E                       'contradicting_evidence_ids': [],
+E                       'first_formed_at': 0.0,
+E                       'last_tested_at': None,
+E                       'provenance': {
+E                           'creation_path': 'deterministic_starter',
+E                           'detail': None,
+E                           'proof': '6f344256512fd12d3ced7c71525f3f8fa5ec724666955c0e424f4885f67af94f',
+E                           'proof_version': 1,
+E                           'source_id': 'initial-belief:self',
+E                           'source_type': 'system_initialization',
+E                       },
+E                       'source_type': 'system_initialization',
+E                       'status': 'working',
+E                       'supporting_evidence_ids': [],
+E                   },
+E                   'world': {
+E                       'basis': 'Migrated from the pre-v0.4.0 subjective belief dictionary.',
+E                       'belief_id': 'world',
+E                       'claim': 'The environment appears real and partially observable; my '
+E                       'interpretations may be wrong.',
+E                       'confidence': 0.5,
+E                       'contradicting_evidence_ids': [],
+E                       'first_formed_at': 0.0,
+E                       'last_tested_at': None,
+E                       'provenance': {
+E                           'creation_path': 'deterministic_starter',
+E                           'detail': None,
+E                           'proof': '0049cb3ea3ce9341a973ed7e121272120899a960fdc0c9e58b33d949841e6fcb',
+E                           'proof_version': 1,
+E                           'source_id': 'initial-belief:world',
+E                           'source_type': 'system_initialization',
+E                       },
+E                       'source_type': 'system_initialization',
+E                       'status': 'working',
+E                       'supporting_evidence_ids': [],
+E                   },
+E               },
+E               'cognition_schema_version': 1,
+E               'key_items': {
+E                   'blank_field_map': {
+E                       'description': "A blank field map for recording Ari's own knowledge.",
+E                       'display_name': 'Blank Field Map',
+E                       'key_item_id': 'blank_field_map',
+E                       'provenance': {
+E                           'creation_path': 'deterministic_starter',
+E                           'detail': 'v0.4.0 starter kit',
+E         -                 'proof': '49cc5930a7fffb40b51ebf920208596370a9d37cb4a1e5325a0034d1614bbfa2',
+E         +                 'proof': 'd9c0737be11ba707295ee2759026fb9f5de2f1aee2a44ebab5e7ad4b118bfc90',
+E                           'proof_version': 1,
+E                           'source_id': 'v0.4.0-starter-kit',
+E                           'source_type': 'system_initialization',
+E                       },
+E                   },
+E                   'field_notebook': {
+E                       'description': "A notebook for Ari's own observations and notes.",
+E                       'display_name': 'Field Notebook',
+E                       'key_item_id': 'field_notebook',
+E                       'provenance': {
+E                           'creation_path': 'deterministic_starter',
+E                           'detail': 'v0.4.0 starter kit',
+E                           'proof': '49cc5930a7fffb40b51ebf920208596370a9d37cb4a1e5325a0034d1614bbfa2',
+E                           'proof_version': 1,
+E                           'source_id': 'v0.4.0-starter-kit',
+E                           'source_type': 'system_initialization',
+E                       },
+E                   },
+E                   'task_journal': {
+E                       'description': 'A journal containing broad survival reminders.',
+E                       'display_name': 'Task Journal',
+E                       'key_item_id': 'task_journal',
+E                       'provenance': {
+E                           'creation_path': 'deterministic_starter',
+E                           'detail': 'v0.4.0 starter kit',
+E         -                 'proof': '49cc5930a7fffb40b51ebf920208596370a9d37cb4a1e5325a0034d1614bbfa2',
+E         +                 'proof': '6515473f48595ef05f34be90d82b3ad67250db69b32ce85c7696219d6736ca09',
+E                           'proof_version': 1,
+E                           'source_id': 'v0.4.0-starter-kit',
+E                           'source_type': 'system_initialization',
+E                       },
+E                   },
+E               },
+E               'map_markers': {
+E                   'm1': {
+E                       'believed_location': {
+E                           'relative': 'north',
+E                       },
+E                       'confidence': 0.3,
+E                       'created_at': 1.0,
+E                       'label': 'Marker',
+E                       'linked_note_ids': [],
+E                       'linked_task_ids': [],
+E                       'marker_id': 'm1',
+E                       'marker_type': 'unknown',
+E                       'notes': '',
+E                       'provenance': {
+E                           'creation_path': None,
+E                           'detail': None,
+E                           'proof': None,
+E                           'proof_version': None,
+E                           'source_id': None,
+E                           'source_type': 'agent',
+E                       },
+E                       'status': 'active',
+E                       'updated_at': 1.0,
+E                   },
+E               },
+E               'notes': {
+E                   'n1': {
+E                       'content': 'content',
+E                       'created_at': 1.0,
+E                       'linked_marker_ids': [],
+E                       'linked_task_ids': [],
+E                       'note_id': 'n1',
+E                       'provenance': {
+E                           'creation_path': None,
+E                           'detail': None,
+E                           'proof': None,
+E                           'proof_version': None,
+E                           'source_id': None,
+E                           'source_type': 'agent',
+E                       },
+E                       'status': 'active',
+E                       'tags': [
+E                           'tag',
+E                       ],
+E                       'title': 'Note',
+E                       'updated_at': 1.0,
+E                   },
+E               },
+E               'short_term_episodes': {
+E                   'e1': {
+E                       'category': 'test',
+E                       'episode_id': 'e1',
+E                       'linked_belief_ids': [],
+E                       'linked_marker_ids': [],
+E                       'linked_memory_ids': [],
+E                       'linked_note_ids': [],
+E                       'linked_task_ids': [],
+E                       'provenance': {
+E                           'creation_path': None,
+E                           'detail': None,
+E                           'proof': None,
+E                           'proof_version': None,
+E                           'source_id': None,
+E                           'source_type': 'agent',
+E                       },
+E                       'salience': 0.5,
+E                       'simulation_timestamp': 1.0,
+E                       'source_event_id': 1,
+E                       'status': 'recent',
+E                       'summary': 'episode',
+E                   },
+E               },
+E               'tasks': {
+E                   '5e3f17f8-ded3-5893-b259-bb4f06f40352': {
+E                       'created_at': 0.0,
+E                       'created_by': 'starter_journal',
+E                       'description': 'A broad starter reminder, not a mandatory quest or claim about '
+E                       'hidden world state.',
+E                       'linked_marker_ids': [],
+E                       'linked_note_ids': [],
+E                       'metadata': {},
+E                       'parent_task_id': None,
+E                       'priority': 4,
+E                       'provenance': {
+E                           'creation_path': 'deterministic_starter',
+E                           'detail': None,
+E                           'proof': 'bd05d9219faa588214acff9e4192c824f2ccaafd2b3cbae6776e9db2872fa5f8',
+E                           'proof_version': 1,
+E                           'source_id': 'v0.4.0-starter-journal',
+E                           'source_type': 'system_initialization',
+E                       },
+E                       'status': 'proposed',
+E                       'task_id': '5e3f17f8-ded3-5893-b259-bb4f06f40352',
+E                       'title': 'Find or create a safe place to rest.',
+E                       'updated_at': 0.0,
+E                   },
+E                   '6350efd1-1678-599d-ab9d-084efd3ceac2': {
+E                       'created_at': 0.0,
+E                       'created_by': 'starter_journal',
+E                       'description': 'A broad starter reminder, not a mandatory quest or claim about '
+E                       'hidden world state.',
+E                       'linked_marker_ids': [],
+E                       'linked_note_ids': [],
+E                       'metadata': {},
+E                       'parent_task_id': None,
+E                       'priority': 3,
+E                       'provenance': {
+E                           'creation_path': 'deterministic_starter',
+E                           'detail': None,
+E                           'proof': '7fe90e23401ecdb8527f970089ac52a44768d1d2696dd0a0ff29e1411691532d',
+E                           'proof_version': 1,
+E                           'source_id': 'v0.4.0-starter-journal',
+E                           'source_type': 'system_initialization',
+E                       },
+E                       'status': 'proposed',
+E                       'task_id': '6350efd1-1678-599d-ab9d-084efd3ceac2',
+E                       'title': 'Secure enough food for the near future.',
+E                       'updated_at': 0.0,
+E                   },
+E                   '8ddefd76-2e06-566b-8592-031241dd674a': {
+E                       'created_at': 0.0,
+E                       'created_by': 'starter_journal',
+E                       'description': 'A broad starter reminder, not a mandatory quest or claim about '
+E                       'hidden world state.',
+E                       'linked_marker_ids': [],
+E                       'linked_note_ids': [],
+E                       'metadata': {},
+E                       'parent_task_id': None,
+E                       'priority': 2,
+E                       'provenance': {
+E                           'creation_path': 'deterministic_starter',
+E                           'detail': None,
+E                           'proof': '690062d00869ecd6f254fa97f945f5bb7fabf73a2c8946b661b1a120002b3a6b',
+E                           'proof_version': 1,
+E                           'source_id': 'v0.4.0-starter-journal',
+E                           'source_type': 'system_initialization',
+E                       },
+E                       'status': 'proposed',
+E                       'task_id': '8ddefd76-2e06-566b-8592-031241dd674a',
+E                       'title': 'Find a reliable source of water.',
+E                       'updated_at': 0.0,
+E                   },
+E                   'd9e5c734-4e58-59e6-8c0c-1a15ba5dd435': {
+E                       'created_at': 0.0,
+E                       'created_by': 'starter_journal',
+E                       'description': 'A broad starter reminder, not a mandatory quest or claim about '
+E                       'hidden world state.',
+E                       'linked_marker_ids': [],
+E                       'linked_note_ids': [],
+E                       'metadata': {},
+E                       'parent_task_id': None,
+E                       'priority': 1,
+E                       'provenance': {
+E                           'creation_path': 'deterministic_starter',
+E                           'detail': None,
+E                           'proof': '3b616c38e1811c8f8b994fdb0f0d48e4eb8a3a63554504321ae46b5edbd741c0',
+E                           'proof_version': 1,
+E                           'source_id': 'v0.4.0-starter-journal',
+E                           'source_type': 'system_initialization',
+E                       },
+E                       'status': 'proposed',
+E                       'task_id': 'd9e5c734-4e58-59e6-8c0c-1a15ba5dd435',
+E                       'title': 'Assess my immediate surroundings.',
+E                       'updated_at': 0.0,
+E                   },
+E               },
+E           }
+
+tests/test_v040_cognitive_foundations.py:102: AssertionError
+__ test_first_decision_prompt_is_compact_and_normal_prompt_omits_full_stores ___
+
+    def test_first_decision_prompt_is_compact_and_normal_prompt_omits_full_stores() -> None:
+        world = WorldState.generate(45, 48)
+        agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+        for index in range(100):
+            agent.notes[str(index)] = NoteRecord(str(index), f"Note {index}", "x" * 500, [], "active", 0, 0, provenance=Provenance("agent"))
+        perception = build_perception(world, agent)
+        prompt = decision_messages({"perception": perception, "action_affordances": {}, "active_plan": [], "retrieved_memories": [], "recent_outcomes": []})[-1]["content"]
+        assert "Note 99" not in prompt
+        assert len(prompt) < 50000
+>       assert perception["cognitive_tools"]["note_count"] == 100
+E       assert 0 == 100
+
+tests/test_v040_cognitive_foundations.py:130: AssertionError
+_ test_task_view_exact_serialized_fields_use_allowlist_and_preserve_observer_record _
+
+    def test_task_view_exact_serialized_fields_use_allowlist_and_preserve_observer_record():
+        world = WorldState.generate(7002, 48)
+        agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+        sentinel = 'FORBIDDEN_TASK_SENTINEL'
+        task = TaskRecord('t1', 'approved title', 'approved description', 'ari', 'active', 4, 1, 2, metadata={'cave_truth': sentinel}, provenance=Provenance('inference', sentinel, sentinel))
+        task.linked_marker_ids = [sentinel]
+        task.linked_note_ids = [sentinel]
+        task.parent_task_id = sentinel
+        task.priority = {'bad': sentinel}
+        task.created_at = math.nan
+        task.updated_at = math.inf
+        agent.tasks = {'t1': task}
+        result = complete(world, agent, 'view_task_journal')
+        text = recursive_text(result.to_dict())
+        assert sentinel not in text
+>       assert 'approved title' in text and 'approved description' in text
+E       assert ('approved title' in '{"action": "view_task_journal", "data": {"source_scan_truncated": false, "status_counts": {}, "tasks": [], "total_tasks": 0, "visible_tasks": 0}, "details": "Ari reviewed the task journal.", "reason": "viewed", "success": true}')
+
+tests/test_v040_post3_remediation.py:55: AssertionError
+_ test_note_view_exact_serialized_fields_use_allowlist_and_preserve_observer_record _
+
+    def test_note_view_exact_serialized_fields_use_allowlist_and_preserve_observer_record():
+        world = WorldState.generate(7003, 48)
+        agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+        sentinel = 'observer_id:FORBIDDEN_NOTE_SENTINEL'
+        note = NoteRecord('n1', 'approved note', 'approved content', ['safe', sentinel], 'active', 1, 2, provenance=Provenance('note', sentinel, sentinel))
+        note.linked_task_ids = [sentinel]
+        note.linked_marker_ids = [sentinel]
+        note.created_at = math.nan
+        note.updated_at = math.inf
+        agent.notes = {'n1': note}
+        result = complete(world, agent, 'view_notebook')
+        text = recursive_text(result.to_dict())
+        assert sentinel not in text
+>       assert 'approved note' in text and 'approved content' in text
+E       assert ('approved note' in '{"action": "view_notebook", "data": {"empty": true, "notes": [], "source_scan_truncated": false, "total_active_notes"..."total_notes": 0, "visible_notes": 0}, "details": "The field notebook is empty.", "reason": "viewed", "success": true}')
+
+tests/test_v040_post3_remediation.py:73: AssertionError
+__ test_task_and_note_immediate_results_have_fixed_record_and_text_bounds[10] __
+
+count = 10
+
+    @pytest.mark.parametrize('count', [10, 100, 1000])
+    def test_task_and_note_immediate_results_have_fixed_record_and_text_bounds(count):
+        world = WorldState.generate(7004, 48)
+        agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+        for index in range(count):
+            token = f'UNIQUE_{index}_' + 'x' * 2000
+            agent.tasks[str(index)] = TaskRecord(str(index), token, token, 'ari', 'active', index, index, index, metadata={'truth': token}, provenance=Provenance('inference', token, token))
+            agent.notes[str(index)] = NoteRecord(str(index), token, token, [token] * 30, 'active', index, index, provenance=Provenance('note', token, token))
+        task_result = complete(world, agent, 'view_task_journal')
+        note_result = complete(world, agent, 'view_notebook')
+>       assert task_result.data['total_tasks'] == count + 4
+E       assert 0 == (10 + 4)
+
+tests/test_v040_post3_remediation.py:87: AssertionError
+_ test_task_and_note_immediate_results_have_fixed_record_and_text_bounds[100] __
+
+count = 100
+
+    @pytest.mark.parametrize('count', [10, 100, 1000])
+    def test_task_and_note_immediate_results_have_fixed_record_and_text_bounds(count):
+        world = WorldState.generate(7004, 48)
+        agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+        for index in range(count):
+            token = f'UNIQUE_{index}_' + 'x' * 2000
+            agent.tasks[str(index)] = TaskRecord(str(index), token, token, 'ari', 'active', index, index, index, metadata={'truth': token}, provenance=Provenance('inference', token, token))
+            agent.notes[str(index)] = NoteRecord(str(index), token, token, [token] * 30, 'active', index, index, provenance=Provenance('note', token, token))
+        task_result = complete(world, agent, 'view_task_journal')
+        note_result = complete(world, agent, 'view_notebook')
+>       assert task_result.data['total_tasks'] == count + 4
+E       assert 0 == (100 + 4)
+
+tests/test_v040_post3_remediation.py:87: AssertionError
+_ test_task_and_note_immediate_results_have_fixed_record_and_text_bounds[1000] _
+
+count = 1000
+
+    @pytest.mark.parametrize('count', [10, 100, 1000])
+    def test_task_and_note_immediate_results_have_fixed_record_and_text_bounds(count):
+        world = WorldState.generate(7004, 48)
+        agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+        for index in range(count):
+            token = f'UNIQUE_{index}_' + 'x' * 2000
+            agent.tasks[str(index)] = TaskRecord(str(index), token, token, 'ari', 'active', index, index, index, metadata={'truth': token}, provenance=Provenance('inference', token, token))
+            agent.notes[str(index)] = NoteRecord(str(index), token, token, [token] * 30, 'active', index, index, provenance=Provenance('note', token, token))
+        task_result = complete(world, agent, 'view_task_journal')
+        note_result = complete(world, agent, 'view_notebook')
+>       assert task_result.data['total_tasks'] == count + 4
+E       assert 0 == (1000 + 4)
+
+tests/test_v040_post3_remediation.py:87: AssertionError
+_ test_view_map_immediate_result_has_fixed_counts_and_malformed_coordinates_are_controlled _
+
+    def test_view_map_immediate_result_has_fixed_counts_and_malformed_coordinates_are_controlled():
+        world = WorldState.generate(7005, 48)
+        agent = AgentState(x='bad', y=math.nan)
+        agent.known_terrain = {f'{i},{i}': 'terrain-' + 't' * 300 for i in range(1000)}
+        for index in range(100):
+            marker = MapMarker(str(index), 'marker', 'unknown', {'x': math.inf, 'y': None}, math.nan, 'active', '', 0, 0, provenance=Provenance('inference'))
+            agent.map_markers[str(index)] = marker
+        result = complete(world, agent, 'view_map')
+>       assert len(result.data['known_cells']) == ARI_MAP_CELL_LIMIT
+E       assert 0 == 64
+E        +  where 0 = len([])
+
+tests/test_v040_post3_remediation.py:103: AssertionError
+______ test_action_results_remain_bounded_when_inserted_into_later_prompt ______
+
+    def test_action_results_remain_bounded_when_inserted_into_later_prompt():
+        world = WorldState.generate(7006, 48)
+        agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+        for index in range(1000):
+            token = f'SENTINEL_{index}_' + 'x' * 2000
+            agent.notes[str(index)] = NoteRecord(str(index), token, token, [token], 'active', index, index, provenance=Provenance('note', token, token))
+        result = complete(world, agent, 'view_notebook')
+        outcome = {
+            'action': 'view_notebook',
+            'success': True,
+            'reason': 'viewed',
+            'details': result.details,
+            'view_result': project_view_result_for_recent_outcome('view_notebook', result.data),
+        }
+        prompt = decision_messages({'perception': build_perception(world, agent), 'active_plan': [], 'retrieved_memories': [], 'recent_outcomes': [outcome]})[-1]['content']
+        assert len(prompt) < 20000
+>       assert 'SENTINEL_999_' in prompt
+E       assert 'SENTINEL_999_' in '{"perception":{"body":{"position":{"subjective_origin":"self","known":true},"facing":"north","movement":"stationary",...},{"type":"null"}],"default":null}},"required":["intent","action","reason"],"title":"ActionDecision","type":"object"}}'
+
+tests/test_v040_post3_remediation.py:126: AssertionError
+___ test_view_result_survives_complete_persisted_next_prompt_chain[view_map] ___
+
+settings = Settings(host='0.0.0.0', port=8797, data_dir=PosixPath('/tmp/pytest-of-runner/pytest-0/test_view_result_survives_comp0...te_max_extract_bytes=262144000, update_max_release_notes_chars=12000, update_auto_restart=True, update_github_token='')
+action = 'view_map'
+
+    @pytest.mark.parametrize("action", ["view_map", "view_task_journal", "view_notebook"])
+    async def test_view_result_survives_complete_persisted_next_prompt_chain(settings, action: str) -> None:
+        database = Database(settings.database_path)
+        engine = SimulationEngine(settings, database=database, vault=MemoryVault(settings.memory_dir), load_existing=False)
+        safe, forbidden = _seed_view_case(engine, action)
+        baseline_memories = list(engine.vault.list_records())
+    
+        result = _complete(engine.world, engine.agent, action)
+        immediate = result.to_dict()
+        immediate_text = _strict(immediate)
+>       assert safe in immediate_text
+E       assert 'SAFE_MAP_CELL_DESCRIPTOR' in '{"action": "view_map", "data": {"known_cells": [], "map_state": "blank", "markers": [], "position_known": true, "sour...known_cells": 0, "visible_markers": 0}, "details": "Ari reviewed the field map.", "reason": "viewed", "success": true}'
+
+tests/test_v040_post4_remediation.py:125: AssertionError
+_ test_view_result_survives_complete_persisted_next_prompt_chain[view_task_journal] _
+
+settings = Settings(host='0.0.0.0', port=8797, data_dir=PosixPath('/tmp/pytest-of-runner/pytest-0/test_view_result_survives_comp1...te_max_extract_bytes=262144000, update_max_release_notes_chars=12000, update_auto_restart=True, update_github_token='')
+action = 'view_task_journal'
+
+    @pytest.mark.parametrize("action", ["view_map", "view_task_journal", "view_notebook"])
+    async def test_view_result_survives_complete_persisted_next_prompt_chain(settings, action: str) -> None:
+        database = Database(settings.database_path)
+        engine = SimulationEngine(settings, database=database, vault=MemoryVault(settings.memory_dir), load_existing=False)
+        safe, forbidden = _seed_view_case(engine, action)
+        baseline_memories = list(engine.vault.list_records())
+    
+        result = _complete(engine.world, engine.agent, action)
+        immediate = result.to_dict()
+        immediate_text = _strict(immediate)
+>       assert safe in immediate_text
+E       assert 'SAFE_TASK_TITLE_SENTINEL' in '{"action": "view_task_journal", "data": {"source_scan_truncated": false, "status_counts": {"proposed": 4}, "tasks": [...otal_tasks": 4, "visible_tasks": 4}, "details": "Ari reviewed the task journal.", "reason": "viewed", "success": true}'
+
+tests/test_v040_post4_remediation.py:125: AssertionError
+_ test_view_result_survives_complete_persisted_next_prompt_chain[view_notebook] _
+
+settings = Settings(host='0.0.0.0', port=8797, data_dir=PosixPath('/tmp/pytest-of-runner/pytest-0/test_view_result_survives_comp2...te_max_extract_bytes=262144000, update_max_release_notes_chars=12000, update_auto_restart=True, update_github_token='')
+action = 'view_notebook'
+
+    @pytest.mark.parametrize("action", ["view_map", "view_task_journal", "view_notebook"])
+    async def test_view_result_survives_complete_persisted_next_prompt_chain(settings, action: str) -> None:
+        database = Database(settings.database_path)
+        engine = SimulationEngine(settings, database=database, vault=MemoryVault(settings.memory_dir), load_existing=False)
+        safe, forbidden = _seed_view_case(engine, action)
+        baseline_memories = list(engine.vault.list_records())
+    
+        result = _complete(engine.world, engine.agent, action)
+        immediate = result.to_dict()
+        immediate_text = _strict(immediate)
+>       assert safe in immediate_text
+E       assert 'SAFE_NOTEBOOK_NOTE_PHRASE' in '{"action": "view_notebook", "data": {"empty": true, "notes": [], "source_scan_truncated": false, "total_active_notes"..."total_notes": 0, "visible_notes": 0}, "details": "The field notebook is empty.", "reason": "viewed", "success": true}'
+
+tests/test_v040_post4_remediation.py:125: AssertionError
+____ test_coordinate_matrix_is_controlled_for_direct_and_loaded_state[none] ____
+
+factory = <function <lambda> at 0x7fd2e3df6fc0>
+
+    @pytest.mark.parametrize(
+        "factory",
+        [
+            lambda: None,
+            lambda: "",
+            lambda: "not-a-number",
+            lambda: "12.5",
+            lambda: True,
+            lambda: [],
+            lambda: {"x": 1},
+            lambda: {1, 2},
+            lambda: b"12",
+            lambda: math.nan,
+            lambda: math.inf,
+            lambda: -math.inf,
+            lambda: 10**500,
+            lambda: HostileObject(),
+        ],
+        ids=["none", "empty", "text", "numeric-text", "bool", "list", "mapping", "set", "bytes", "nan", "inf", "neg-inf", "extreme", "object"],
+    )
+    def test_coordinate_matrix_is_controlled_for_direct_and_loaded_state(factory: Callable[[], Any]) -> None:
+        world = WorldState.generate(8401, 48)
+        for loaded in (False, True):
+            bad_x, bad_y = factory(), factory()
+            if loaded:
+                raw = AgentState(x=1.0, y=1.0).to_dict()
+                raw["x"], raw["y"] = bad_x, bad_y
+                agent = AgentState.from_dict(raw)
+            else:
+                agent = AgentState(x=1.0, y=1.0)
+                agent.x, agent.y = bad_x, bad_y
+            perception = build_perception(world, agent)
+            assert isinstance(perception["local_tiles"], list)
+>           assert perception["underfoot"] in {terrain.value for terrain in __import__("app.simulation.world", fromlist=["Terrain"]).Terrain}
+E           AssertionError: assert 'unknown' in {'build_area', 'cave', 'deep_water', 'dense_forest', 'forest', 'meadow', ...}
+
+tests/test_v040_post4_remediation.py:206: AssertionError
+___ test_coordinate_matrix_is_controlled_for_direct_and_loaded_state[empty] ____
+
+factory = <function <lambda> at 0x7fd2e3df7060>
+
+    @pytest.mark.parametrize(
+        "factory",
+        [
+            lambda: None,
+            lambda: "",
+            lambda: "not-a-number",
+            lambda: "12.5",
+            lambda: True,
+            lambda: [],
+            lambda: {"x": 1},
+            lambda: {1, 2},
+            lambda: b"12",
+            lambda: math.nan,
+            lambda: math.inf,
+            lambda: -math.inf,
+            lambda: 10**500,
+            lambda: HostileObject(),
+        ],
+        ids=["none", "empty", "text", "numeric-text", "bool", "list", "mapping", "set", "bytes", "nan", "inf", "neg-inf", "extreme", "object"],
+    )
+    def test_coordinate_matrix_is_controlled_for_direct_and_loaded_state(factory: Callable[[], Any]) -> None:
+        world = WorldState.generate(8401, 48)
+        for loaded in (False, True):
+            bad_x, bad_y = factory(), factory()
+            if loaded:
+                raw = AgentState(x=1.0, y=1.0).to_dict()
+                raw["x"], raw["y"] = bad_x, bad_y
+                agent = AgentState.from_dict(raw)
+            else:
+                agent = AgentState(x=1.0, y=1.0)
+                agent.x, agent.y = bad_x, bad_y
+            perception = build_perception(world, agent)
+            assert isinstance(perception["local_tiles"], list)
+>           assert perception["underfoot"] in {terrain.value for terrain in __import__("app.simulation.world", fromlist=["Terrain"]).Terrain}
+E           AssertionError: assert 'unknown' in {'build_area', 'cave', 'deep_water', 'dense_forest', 'forest', 'meadow', ...}
+
+tests/test_v040_post4_remediation.py:206: AssertionError
+____ test_coordinate_matrix_is_controlled_for_direct_and_loaded_state[text] ____
+
+factory = <function <lambda> at 0x7fd2e3df7100>
+
+    @pytest.mark.parametrize(
+        "factory",
+        [
+            lambda: None,
+            lambda: "",
+            lambda: "not-a-number",
+            lambda: "12.5",
+            lambda: True,
+            lambda: [],
+            lambda: {"x": 1},
+            lambda: {1, 2},
+            lambda: b"12",
+            lambda: math.nan,
+            lambda: math.inf,
+            lambda: -math.inf,
+            lambda: 10**500,
+            lambda: HostileObject(),
+        ],
+        ids=["none", "empty", "text", "numeric-text", "bool", "list", "mapping", "set", "bytes", "nan", "inf", "neg-inf", "extreme", "object"],
+    )
+    def test_coordinate_matrix_is_controlled_for_direct_and_loaded_state(factory: Callable[[], Any]) -> None:
+        world = WorldState.generate(8401, 48)
+        for loaded in (False, True):
+            bad_x, bad_y = factory(), factory()
+            if loaded:
+                raw = AgentState(x=1.0, y=1.0).to_dict()
+                raw["x"], raw["y"] = bad_x, bad_y
+                agent = AgentState.from_dict(raw)
+            else:
+                agent = AgentState(x=1.0, y=1.0)
+                agent.x, agent.y = bad_x, bad_y
+            perception = build_perception(world, agent)
+            assert isinstance(perception["local_tiles"], list)
+>           assert perception["underfoot"] in {terrain.value for terrain in __import__("app.simulation.world", fromlist=["Terrain"]).Terrain}
+E           AssertionError: assert 'unknown' in {'build_area', 'cave', 'deep_water', 'dense_forest', 'forest', 'meadow', ...}
+
+tests/test_v040_post4_remediation.py:206: AssertionError
+____ test_coordinate_matrix_is_controlled_for_direct_and_loaded_state[bool] ____
+
+factory = <function <lambda> at 0x7fd2e3df7240>
+
+    @pytest.mark.parametrize(
+        "factory",
+        [
+            lambda: None,
+            lambda: "",
+            lambda: "not-a-number",
+            lambda: "12.5",
+            lambda: True,
+            lambda: [],
+            lambda: {"x": 1},
+            lambda: {1, 2},
+            lambda: b"12",
+            lambda: math.nan,
+            lambda: math.inf,
+            lambda: -math.inf,
+            lambda: 10**500,
+            lambda: HostileObject(),
+        ],
+        ids=["none", "empty", "text", "numeric-text", "bool", "list", "mapping", "set", "bytes", "nan", "inf", "neg-inf", "extreme", "object"],
+    )
+    def test_coordinate_matrix_is_controlled_for_direct_and_loaded_state(factory: Callable[[], Any]) -> None:
+        world = WorldState.generate(8401, 48)
+        for loaded in (False, True):
+            bad_x, bad_y = factory(), factory()
+            if loaded:
+                raw = AgentState(x=1.0, y=1.0).to_dict()
+                raw["x"], raw["y"] = bad_x, bad_y
+                agent = AgentState.from_dict(raw)
+            else:
+                agent = AgentState(x=1.0, y=1.0)
+                agent.x, agent.y = bad_x, bad_y
+            perception = build_perception(world, agent)
+            assert isinstance(perception["local_tiles"], list)
+>           assert perception["underfoot"] in {terrain.value for terrain in __import__("app.simulation.world", fromlist=["Terrain"]).Terrain}
+E           AssertionError: assert 'unknown' in {'build_area', 'cave', 'deep_water', 'dense_forest', 'forest', 'meadow', ...}
+
+tests/test_v040_post4_remediation.py:206: AssertionError
+____ test_coordinate_matrix_is_controlled_for_direct_and_loaded_state[list] ____
+
+factory = <function <lambda> at 0x7fd2e3df72e0>
+
+    @pytest.mark.parametrize(
+        "factory",
+        [
+            lambda: None,
+            lambda: "",
+            lambda: "not-a-number",
+            lambda: "12.5",
+            lambda: True,
+            lambda: [],
+            lambda: {"x": 1},
+            lambda: {1, 2},
+            lambda: b"12",
+            lambda: math.nan,
+            lambda: math.inf,
+            lambda: -math.inf,
+            lambda: 10**500,
+            lambda: HostileObject(),
+        ],
+        ids=["none", "empty", "text", "numeric-text", "bool", "list", "mapping", "set", "bytes", "nan", "inf", "neg-inf", "extreme", "object"],
+    )
+    def test_coordinate_matrix_is_controlled_for_direct_and_loaded_state(factory: Callable[[], Any]) -> None:
+        world = WorldState.generate(8401, 48)
+        for loaded in (False, True):
+            bad_x, bad_y = factory(), factory()
+            if loaded:
+                raw = AgentState(x=1.0, y=1.0).to_dict()
+                raw["x"], raw["y"] = bad_x, bad_y
+                agent = AgentState.from_dict(raw)
+            else:
+                agent = AgentState(x=1.0, y=1.0)
+                agent.x, agent.y = bad_x, bad_y
+            perception = build_perception(world, agent)
+            assert isinstance(perception["local_tiles"], list)
+>           assert perception["underfoot"] in {terrain.value for terrain in __import__("app.simulation.world", fromlist=["Terrain"]).Terrain}
+E           AssertionError: assert 'unknown' in {'build_area', 'cave', 'deep_water', 'dense_forest', 'forest', 'meadow', ...}
+
+tests/test_v040_post4_remediation.py:206: AssertionError
+__ test_coordinate_matrix_is_controlled_for_direct_and_loaded_state[mapping] ___
+
+factory = <function <lambda> at 0x7fd2e3df7380>
+
+    @pytest.mark.parametrize(
+        "factory",
+        [
+            lambda: None,
+            lambda: "",
+            lambda: "not-a-number",
+            lambda: "12.5",
+            lambda: True,
+            lambda: [],
+            lambda: {"x": 1},
+            lambda: {1, 2},
+            lambda: b"12",
+            lambda: math.nan,
+            lambda: math.inf,
+            lambda: -math.inf,
+            lambda: 10**500,
+            lambda: HostileObject(),
+        ],
+        ids=["none", "empty", "text", "numeric-text", "bool", "list", "mapping", "set", "bytes", "nan", "inf", "neg-inf", "extreme", "object"],
+    )
+    def test_coordinate_matrix_is_controlled_for_direct_and_loaded_state(factory: Callable[[], Any]) -> None:
+        world = WorldState.generate(8401, 48)
+        for loaded in (False, True):
+            bad_x, bad_y = factory(), factory()
+            if loaded:
+                raw = AgentState(x=1.0, y=1.0).to_dict()
+                raw["x"], raw["y"] = bad_x, bad_y
+                agent = AgentState.from_dict(raw)
+            else:
+                agent = AgentState(x=1.0, y=1.0)
+                agent.x, agent.y = bad_x, bad_y
+            perception = build_perception(world, agent)
+            assert isinstance(perception["local_tiles"], list)
+>           assert perception["underfoot"] in {terrain.value for terrain in __import__("app.simulation.world", fromlist=["Terrain"]).Terrain}
+E           AssertionError: assert 'unknown' in {'build_area', 'cave', 'deep_water', 'dense_forest', 'forest', 'meadow', ...}
+
+tests/test_v040_post4_remediation.py:206: AssertionError
+____ test_coordinate_matrix_is_controlled_for_direct_and_loaded_state[set] _____
+
+factory = <function <lambda> at 0x7fd2e3df7420>
+
+    @pytest.mark.parametrize(
+        "factory",
+        [
+            lambda: None,
+            lambda: "",
+            lambda: "not-a-number",
+            lambda: "12.5",
+            lambda: True,
+            lambda: [],
+            lambda: {"x": 1},
+            lambda: {1, 2},
+            lambda: b"12",
+            lambda: math.nan,
+            lambda: math.inf,
+            lambda: -math.inf,
+            lambda: 10**500,
+            lambda: HostileObject(),
+        ],
+        ids=["none", "empty", "text", "numeric-text", "bool", "list", "mapping", "set", "bytes", "nan", "inf", "neg-inf", "extreme", "object"],
+    )
+    def test_coordinate_matrix_is_controlled_for_direct_and_loaded_state(factory: Callable[[], Any]) -> None:
+        world = WorldState.generate(8401, 48)
+        for loaded in (False, True):
+            bad_x, bad_y = factory(), factory()
+            if loaded:
+                raw = AgentState(x=1.0, y=1.0).to_dict()
+                raw["x"], raw["y"] = bad_x, bad_y
+                agent = AgentState.from_dict(raw)
+            else:
+                agent = AgentState(x=1.0, y=1.0)
+                agent.x, agent.y = bad_x, bad_y
+            perception = build_perception(world, agent)
+            assert isinstance(perception["local_tiles"], list)
+>           assert perception["underfoot"] in {terrain.value for terrain in __import__("app.simulation.world", fromlist=["Terrain"]).Terrain}
+E           AssertionError: assert 'unknown' in {'build_area', 'cave', 'deep_water', 'dense_forest', 'forest', 'meadow', ...}
+
+tests/test_v040_post4_remediation.py:206: AssertionError
+____ test_coordinate_matrix_is_controlled_for_direct_and_loaded_state[nan] _____
+
+factory = <function <lambda> at 0x7fd2e3df7560>
+
+    @pytest.mark.parametrize(
+        "factory",
+        [
+            lambda: None,
+            lambda: "",
+            lambda: "not-a-number",
+            lambda: "12.5",
+            lambda: True,
+            lambda: [],
+            lambda: {"x": 1},
+            lambda: {1, 2},
+            lambda: b"12",
+            lambda: math.nan,
+            lambda: math.inf,
+            lambda: -math.inf,
+            lambda: 10**500,
+            lambda: HostileObject(),
+        ],
+        ids=["none", "empty", "text", "numeric-text", "bool", "list", "mapping", "set", "bytes", "nan", "inf", "neg-inf", "extreme", "object"],
+    )
+    def test_coordinate_matrix_is_controlled_for_direct_and_loaded_state(factory: Callable[[], Any]) -> None:
+        world = WorldState.generate(8401, 48)
+        for loaded in (False, True):
+            bad_x, bad_y = factory(), factory()
+            if loaded:
+                raw = AgentState(x=1.0, y=1.0).to_dict()
+                raw["x"], raw["y"] = bad_x, bad_y
+                agent = AgentState.from_dict(raw)
+            else:
+                agent = AgentState(x=1.0, y=1.0)
+                agent.x, agent.y = bad_x, bad_y
+            perception = build_perception(world, agent)
+            assert isinstance(perception["local_tiles"], list)
+>           assert perception["underfoot"] in {terrain.value for terrain in __import__("app.simulation.world", fromlist=["Terrain"]).Terrain}
+E           AssertionError: assert 'unknown' in {'build_area', 'cave', 'deep_water', 'dense_forest', 'forest', 'meadow', ...}
+
+tests/test_v040_post4_remediation.py:206: AssertionError
+____ test_coordinate_matrix_is_controlled_for_direct_and_loaded_state[inf] _____
+
+factory = <function <lambda> at 0x7fd2e3df7600>
+
+    @pytest.mark.parametrize(
+        "factory",
+        [
+            lambda: None,
+            lambda: "",
+            lambda: "not-a-number",
+            lambda: "12.5",
+            lambda: True,
+            lambda: [],
+            lambda: {"x": 1},
+            lambda: {1, 2},
+            lambda: b"12",
+            lambda: math.nan,
+            lambda: math.inf,
+            lambda: -math.inf,
+            lambda: 10**500,
+            lambda: HostileObject(),
+        ],
+        ids=["none", "empty", "text", "numeric-text", "bool", "list", "mapping", "set", "bytes", "nan", "inf", "neg-inf", "extreme", "object"],
+    )
+    def test_coordinate_matrix_is_controlled_for_direct_and_loaded_state(factory: Callable[[], Any]) -> None:
+        world = WorldState.generate(8401, 48)
+        for loaded in (False, True):
+            bad_x, bad_y = factory(), factory()
+            if loaded:
+                raw = AgentState(x=1.0, y=1.0).to_dict()
+                raw["x"], raw["y"] = bad_x, bad_y
+                agent = AgentState.from_dict(raw)
+            else:
+                agent = AgentState(x=1.0, y=1.0)
+                agent.x, agent.y = bad_x, bad_y
+            perception = build_perception(world, agent)
+            assert isinstance(perception["local_tiles"], list)
+>           assert perception["underfoot"] in {terrain.value for terrain in __import__("app.simulation.world", fromlist=["Terrain"]).Terrain}
+E           AssertionError: assert 'unknown' in {'build_area', 'cave', 'deep_water', 'dense_forest', 'forest', 'meadow', ...}
+
+tests/test_v040_post4_remediation.py:206: AssertionError
+__ test_coordinate_matrix_is_controlled_for_direct_and_loaded_state[neg-inf] ___
+
+factory = <function <lambda> at 0x7fd2e3df76a0>
+
+    @pytest.mark.parametrize(
+        "factory",
+        [
+            lambda: None,
+            lambda: "",
+            lambda: "not-a-number",
+            lambda: "12.5",
+            lambda: True,
+            lambda: [],
+            lambda: {"x": 1},
+            lambda: {1, 2},
+            lambda: b"12",
+            lambda: math.nan,
+            lambda: math.inf,
+            lambda: -math.inf,
+            lambda: 10**500,
+            lambda: HostileObject(),
+        ],
+        ids=["none", "empty", "text", "numeric-text", "bool", "list", "mapping", "set", "bytes", "nan", "inf", "neg-inf", "extreme", "object"],
+    )
+    def test_coordinate_matrix_is_controlled_for_direct_and_loaded_state(factory: Callable[[], Any]) -> None:
+        world = WorldState.generate(8401, 48)
+        for loaded in (False, True):
+            bad_x, bad_y = factory(), factory()
+            if loaded:
+                raw = AgentState(x=1.0, y=1.0).to_dict()
+                raw["x"], raw["y"] = bad_x, bad_y
+                agent = AgentState.from_dict(raw)
+            else:
+                agent = AgentState(x=1.0, y=1.0)
+                agent.x, agent.y = bad_x, bad_y
+            perception = build_perception(world, agent)
+            assert isinstance(perception["local_tiles"], list)
+>           assert perception["underfoot"] in {terrain.value for terrain in __import__("app.simulation.world", fromlist=["Terrain"]).Terrain}
+E           AssertionError: assert 'unknown' in {'build_area', 'cave', 'deep_water', 'dense_forest', 'forest', 'meadow', ...}
+
+tests/test_v040_post4_remediation.py:206: AssertionError
+__ test_coordinate_matrix_is_controlled_for_direct_and_loaded_state[extreme] ___
+
+factory = <function <lambda> at 0x7fd2e3df7740>
+
+    @pytest.mark.parametrize(
+        "factory",
+        [
+            lambda: None,
+            lambda: "",
+            lambda: "not-a-number",
+            lambda: "12.5",
+            lambda: True,
+            lambda: [],
+            lambda: {"x": 1},
+            lambda: {1, 2},
+            lambda: b"12",
+            lambda: math.nan,
+            lambda: math.inf,
+            lambda: -math.inf,
+            lambda: 10**500,
+            lambda: HostileObject(),
+        ],
+        ids=["none", "empty", "text", "numeric-text", "bool", "list", "mapping", "set", "bytes", "nan", "inf", "neg-inf", "extreme", "object"],
+    )
+    def test_coordinate_matrix_is_controlled_for_direct_and_loaded_state(factory: Callable[[], Any]) -> None:
+        world = WorldState.generate(8401, 48)
+        for loaded in (False, True):
+            bad_x, bad_y = factory(), factory()
+            if loaded:
+                raw = AgentState(x=1.0, y=1.0).to_dict()
+                raw["x"], raw["y"] = bad_x, bad_y
+                agent = AgentState.from_dict(raw)
+            else:
+                agent = AgentState(x=1.0, y=1.0)
+                agent.x, agent.y = bad_x, bad_y
+            perception = build_perception(world, agent)
+            assert isinstance(perception["local_tiles"], list)
+>           assert perception["underfoot"] in {terrain.value for terrain in __import__("app.simulation.world", fromlist=["Terrain"]).Terrain}
+E           AssertionError: assert 'unknown' in {'build_area', 'cave', 'deep_water', 'dense_forest', 'forest', 'meadow', ...}
+
+tests/test_v040_post4_remediation.py:206: AssertionError
+___ test_coordinate_matrix_is_controlled_for_direct_and_loaded_state[object] ___
+
+factory = <function <lambda> at 0x7fd2e3df77e0>
+
+    @pytest.mark.parametrize(
+        "factory",
+        [
+            lambda: None,
+            lambda: "",
+            lambda: "not-a-number",
+            lambda: "12.5",
+            lambda: True,
+            lambda: [],
+            lambda: {"x": 1},
+            lambda: {1, 2},
+            lambda: b"12",
+            lambda: math.nan,
+            lambda: math.inf,
+            lambda: -math.inf,
+            lambda: 10**500,
+            lambda: HostileObject(),
+        ],
+        ids=["none", "empty", "text", "numeric-text", "bool", "list", "mapping", "set", "bytes", "nan", "inf", "neg-inf", "extreme", "object"],
+    )
+    def test_coordinate_matrix_is_controlled_for_direct_and_loaded_state(factory: Callable[[], Any]) -> None:
+        world = WorldState.generate(8401, 48)
+        for loaded in (False, True):
+            bad_x, bad_y = factory(), factory()
+            if loaded:
+                raw = AgentState(x=1.0, y=1.0).to_dict()
+                raw["x"], raw["y"] = bad_x, bad_y
+                agent = AgentState.from_dict(raw)
+            else:
+                agent = AgentState(x=1.0, y=1.0)
+                agent.x, agent.y = bad_x, bad_y
+            perception = build_perception(world, agent)
+            assert isinstance(perception["local_tiles"], list)
+>           assert perception["underfoot"] in {terrain.value for terrain in __import__("app.simulation.world", fromlist=["Terrain"]).Terrain}
+E           AssertionError: assert 'unknown' in {'build_area', 'cave', 'deep_water', 'dense_forest', 'forest', 'meadow', ...}
+
+tests/test_v040_post4_remediation.py:206: AssertionError
+__ test_scale_bounds_retain_positive_sentinel_without_full_store[view_map-10] __
+
+action = 'view_map', count = 10
+
+    @pytest.mark.parametrize("count", [10, 100, 1000])
+    @pytest.mark.parametrize("action", ["view_map", "view_task_journal", "view_notebook"])
+    def test_scale_bounds_retain_positive_sentinel_without_full_store(action: str, count: int) -> None:
+        world = WorldState.generate(8402, 48)
+        agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+        safe = f"SAFE_SCALE_{action}_{count}"
+        forbidden = f"observer_id:FORBIDDEN_SCALE_{count}"
+        x, y = int(agent.x), int(agent.y)
+        if action == "view_map":
+            agent.known_terrain = {f"{x + (i % 20)},{y + (i // 20)}": safe if i == 0 else f"terrain-{i}-" + "x" * 300 for i in range(count)}
+        elif action == "view_task_journal":
+            for i in range(count):
+                agent.tasks[f"task-{i}"] = TaskRecord(
+                    f"task-{i}", safe if i == 0 else f"task-{i}-" + "x" * 1000, forbidden if i == count - 1 else "useful",
+                    "ari", "active", -1000 if i == 0 else i, float(i), float(i),
+                    metadata={"observer": forbidden}, provenance=Provenance("agent"),
+                )
+        else:
+            for i in range(count):
+                agent.notes[f"note-{i}"] = NoteRecord(
+                    f"note-{i}", safe if i == 0 else f"note-{i}-" + "x" * 1000, "useful", ["safe"], "active",
+                    float(i), 1_000_000.0 if i == 0 else float(i), provenance=Provenance("agent"),
+                )
+        result = _complete(world, agent, action)
+        outcome = {
+            "action": action,
+            "success": True,
+            "reason": "viewed",
+            "details": "bounded",
+            "view_result": __import__("app.simulation.actions", fromlist=["project_view_result_for_recent_outcome"]).project_view_result_for_recent_outcome(action, result.data),
+        }
+        prompt = decision_messages({
+            "perception": build_perception(world, agent),
+            "action_affordances": {},
+            "active_plan": [],
+            "retrieved_memories": [],
+            "recent_outcomes": [outcome],
+        })[-1]["content"]
+>       assert safe in prompt
+E       assert 'SAFE_SCALE_view_map_10' in '{"perception":{"body":{"position":{"subjective_origin":"self","known":true},"facing":"north","movement":"stationary",...},{"type":"null"}],"default":null}},"required":["intent","action","reason"],"title":"ActionDecision","type":"object"}}'
+
+tests/test_v040_post4_remediation.py:250: AssertionError
+_ test_scale_bounds_retain_positive_sentinel_without_full_store[view_map-100] __
+
+action = 'view_map', count = 100
+
+    @pytest.mark.parametrize("count", [10, 100, 1000])
+    @pytest.mark.parametrize("action", ["view_map", "view_task_journal", "view_notebook"])
+    def test_scale_bounds_retain_positive_sentinel_without_full_store(action: str, count: int) -> None:
+        world = WorldState.generate(8402, 48)
+        agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+        safe = f"SAFE_SCALE_{action}_{count}"
+        forbidden = f"observer_id:FORBIDDEN_SCALE_{count}"
+        x, y = int(agent.x), int(agent.y)
+        if action == "view_map":
+            agent.known_terrain = {f"{x + (i % 20)},{y + (i // 20)}": safe if i == 0 else f"terrain-{i}-" + "x" * 300 for i in range(count)}
+        elif action == "view_task_journal":
+            for i in range(count):
+                agent.tasks[f"task-{i}"] = TaskRecord(
+                    f"task-{i}", safe if i == 0 else f"task-{i}-" + "x" * 1000, forbidden if i == count - 1 else "useful",
+                    "ari", "active", -1000 if i == 0 else i, float(i), float(i),
+                    metadata={"observer": forbidden}, provenance=Provenance("agent"),
+                )
+        else:
+            for i in range(count):
+                agent.notes[f"note-{i}"] = NoteRecord(
+                    f"note-{i}", safe if i == 0 else f"note-{i}-" + "x" * 1000, "useful", ["safe"], "active",
+                    float(i), 1_000_000.0 if i == 0 else float(i), provenance=Provenance("agent"),
+                )
+        result = _complete(world, agent, action)
+        outcome = {
+            "action": action,
+            "success": True,
+            "reason": "viewed",
+            "details": "bounded",
+            "view_result": __import__("app.simulation.actions", fromlist=["project_view_result_for_recent_outcome"]).project_view_result_for_recent_outcome(action, result.data),
+        }
+        prompt = decision_messages({
+            "perception": build_perception(world, agent),
+            "action_affordances": {},
+            "active_plan": [],
+            "retrieved_memories": [],
+            "recent_outcomes": [outcome],
+        })[-1]["content"]
+>       assert safe in prompt
+E       assert 'SAFE_SCALE_view_map_100' in '{"perception":{"body":{"position":{"subjective_origin":"self","known":true},"facing":"north","movement":"stationary",...},{"type":"null"}],"default":null}},"required":["intent","action","reason"],"title":"ActionDecision","type":"object"}}'
+
+tests/test_v040_post4_remediation.py:250: AssertionError
+_ test_scale_bounds_retain_positive_sentinel_without_full_store[view_map-1000] _
+
+action = 'view_map', count = 1000
+
+    @pytest.mark.parametrize("count", [10, 100, 1000])
+    @pytest.mark.parametrize("action", ["view_map", "view_task_journal", "view_notebook"])
+    def test_scale_bounds_retain_positive_sentinel_without_full_store(action: str, count: int) -> None:
+        world = WorldState.generate(8402, 48)
+        agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+        safe = f"SAFE_SCALE_{action}_{count}"
+        forbidden = f"observer_id:FORBIDDEN_SCALE_{count}"
+        x, y = int(agent.x), int(agent.y)
+        if action == "view_map":
+            agent.known_terrain = {f"{x + (i % 20)},{y + (i // 20)}": safe if i == 0 else f"terrain-{i}-" + "x" * 300 for i in range(count)}
+        elif action == "view_task_journal":
+            for i in range(count):
+                agent.tasks[f"task-{i}"] = TaskRecord(
+                    f"task-{i}", safe if i == 0 else f"task-{i}-" + "x" * 1000, forbidden if i == count - 1 else "useful",
+                    "ari", "active", -1000 if i == 0 else i, float(i), float(i),
+                    metadata={"observer": forbidden}, provenance=Provenance("agent"),
+                )
+        else:
+            for i in range(count):
+                agent.notes[f"note-{i}"] = NoteRecord(
+                    f"note-{i}", safe if i == 0 else f"note-{i}-" + "x" * 1000, "useful", ["safe"], "active",
+                    float(i), 1_000_000.0 if i == 0 else float(i), provenance=Provenance("agent"),
+                )
+        result = _complete(world, agent, action)
+        outcome = {
+            "action": action,
+            "success": True,
+            "reason": "viewed",
+            "details": "bounded",
+            "view_result": __import__("app.simulation.actions", fromlist=["project_view_result_for_recent_outcome"]).project_view_result_for_recent_outcome(action, result.data),
+        }
+        prompt = decision_messages({
+            "perception": build_perception(world, agent),
+            "action_affordances": {},
+            "active_plan": [],
+            "retrieved_memories": [],
+            "recent_outcomes": [outcome],
+        })[-1]["content"]
+>       assert safe in prompt
+E       assert 'SAFE_SCALE_view_map_1000' in '{"perception":{"body":{"position":{"subjective_origin":"self","known":true},"facing":"north","movement":"stationary",...},{"type":"null"}],"default":null}},"required":["intent","action","reason"],"title":"ActionDecision","type":"object"}}'
+
+tests/test_v040_post4_remediation.py:250: AssertionError
+_ test_scale_bounds_retain_positive_sentinel_without_full_store[view_task_journal-10] _
+
+action = 'view_task_journal', count = 10
+
+    @pytest.mark.parametrize("count", [10, 100, 1000])
+    @pytest.mark.parametrize("action", ["view_map", "view_task_journal", "view_notebook"])
+    def test_scale_bounds_retain_positive_sentinel_without_full_store(action: str, count: int) -> None:
+        world = WorldState.generate(8402, 48)
+        agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+        safe = f"SAFE_SCALE_{action}_{count}"
+        forbidden = f"observer_id:FORBIDDEN_SCALE_{count}"
+        x, y = int(agent.x), int(agent.y)
+        if action == "view_map":
+            agent.known_terrain = {f"{x + (i % 20)},{y + (i // 20)}": safe if i == 0 else f"terrain-{i}-" + "x" * 300 for i in range(count)}
+        elif action == "view_task_journal":
+            for i in range(count):
+                agent.tasks[f"task-{i}"] = TaskRecord(
+                    f"task-{i}", safe if i == 0 else f"task-{i}-" + "x" * 1000, forbidden if i == count - 1 else "useful",
+                    "ari", "active", -1000 if i == 0 else i, float(i), float(i),
+                    metadata={"observer": forbidden}, provenance=Provenance("agent"),
+                )
+        else:
+            for i in range(count):
+                agent.notes[f"note-{i}"] = NoteRecord(
+                    f"note-{i}", safe if i == 0 else f"note-{i}-" + "x" * 1000, "useful", ["safe"], "active",
+                    float(i), 1_000_000.0 if i == 0 else float(i), provenance=Provenance("agent"),
+                )
+        result = _complete(world, agent, action)
+        outcome = {
+            "action": action,
+            "success": True,
+            "reason": "viewed",
+            "details": "bounded",
+            "view_result": __import__("app.simulation.actions", fromlist=["project_view_result_for_recent_outcome"]).project_view_result_for_recent_outcome(action, result.data),
+        }
+        prompt = decision_messages({
+            "perception": build_perception(world, agent),
+            "action_affordances": {},
+            "active_plan": [],
+            "retrieved_memories": [],
+            "recent_outcomes": [outcome],
+        })[-1]["content"]
+>       assert safe in prompt
+E       assert 'SAFE_SCALE_view_task_journal_10' in '{"perception":{"body":{"position":{"subjective_origin":"self","known":true},"facing":"north","movement":"stationary",...},{"type":"null"}],"default":null}},"required":["intent","action","reason"],"title":"ActionDecision","type":"object"}}'
+
+tests/test_v040_post4_remediation.py:250: AssertionError
+_ test_scale_bounds_retain_positive_sentinel_without_full_store[view_task_journal-100] _
+
+action = 'view_task_journal', count = 100
+
+    @pytest.mark.parametrize("count", [10, 100, 1000])
+    @pytest.mark.parametrize("action", ["view_map", "view_task_journal", "view_notebook"])
+    def test_scale_bounds_retain_positive_sentinel_without_full_store(action: str, count: int) -> None:
+        world = WorldState.generate(8402, 48)
+        agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+        safe = f"SAFE_SCALE_{action}_{count}"
+        forbidden = f"observer_id:FORBIDDEN_SCALE_{count}"
+        x, y = int(agent.x), int(agent.y)
+        if action == "view_map":
+            agent.known_terrain = {f"{x + (i % 20)},{y + (i // 20)}": safe if i == 0 else f"terrain-{i}-" + "x" * 300 for i in range(count)}
+        elif action == "view_task_journal":
+            for i in range(count):
+                agent.tasks[f"task-{i}"] = TaskRecord(
+                    f"task-{i}", safe if i == 0 else f"task-{i}-" + "x" * 1000, forbidden if i == count - 1 else "useful",
+                    "ari", "active", -1000 if i == 0 else i, float(i), float(i),
+                    metadata={"observer": forbidden}, provenance=Provenance("agent"),
+                )
+        else:
+            for i in range(count):
+                agent.notes[f"note-{i}"] = NoteRecord(
+                    f"note-{i}", safe if i == 0 else f"note-{i}-" + "x" * 1000, "useful", ["safe"], "active",
+                    float(i), 1_000_000.0 if i == 0 else float(i), provenance=Provenance("agent"),
+                )
+        result = _complete(world, agent, action)
+        outcome = {
+            "action": action,
+            "success": True,
+            "reason": "viewed",
+            "details": "bounded",
+            "view_result": __import__("app.simulation.actions", fromlist=["project_view_result_for_recent_outcome"]).project_view_result_for_recent_outcome(action, result.data),
+        }
+        prompt = decision_messages({
+            "perception": build_perception(world, agent),
+            "action_affordances": {},
+            "active_plan": [],
+            "retrieved_memories": [],
+            "recent_outcomes": [outcome],
+        })[-1]["content"]
+>       assert safe in prompt
+E       assert 'SAFE_SCALE_view_task_journal_100' in '{"perception":{"body":{"position":{"subjective_origin":"self","known":true},"facing":"north","movement":"stationary",...},{"type":"null"}],"default":null}},"required":["intent","action","reason"],"title":"ActionDecision","type":"object"}}'
+
+tests/test_v040_post4_remediation.py:250: AssertionError
+_ test_scale_bounds_retain_positive_sentinel_without_full_store[view_task_journal-1000] _
+
+action = 'view_task_journal', count = 1000
+
+    @pytest.mark.parametrize("count", [10, 100, 1000])
+    @pytest.mark.parametrize("action", ["view_map", "view_task_journal", "view_notebook"])
+    def test_scale_bounds_retain_positive_sentinel_without_full_store(action: str, count: int) -> None:
+        world = WorldState.generate(8402, 48)
+        agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+        safe = f"SAFE_SCALE_{action}_{count}"
+        forbidden = f"observer_id:FORBIDDEN_SCALE_{count}"
+        x, y = int(agent.x), int(agent.y)
+        if action == "view_map":
+            agent.known_terrain = {f"{x + (i % 20)},{y + (i // 20)}": safe if i == 0 else f"terrain-{i}-" + "x" * 300 for i in range(count)}
+        elif action == "view_task_journal":
+            for i in range(count):
+                agent.tasks[f"task-{i}"] = TaskRecord(
+                    f"task-{i}", safe if i == 0 else f"task-{i}-" + "x" * 1000, forbidden if i == count - 1 else "useful",
+                    "ari", "active", -1000 if i == 0 else i, float(i), float(i),
+                    metadata={"observer": forbidden}, provenance=Provenance("agent"),
+                )
+        else:
+            for i in range(count):
+                agent.notes[f"note-{i}"] = NoteRecord(
+                    f"note-{i}", safe if i == 0 else f"note-{i}-" + "x" * 1000, "useful", ["safe"], "active",
+                    float(i), 1_000_000.0 if i == 0 else float(i), provenance=Provenance("agent"),
+                )
+        result = _complete(world, agent, action)
+        outcome = {
+            "action": action,
+            "success": True,
+            "reason": "viewed",
+            "details": "bounded",
+            "view_result": __import__("app.simulation.actions", fromlist=["project_view_result_for_recent_outcome"]).project_view_result_for_recent_outcome(action, result.data),
+        }
+        prompt = decision_messages({
+            "perception": build_perception(world, agent),
+            "action_affordances": {},
+            "active_plan": [],
+            "retrieved_memories": [],
+            "recent_outcomes": [outcome],
+        })[-1]["content"]
+>       assert safe in prompt
+E       assert 'SAFE_SCALE_view_task_journal_1000' in '{"perception":{"body":{"position":{"subjective_origin":"self","known":true},"facing":"north","movement":"stationary",...},{"type":"null"}],"default":null}},"required":["intent","action","reason"],"title":"ActionDecision","type":"object"}}'
+
+tests/test_v040_post4_remediation.py:250: AssertionError
+_ test_scale_bounds_retain_positive_sentinel_without_full_store[view_notebook-10] _
+
+action = 'view_notebook', count = 10
+
+    @pytest.mark.parametrize("count", [10, 100, 1000])
+    @pytest.mark.parametrize("action", ["view_map", "view_task_journal", "view_notebook"])
+    def test_scale_bounds_retain_positive_sentinel_without_full_store(action: str, count: int) -> None:
+        world = WorldState.generate(8402, 48)
+        agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+        safe = f"SAFE_SCALE_{action}_{count}"
+        forbidden = f"observer_id:FORBIDDEN_SCALE_{count}"
+        x, y = int(agent.x), int(agent.y)
+        if action == "view_map":
+            agent.known_terrain = {f"{x + (i % 20)},{y + (i // 20)}": safe if i == 0 else f"terrain-{i}-" + "x" * 300 for i in range(count)}
+        elif action == "view_task_journal":
+            for i in range(count):
+                agent.tasks[f"task-{i}"] = TaskRecord(
+                    f"task-{i}", safe if i == 0 else f"task-{i}-" + "x" * 1000, forbidden if i == count - 1 else "useful",
+                    "ari", "active", -1000 if i == 0 else i, float(i), float(i),
+                    metadata={"observer": forbidden}, provenance=Provenance("agent"),
+                )
+        else:
+            for i in range(count):
+                agent.notes[f"note-{i}"] = NoteRecord(
+                    f"note-{i}", safe if i == 0 else f"note-{i}-" + "x" * 1000, "useful", ["safe"], "active",
+                    float(i), 1_000_000.0 if i == 0 else float(i), provenance=Provenance("agent"),
+                )
+        result = _complete(world, agent, action)
+        outcome = {
+            "action": action,
+            "success": True,
+            "reason": "viewed",
+            "details": "bounded",
+            "view_result": __import__("app.simulation.actions", fromlist=["project_view_result_for_recent_outcome"]).project_view_result_for_recent_outcome(action, result.data),
+        }
+        prompt = decision_messages({
+            "perception": build_perception(world, agent),
+            "action_affordances": {},
+            "active_plan": [],
+            "retrieved_memories": [],
+            "recent_outcomes": [outcome],
+        })[-1]["content"]
+>       assert safe in prompt
+E       assert 'SAFE_SCALE_view_notebook_10' in '{"perception":{"body":{"position":{"subjective_origin":"self","known":true},"facing":"north","movement":"stationary",...},{"type":"null"}],"default":null}},"required":["intent","action","reason"],"title":"ActionDecision","type":"object"}}'
+
+tests/test_v040_post4_remediation.py:250: AssertionError
+_ test_scale_bounds_retain_positive_sentinel_without_full_store[view_notebook-100] _
+
+action = 'view_notebook', count = 100
+
+    @pytest.mark.parametrize("count", [10, 100, 1000])
+    @pytest.mark.parametrize("action", ["view_map", "view_task_journal", "view_notebook"])
+    def test_scale_bounds_retain_positive_sentinel_without_full_store(action: str, count: int) -> None:
+        world = WorldState.generate(8402, 48)
+        agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+        safe = f"SAFE_SCALE_{action}_{count}"
+        forbidden = f"observer_id:FORBIDDEN_SCALE_{count}"
+        x, y = int(agent.x), int(agent.y)
+        if action == "view_map":
+            agent.known_terrain = {f"{x + (i % 20)},{y + (i // 20)}": safe if i == 0 else f"terrain-{i}-" + "x" * 300 for i in range(count)}
+        elif action == "view_task_journal":
+            for i in range(count):
+                agent.tasks[f"task-{i}"] = TaskRecord(
+                    f"task-{i}", safe if i == 0 else f"task-{i}-" + "x" * 1000, forbidden if i == count - 1 else "useful",
+                    "ari", "active", -1000 if i == 0 else i, float(i), float(i),
+                    metadata={"observer": forbidden}, provenance=Provenance("agent"),
+                )
+        else:
+            for i in range(count):
+                agent.notes[f"note-{i}"] = NoteRecord(
+                    f"note-{i}", safe if i == 0 else f"note-{i}-" + "x" * 1000, "useful", ["safe"], "active",
+                    float(i), 1_000_000.0 if i == 0 else float(i), provenance=Provenance("agent"),
+                )
+        result = _complete(world, agent, action)
+        outcome = {
+            "action": action,
+            "success": True,
+            "reason": "viewed",
+            "details": "bounded",
+            "view_result": __import__("app.simulation.actions", fromlist=["project_view_result_for_recent_outcome"]).project_view_result_for_recent_outcome(action, result.data),
+        }
+        prompt = decision_messages({
+            "perception": build_perception(world, agent),
+            "action_affordances": {},
+            "active_plan": [],
+            "retrieved_memories": [],
+            "recent_outcomes": [outcome],
+        })[-1]["content"]
+>       assert safe in prompt
+E       assert 'SAFE_SCALE_view_notebook_100' in '{"perception":{"body":{"position":{"subjective_origin":"self","known":true},"facing":"north","movement":"stationary",...},{"type":"null"}],"default":null}},"required":["intent","action","reason"],"title":"ActionDecision","type":"object"}}'
+
+tests/test_v040_post4_remediation.py:250: AssertionError
+_ test_scale_bounds_retain_positive_sentinel_without_full_store[view_notebook-1000] _
+
+action = 'view_notebook', count = 1000
+
+    @pytest.mark.parametrize("count", [10, 100, 1000])
+    @pytest.mark.parametrize("action", ["view_map", "view_task_journal", "view_notebook"])
+    def test_scale_bounds_retain_positive_sentinel_without_full_store(action: str, count: int) -> None:
+        world = WorldState.generate(8402, 48)
+        agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+        safe = f"SAFE_SCALE_{action}_{count}"
+        forbidden = f"observer_id:FORBIDDEN_SCALE_{count}"
+        x, y = int(agent.x), int(agent.y)
+        if action == "view_map":
+            agent.known_terrain = {f"{x + (i % 20)},{y + (i // 20)}": safe if i == 0 else f"terrain-{i}-" + "x" * 300 for i in range(count)}
+        elif action == "view_task_journal":
+            for i in range(count):
+                agent.tasks[f"task-{i}"] = TaskRecord(
+                    f"task-{i}", safe if i == 0 else f"task-{i}-" + "x" * 1000, forbidden if i == count - 1 else "useful",
+                    "ari", "active", -1000 if i == 0 else i, float(i), float(i),
+                    metadata={"observer": forbidden}, provenance=Provenance("agent"),
+                )
+        else:
+            for i in range(count):
+                agent.notes[f"note-{i}"] = NoteRecord(
+                    f"note-{i}", safe if i == 0 else f"note-{i}-" + "x" * 1000, "useful", ["safe"], "active",
+                    float(i), 1_000_000.0 if i == 0 else float(i), provenance=Provenance("agent"),
+                )
+        result = _complete(world, agent, action)
+        outcome = {
+            "action": action,
+            "success": True,
+            "reason": "viewed",
+            "details": "bounded",
+            "view_result": __import__("app.simulation.actions", fromlist=["project_view_result_for_recent_outcome"]).project_view_result_for_recent_outcome(action, result.data),
+        }
+        prompt = decision_messages({
+            "perception": build_perception(world, agent),
+            "action_affordances": {},
+            "active_plan": [],
+            "retrieved_memories": [],
+            "recent_outcomes": [outcome],
+        })[-1]["content"]
+>       assert safe in prompt
+E       assert 'SAFE_SCALE_view_notebook_1000' in '{"perception":{"body":{"position":{"subjective_origin":"self","known":true},"facing":"north","movement":"stationary",...},{"type":"null"}],"default":null}},"required":["intent","action","reason"],"title":"ActionDecision","type":"object"}}'
+
+tests/test_v040_post4_remediation.py:250: AssertionError
+_ test_origin_policy_retains_safe_text_and_omits_unknown_private_and_conflicting_records _
+
+    def test_origin_policy_retains_safe_text_and_omits_unknown_private_and_conflicting_records() -> None:
+        world = WorldState.generate(8403, 48)
+        agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+        agent.tasks = {
+            "agent": TaskRecord("agent", "agent recipe task", "safe", "ari", "active", 1, 0, 0, provenance=Provenance("agent")),
+            "perception": TaskRecord("perception", "perceived task", "safe", "ari", "active", 2, 0, 0, provenance=Provenance("perception")),
+            "starter": TaskRecord("starter", "starter task", "safe", "starter_journal", "proposed", 3, 0, 0, provenance=Provenance("system_initialization")),
+            "observer": TaskRecord("observer", "PRIVATE_OBSERVER_TASK", "private", "ari", "active", 4, 0, 0, provenance=Provenance("observer_only")),
+            "unknown": TaskRecord("unknown", "PRIVATE_UNKNOWN_TASK", "private", "ari", "active", 5, 0, 0, provenance=Provenance("unknown")),
+            "missing": TaskRecord("missing", "PRIVATE_MISSING_TASK", "private", "ari", "active", 6, 0, 0, provenance=None),  # type: ignore[arg-type]
+            "conflict": TaskRecord("conflict", "PRIVATE_CONFLICT_TASK", "private", "ari", "active", 7, 0, 0, provenance=Provenance("operational", "ari")),
+        }
+        task_text = _strict(_complete(world, agent, "view_task_journal").to_dict())
+>       assert "agent recipe task" in task_text
+E       assert 'agent recipe task' in '{"action": "view_task_journal", "data": {"source_scan_truncated": false, "status_counts": {}, "tasks": [], "total_tasks": 0, "visible_tasks": 0}, "details": "Ari reviewed the task journal.", "reason": "viewed", "success": true}'
+
+tests/test_v040_post4_remediation.py:270: AssertionError
+______ test_view_map_and_normal_prompt_hide_absolute_and_hidden_sentinels ______
+
+    def test_view_map_and_normal_prompt_hide_absolute_and_hidden_sentinels() -> None:
+        world = WorldState.generate(987, 48)
+        agent = AgentState(x=17.0, y=23.0)
+        agent.known_terrain = {
+            "41,7": "ABSOLUTE_TERRAIN_SENTINEL",
+            "3,39": "known meadow",
+        }
+        agent.known_locations["HIDDEN_LOCATION_SENTINEL"] = {
+            "x": 41,
+            "y": 7,
+            "certainty": 0.8,
+            "observer_id": "OBSERVER_ID_SENTINEL",
+            "cave_truth": "CAVE_TRUTH_SENTINEL",
+            "recipe": "RECIPE_SENTINEL",
+            "resource": "RESOURCE_SENTINEL",
+            "entity": "ENTITY_SENTINEL",
+            "unexplored": "UNEXPLORED_SENTINEL",
+        }
+        agent.map_markers["marker"] = MapMarker(
+            "marker", "subjective marker", "unknown", {"x": 41, "y": 7}, 0.4, "active", "Ari inference", 0, 0,
+            provenance=Provenance("inference"),
+        )
+        result = _complete(ActionController(), world, agent, "view_map")
+        assert "observer_truth_included" not in result.data
+        assert "known_terrain" not in result.data
+>       assert result.data["known_cells"][0].keys() >= {"offset_east", "offset_south", "distance", "direction", "terrain"}
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       IndexError: list index out of range
+
+tests/test_v040_remediation.py:83: IndexError
+_________ test_belief_summary_and_all_store_prompt_growth_are_bounded __________
+
+    def test_belief_summary_and_all_store_prompt_growth_are_bounded() -> None:
+        world = WorldState.generate(988, 48)
+        small = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+        large = AgentState.from_dict(small.to_dict())
+        for index in range(400):
+            unique = f"BELIEF_FULL_SENTINEL_{index}_" + ("b" * 800)
+            large.beliefs[f"belief-{index:04d}"] = BeliefRecord(
+                f"belief-{index:04d}", unique, 0.5, f"BASIS_FULL_SENTINEL_{index}_" + ("c" * 800),
+                "hypothesis", float(index), None, provenance=Provenance("inference"),
+            )
+            large.notes[f"note-{index}"] = NoteRecord(
+                f"note-{index}", f"NOTE_TITLE_SENTINEL_{index}", "n" * 900, [], "active", 0, 0,
+                provenance=Provenance("test"),
+            )
+            large.tasks[f"task-{index}"] = TaskRecord(
+                f"task-{index}", f"TASK_TITLE_SENTINEL_{index}", "t" * 900, "test", "proposed", index + 10, 0, 0,
+                provenance=Provenance("test"),
+            )
+            large.map_markers[f"marker-{index}"] = MapMarker(
+                f"marker-{index}", f"MARKER_LABEL_SENTINEL_{index}", "test", {"relative": "near"}, 0.5,
+                "active", "m" * 900, 0, 0, provenance=Provenance("test"),
+            )
+            large.short_term_episodes[f"episode-{index}"] = EpisodeRecord(
+                f"episode-{index}", index, index, f"EPISODE_SUMMARY_SENTINEL_{index}_" + ("e" * 900),
+                "test", 0.5, "recent", provenance=Provenance("test"),
+            )
+        small_prompt = _serialized_prompt(world, small)
+        large_prompt = _serialized_prompt(world, large)
+        perception = build_perception(world, large)
+>       assert perception["belief_summary"]["total"] == 400 + len(small.beliefs)
+E       AssertionError: assert 0 == (400 + 0)
+E        +  where 0 = len({})
+E        +    where {} = AgentState(name='Ari', x=24.0, y=34.0, facing='north', movement_speed=2.0, collision_radius=0.35, health=100.0, energy...s_remaining=240.0, last_damage_time=-1.0, last_decision_reason='', decision_source='fallback', ari_knowledge_proofs={}).beliefs
+
+tests/test_v040_remediation.py:129: AssertionError
+_ test_realistic_legacy_and_malformed_state_normalizes_without_truth_promotion _
+
+    def test_realistic_legacy_and_malformed_state_normalizes_without_truth_promotion() -> None:
+        legacy = AgentState().to_dict()
+        legacy.update({
+            "name": "Ari", "x": 11.5, "y": 9.25, "current_action": {"action": "wait", "remaining": 2},
+            "active_plan": ["observe", "rest"], "known_locations": {"water": {"x": 4, "y": 7, "certainty": 0.2}},
+            "known_terrain": {"4,7": "shallow_water"}, "recent_events": [{"kind": "legacy", "message": "event"}],
+            "retrieved_memories": [{"title": "memory"}], "personality_traits": {"curiosity": 0.9},
+            "beliefs": {
+                "string": "Water may be nearby.",
+                "structured": {"claim": "The cave may be unsafe.", "confidence": 2.5, "basis": "inference", "status": "INVALID"},
+                "malformed": {"confidence": "bad"},
+            },
+            "notes": ["not-a-dictionary"],
+            "map_markers": {"bad": "not-a-record", "good": {"label": "possible camp", "confidence": -4, "status": "INVALID"}},
+            "short_term_episodes": {"good": {"summary": "legacy episode", "salience": 4, "status": "INVALID"}, "bad": 9},
+            "key_items": {}, "tasks": {},
+        })
+        restored = AgentState.from_dict(legacy)
+        assert restored.key_items == {} and restored.tasks == {}
+        assert restored.notes == {}
+        assert set(restored.beliefs) == {"string", "structured"}
+        assert restored.beliefs["string"].provenance.source_type == "legacy_migration"
+        assert restored.beliefs["structured"].confidence == 1.0
+        assert restored.beliefs["structured"].status == "hypothesis"
+>       assert restored.map_markers["good"].confidence == 0.0
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'good'
+
+tests/test_v040_remediation.py:239: KeyError
+____ test_every_normal_prompt_source_has_fixed_final_bounds_at_three_scales ____
+
+    def test_every_normal_prompt_source_has_fixed_final_bounds_at_three_scales() -> None:
+        world = WorldState.generate(992, 48)
+        results = [_large_prompt_case(world, size, awakening=False) for size in (10, 100, 1000)]
+        lengths = [len(prompt) for _, prompt, _ in results]
+        assert max(lengths) - min(lengths) < 2500
+        for size, (agent, prompt, payload) in zip((10, 100, 1000), results):
+            perception = payload["perception"]
+>           assert perception["cognitive_tools"]["task_count"] == size
+E           assert 0 == 10
+
+tests/test_v040_remediation.py:353: AssertionError
+=============================== warnings summary ===============================
+../../../../../opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/fastapi/testclient.py:1
+  /opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_actions.py::test_gather_and_eat - TypeError: _finite_number() got an unexpected keyword argument 'minimum'
+FAILED tests/test_actions.py::test_drinking_requires_water_and_restores_hydration - TypeError: _finite_number() got an unexpected keyword argument 'minimum'
+FAILED tests/test_actions.py::test_build_rules_and_material_consumption - TypeError: _finite_number() got an unexpected keyword argument 'minimum'
+FAILED tests/test_api.py::test_diagnostic_bundle_is_complete_and_excludes_secrets - assert 4 == 3
+FAILED tests/test_diagnostics_v2.py::test_diagnostic_bundle_v3_contains_runtime_metrics_soak_readiness_and_no_secrets - assert 4 == 3
+FAILED tests/test_integrity.py::test_successful_action_creates_only_verified_outcome_memory - TypeError: _finite_number() got an unexpected keyword argument 'minimum'
+FAILED tests/test_v040_cognitive_foundations.py::test_view_actions_return_only_agent_knowledge_and_do_not_create_inventory_items - assert 0 == 4
+ +  where 0 = len([])
+FAILED tests/test_v040_cognitive_foundations.py::test_snapshot_restart_and_reset_round_trip_all_cognitive_stores - assert {'awakening':..., ...}}}, ...} == {'awakening':..., ...}}}, ...}
+  
+  Omitting 7 identical items, use -vv to show
+  Differing items:
+  {'key_items': {'blank_field_map': {'description': "A blank field map for recording Ari's own knowledge.", 'display_nam... starter kit', 'proof': '6515473f48595ef05f34be90d82b3ad67250db69b32ce85c7696219d6736ca09', 'proof_version': 1, ...}}}} != {'key_items': {'blank_field_map': {'description': "A blank field map for recording Ari's own knowledge.", 'display_nam... starter kit', 'proof': '49cc5930a7fffb40b51ebf920208596370a9d37cb4a1e5325a0034d1614bbfa2', 'proof_version': 1, ...}}}}
+  
+  Full diff:
+    {
+        'awakening': {
+            'narrative': 'I wake beneath an unfamiliar sky with no memory of how I arrived. My '
+            'body feels real, vulnerable, and entirely my responsibility. I do not '
+            'know this land, what lives here, or whether anyone else is nearby.\n'
+            '\n'
+            'I have only a few possessions: a blank map, a task journal, and a '
+            'field notebook. The journal contains a handful of basic survival '
+            'reminders—find water, secure food, and establish somewhere safe to '
+            'rest—but what I do beyond that is up to me.\n'
+            '\n'
+            'If I am going to survive here, and perhaps eventually build a life '
+            'worth living, I should begin by understanding my situation. The map '
+            'and task journal may be the best place to start.',
+            'presented': False,
+            'presented_at': None,
+        },
+        'beliefs': {
+            'b1': {
+                'basis': 'Subjective model belief update; not observer truth.',
+                'belief_id': 'b1',
+                'claim': 'A subjective working belief.',
+                'confidence': 0.5,
+                'contradicting_evidence_ids': [],
+                'first_formed_at': 0.0,
+                'last_tested_at': None,
+                'provenance': {
+                    'creation_path': None,
+                    'detail': None,
+                    'proof': None,
+                    'proof_version': None,
+                    'source_id': 'b1',
+                    'source_type': 'model_belief_update',
+                },
+                'source_type': 'inference',
+                'status': 'working',
+                'supporting_evidence_ids': [],
+            },
+            'self': {
+                'basis': 'Migrated from the pre-v0.4.0 subjective belief dictionary.',
+                'belief_id': 'self',
+                'claim': 'I have a physical body in an unfamiliar place.',
+                'confidence': 0.5,
+                'contradicting_evidence_ids': [],
+                'first_formed_at': 0.0,
+                'last_tested_at': None,
+                'provenance': {
+                    'creation_path': 'deterministic_starter',
+                    'detail': None,
+                    'proof': '6f344256512fd12d3ced7c71525f3f8fa5ec724666955c0e424f4885f67af94f',
+                    'proof_version': 1,
+                    'source_id': 'initial-belief:self',
+                    'source_type': 'system_initialization',
+                },
+                'source_type': 'system_initialization',
+                'status': 'working',
+                'supporting_evidence_ids': [],
+            },
+            'world': {
+                'basis': 'Migrated from the pre-v0.4.0 subjective belief dictionary.',
+                'belief_id': 'world',
+                'claim': 'The environment appears real and partially observable; my '
+                'interpretations may be wrong.',
+                'confidence': 0.5,
+                'contradicting_evidence_ids': [],
+                'first_formed_at': 0.0,
+                'last_tested_at': None,
+                'provenance': {
+                    'creation_path': 'deterministic_starter',
+                    'detail': None,
+                    'proof': '0049cb3ea3ce9341a973ed7e121272120899a960fdc0c9e58b33d949841e6fcb',
+                    'proof_version': 1,
+                    'source_id': 'initial-belief:world',
+                    'source_type': 'system_initialization',
+                },
+                'source_type': 'system_initialization',
+                'status': 'working',
+                'supporting_evidence_ids': [],
+            },
+        },
+        'cognition_schema_version': 1,
+        'key_items': {
+            'blank_field_map': {
+                'description': "A blank field map for recording Ari's own knowledge.",
+                'display_name': 'Blank Field Map',
+                'key_item_id': 'blank_field_map',
+                'provenance': {
+                    'creation_path': 'deterministic_starter',
+                    'detail': 'v0.4.0 starter kit',
+  -                 'proof': '49cc5930a7fffb40b51ebf920208596370a9d37cb4a1e5325a0034d1614bbfa2',
+  +                 'proof': 'd9c0737be11ba707295ee2759026fb9f5de2f1aee2a44ebab5e7ad4b118bfc90',
+                    'proof_version': 1,
+                    'source_id': 'v0.4.0-starter-kit',
+                    'source_type': 'system_initialization',
+                },
+            },
+            'field_notebook': {
+                'description': "A notebook for Ari's own observations and notes.",
+                'display_name': 'Field Notebook',
+                'key_item_id': 'field_notebook',
+                'provenance': {
+                    'creation_path': 'deterministic_starter',
+                    'detail': 'v0.4.0 starter kit',
+                    'proof': '49cc5930a7fffb40b51ebf920208596370a9d37cb4a1e5325a0034d1614bbfa2',
+                    'proof_version': 1,
+                    'source_id': 'v0.4.0-starter-kit',
+                    'source_type': 'system_initialization',
+                },
+            },
+            'task_journal': {
+                'description': 'A journal containing broad survival reminders.',
+                'display_name': 'Task Journal',
+                'key_item_id': 'task_journal',
+                'provenance': {
+                    'creation_path': 'deterministic_starter',
+                    'detail': 'v0.4.0 starter kit',
+  -                 'proof': '49cc5930a7fffb40b51ebf920208596370a9d37cb4a1e5325a0034d1614bbfa2',
+  +                 'proof': '6515473f48595ef05f34be90d82b3ad67250db69b32ce85c7696219d6736ca09',
+                    'proof_version': 1,
+                    'source_id': 'v0.4.0-starter-kit',
+                    'source_type': 'system_initialization',
+                },
+            },
+        },
+        'map_markers': {
+            'm1': {
+                'believed_location': {
+                    'relative': 'north',
+                },
+                'confidence': 0.3,
+                'created_at': 1.0,
+                'label': 'Marker',
+                'linked_note_ids': [],
+                'linked_task_ids': [],
+                'marker_id': 'm1',
+                'marker_type': 'unknown',
+                'notes': '',
+                'provenance': {
+                    'creation_path': None,
+                    'detail': None,
+                    'proof': None,
+                    'proof_version': None,
+                    'source_id': None,
+                    'source_type': 'agent',
+                },
+                'status': 'active',
+                'updated_at': 1.0,
+            },
+        },
+        'notes': {
+            'n1': {
+                'content': 'content',
+                'created_at': 1.0,
+                'linked_marker_ids': [],
+                'linked_task_ids': [],
+                'note_id': 'n1',
+                'provenance': {
+                    'creation_path': None,
+                    'detail': None,
+                    'proof': None,
+                    'proof_version': None,
+                    'source_id': None,
+                    'source_type': 'agent',
+                },
+                'status': 'active',
+                'tags': [
+                    'tag',
+                ],
+                'title': 'Note',
+                'updated_at': 1.0,
+            },
+        },
+        'short_term_episodes': {
+            'e1': {
+                'category': 'test',
+                'episode_id': 'e1',
+                'linked_belief_ids': [],
+                'linked_marker_ids': [],
+                'linked_memory_ids': [],
+                'linked_note_ids': [],
+                'linked_task_ids': [],
+                'provenance': {
+                    'creation_path': None,
+                    'detail': None,
+                    'proof': None,
+                    'proof_version': None,
+                    'source_id': None,
+                    'source_type': 'agent',
+                },
+                'salience': 0.5,
+                'simulation_timestamp': 1.0,
+                'source_event_id': 1,
+                'status': 'recent',
+                'summary': 'episode',
+            },
+        },
+        'tasks': {
+            '5e3f17f8-ded3-5893-b259-bb4f06f40352': {
+                'created_at': 0.0,
+                'created_by': 'starter_journal',
+                'description': 'A broad starter reminder, not a mandatory quest or claim about '
+                'hidden world state.',
+                'linked_marker_ids': [],
+                'linked_note_ids': [],
+                'metadata': {},
+                'parent_task_id': None,
+                'priority': 4,
+                'provenance': {
+                    'creation_path': 'deterministic_starter',
+                    'detail': None,
+                    'proof': 'bd05d9219faa588214acff9e4192c824f2ccaafd2b3cbae6776e9db2872fa5f8',
+                    'proof_version': 1,
+                    'source_id': 'v0.4.0-starter-journal',
+                    'source_type': 'system_initialization',
+                },
+                'status': 'proposed',
+                'task_id': '5e3f17f8-ded3-5893-b259-bb4f06f40352',
+                'title': 'Find or create a safe place to rest.',
+                'updated_at': 0.0,
+            },
+            '6350efd1-1678-599d-ab9d-084efd3ceac2': {
+                'created_at': 0.0,
+                'created_by': 'starter_journal',
+                'description': 'A broad starter reminder, not a mandatory quest or claim about '
+                'hidden world state.',
+                'linked_marker_ids': [],
+                'linked_note_ids': [],
+                'metadata': {},
+                'parent_task_id': None,
+                'priority': 3,
+                'provenance': {
+                    'creation_path': 'deterministic_starter',
+                    'detail': None,
+                    'proof': '7fe90e23401ecdb8527f970089ac52a44768d1d2696dd0a0ff29e1411691532d',
+                    'proof_version': 1,
+                    'source_id': 'v0.4.0-starter-journal',
+                    'source_type': 'system_initialization',
+                },
+                'status': 'proposed',
+                'task_id': '6350efd1-1678-599d-ab9d-084efd3ceac2',
+                'title': 'Secure enough food for the near future.',
+                'updated_at': 0.0,
+            },
+            '8ddefd76-2e06-566b-8592-031241dd674a': {
+                'created_at': 0.0,
+                'created_by': 'starter_journal',
+                'description': 'A broad starter reminder, not a mandatory quest or claim about '
+                'hidden world state.',
+                'linked_marker_ids': [],
+                'linked_note_ids': [],
+                'metadata': {},
+                'parent_task_id': None,
+                'priority': 2,
+                'provenance': {
+                    'creation_path': 'deterministic_starter',
+                    'detail': None,
+                    'proof': '690062d00869ecd6f254fa97f945f5bb7fabf73a2c8946b661b1a120002b3a6b',
+                    'proof_version': 1,
+                    'source_id': 'v0.4.0-starter-journal',
+                    'source_type': 'system_initialization',
+                },
+                'status': 'proposed',
+                'task_id': '8ddefd76-2e06-566b-8592-031241dd674a',
+                'title': 'Find a reliable source of water.',
+                'updated_at': 0.0,
+            },
+            'd9e5c734-4e58-59e6-8c0c-1a15ba5dd435': {
+                'created_at': 0.0,
+                'created_by': 'starter_journal',
+                'description': 'A broad starter reminder, not a mandatory quest or claim about '
+                'hidden world state.',
+                'linked_marker_ids': [],
+                'linked_note_ids': [],
+                'metadata': {},
+                'parent_task_id': None,
+                'priority': 1,
+                'provenance': {
+                    'creation_path': 'deterministic_starter',
+                    'detail': None,
+                    'proof': '3b616c38e1811c8f8b994fdb0f0d48e4eb8a3a63554504321ae46b5edbd741c0',
+                    'proof_version': 1,
+                    'source_id': 'v0.4.0-starter-journal',
+                    'source_type': 'system_initialization',
+                },
+                'status': 'proposed',
+                'task_id': 'd9e5c734-4e58-59e6-8c0c-1a15ba5dd435',
+                'title': 'Assess my immediate surroundings.',
+                'updated_at': 0.0,
+            },
+        },
+    }
+FAILED tests/test_v040_cognitive_foundations.py::test_first_decision_prompt_is_compact_and_normal_prompt_omits_full_stores - assert 0 == 100
+FAILED tests/test_v040_post3_remediation.py::test_task_view_exact_serialized_fields_use_allowlist_and_preserve_observer_record - assert ('approved title' in '{"action": "view_task_journal", "data": {"source_scan_truncated": false, "status_counts": {}, "tasks": [], "total_tasks": 0, "visible_tasks": 0}, "details": "Ari reviewed the task journal.", "reason": "viewed", "success": true}')
+FAILED tests/test_v040_post3_remediation.py::test_note_view_exact_serialized_fields_use_allowlist_and_preserve_observer_record - assert ('approved note' in '{"action": "view_notebook", "data": {"empty": true, "notes": [], "source_scan_truncated": false, "total_active_notes"..."total_notes": 0, "visible_notes": 0}, "details": "The field notebook is empty.", "reason": "viewed", "success": true}')
+FAILED tests/test_v040_post3_remediation.py::test_task_and_note_immediate_results_have_fixed_record_and_text_bounds[10] - assert 0 == (10 + 4)
+FAILED tests/test_v040_post3_remediation.py::test_task_and_note_immediate_results_have_fixed_record_and_text_bounds[100] - assert 0 == (100 + 4)
+FAILED tests/test_v040_post3_remediation.py::test_task_and_note_immediate_results_have_fixed_record_and_text_bounds[1000] - assert 0 == (1000 + 4)
+FAILED tests/test_v040_post3_remediation.py::test_view_map_immediate_result_has_fixed_counts_and_malformed_coordinates_are_controlled - assert 0 == 64
+ +  where 0 = len([])
+FAILED tests/test_v040_post3_remediation.py::test_action_results_remain_bounded_when_inserted_into_later_prompt - assert 'SENTINEL_999_' in '{"perception":{"body":{"position":{"subjective_origin":"self","known":true},"facing":"north","movement":"stationary",...},{"type":"null"}],"default":null}},"required":["intent","action","reason"],"title":"ActionDecision","type":"object"}}'
+FAILED tests/test_v040_post4_remediation.py::test_view_result_survives_complete_persisted_next_prompt_chain[view_map] - assert 'SAFE_MAP_CELL_DESCRIPTOR' in '{"action": "view_map", "data": {"known_cells": [], "map_state": "blank", "markers": [], "position_known": true, "sour...known_cells": 0, "visible_markers": 0}, "details": "Ari reviewed the field map.", "reason": "viewed", "success": true}'
+FAILED tests/test_v040_post4_remediation.py::test_view_result_survives_complete_persisted_next_prompt_chain[view_task_journal] - assert 'SAFE_TASK_TITLE_SENTINEL' in '{"action": "view_task_journal", "data": {"source_scan_truncated": false, "status_counts": {"proposed": 4}, "tasks": [...otal_tasks": 4, "visible_tasks": 4}, "details": "Ari reviewed the task journal.", "reason": "viewed", "success": true}'
+FAILED tests/test_v040_post4_remediation.py::test_view_result_survives_complete_persisted_next_prompt_chain[view_notebook] - assert 'SAFE_NOTEBOOK_NOTE_PHRASE' in '{"action": "view_notebook", "data": {"empty": true, "notes": [], "source_scan_truncated": false, "total_active_notes"..."total_notes": 0, "visible_notes": 0}, "details": "The field notebook is empty.", "reason": "viewed", "success": true}'
+FAILED tests/test_v040_post4_remediation.py::test_coordinate_matrix_is_controlled_for_direct_and_loaded_state[none] - AssertionError: assert 'unknown' in {'build_area', 'cave', 'deep_water', 'dense_forest', 'forest', 'meadow', ...}
+FAILED tests/test_v040_post4_remediation.py::test_coordinate_matrix_is_controlled_for_direct_and_loaded_state[empty] - AssertionError: assert 'unknown' in {'build_area', 'cave', 'deep_water', 'dense_forest', 'forest', 'meadow', ...}
+FAILED tests/test_v040_post4_remediation.py::test_coordinate_matrix_is_controlled_for_direct_and_loaded_state[text] - AssertionError: assert 'unknown' in {'build_area', 'cave', 'deep_water', 'dense_forest', 'forest', 'meadow', ...}
+FAILED tests/test_v040_post4_remediation.py::test_coordinate_matrix_is_controlled_for_direct_and_loaded_state[bool] - AssertionError: assert 'unknown' in {'build_area', 'cave', 'deep_water', 'dense_forest', 'forest', 'meadow', ...}
+FAILED tests/test_v040_post4_remediation.py::test_coordinate_matrix_is_controlled_for_direct_and_loaded_state[list] - AssertionError: assert 'unknown' in {'build_area', 'cave', 'deep_water', 'dense_forest', 'forest', 'meadow', ...}
+FAILED tests/test_v040_post4_remediation.py::test_coordinate_matrix_is_controlled_for_direct_and_loaded_state[mapping] - AssertionError: assert 'unknown' in {'build_area', 'cave', 'deep_water', 'dense_forest', 'forest', 'meadow', ...}
+FAILED tests/test_v040_post4_remediation.py::test_coordinate_matrix_is_controlled_for_direct_and_loaded_state[set] - AssertionError: assert 'unknown' in {'build_area', 'cave', 'deep_water', 'dense_forest', 'forest', 'meadow', ...}
+FAILED tests/test_v040_post4_remediation.py::test_coordinate_matrix_is_controlled_for_direct_and_loaded_state[nan] - AssertionError: assert 'unknown' in {'build_area', 'cave', 'deep_water', 'dense_forest', 'forest', 'meadow', ...}
+FAILED tests/test_v040_post4_remediation.py::test_coordinate_matrix_is_controlled_for_direct_and_loaded_state[inf] - AssertionError: assert 'unknown' in {'build_area', 'cave', 'deep_water', 'dense_forest', 'forest', 'meadow', ...}
+FAILED tests/test_v040_post4_remediation.py::test_coordinate_matrix_is_controlled_for_direct_and_loaded_state[neg-inf] - AssertionError: assert 'unknown' in {'build_area', 'cave', 'deep_water', 'dense_forest', 'forest', 'meadow', ...}
+FAILED tests/test_v040_post4_remediation.py::test_coordinate_matrix_is_controlled_for_direct_and_loaded_state[extreme] - AssertionError: assert 'unknown' in {'build_area', 'cave', 'deep_water', 'dense_forest', 'forest', 'meadow', ...}
+FAILED tests/test_v040_post4_remediation.py::test_coordinate_matrix_is_controlled_for_direct_and_loaded_state[object] - AssertionError: assert 'unknown' in {'build_area', 'cave', 'deep_water', 'dense_forest', 'forest', 'meadow', ...}
+FAILED tests/test_v040_post4_remediation.py::test_scale_bounds_retain_positive_sentinel_without_full_store[view_map-10] - assert 'SAFE_SCALE_view_map_10' in '{"perception":{"body":{"position":{"subjective_origin":"self","known":true},"facing":"north","movement":"stationary",...},{"type":"null"}],"default":null}},"required":["intent","action","reason"],"title":"ActionDecision","type":"object"}}'
+FAILED tests/test_v040_post4_remediation.py::test_scale_bounds_retain_positive_sentinel_without_full_store[view_map-100] - assert 'SAFE_SCALE_view_map_100' in '{"perception":{"body":{"position":{"subjective_origin":"self","known":true},"facing":"north","movement":"stationary",...},{"type":"null"}],"default":null}},"required":["intent","action","reason"],"title":"ActionDecision","type":"object"}}'
+FAILED tests/test_v040_post4_remediation.py::test_scale_bounds_retain_positive_sentinel_without_full_store[view_map-1000] - assert 'SAFE_SCALE_view_map_1000' in '{"perception":{"body":{"position":{"subjective_origin":"self","known":true},"facing":"north","movement":"stationary",...},{"type":"null"}],"default":null}},"required":["intent","action","reason"],"title":"ActionDecision","type":"object"}}'
+FAILED tests/test_v040_post4_remediation.py::test_scale_bounds_retain_positive_sentinel_without_full_store[view_task_journal-10] - assert 'SAFE_SCALE_view_task_journal_10' in '{"perception":{"body":{"position":{"subjective_origin":"self","known":true},"facing":"north","movement":"stationary",...},{"type":"null"}],"default":null}},"required":["intent","action","reason"],"title":"ActionDecision","type":"object"}}'
+FAILED tests/test_v040_post4_remediation.py::test_scale_bounds_retain_positive_sentinel_without_full_store[view_task_journal-100] - assert 'SAFE_SCALE_view_task_journal_100' in '{"perception":{"body":{"position":{"subjective_origin":"self","known":true},"facing":"north","movement":"stationary",...},{"type":"null"}],"default":null}},"required":["intent","action","reason"],"title":"ActionDecision","type":"object"}}'
+FAILED tests/test_v040_post4_remediation.py::test_scale_bounds_retain_positive_sentinel_without_full_store[view_task_journal-1000] - assert 'SAFE_SCALE_view_task_journal_1000' in '{"perception":{"body":{"position":{"subjective_origin":"self","known":true},"facing":"north","movement":"stationary",...},{"type":"null"}],"default":null}},"required":["intent","action","reason"],"title":"ActionDecision","type":"object"}}'
+FAILED tests/test_v040_post4_remediation.py::test_scale_bounds_retain_positive_sentinel_without_full_store[view_notebook-10] - assert 'SAFE_SCALE_view_notebook_10' in '{"perception":{"body":{"position":{"subjective_origin":"self","known":true},"facing":"north","movement":"stationary",...},{"type":"null"}],"default":null}},"required":["intent","action","reason"],"title":"ActionDecision","type":"object"}}'
+FAILED tests/test_v040_post4_remediation.py::test_scale_bounds_retain_positive_sentinel_without_full_store[view_notebook-100] - assert 'SAFE_SCALE_view_notebook_100' in '{"perception":{"body":{"position":{"subjective_origin":"self","known":true},"facing":"north","movement":"stationary",...},{"type":"null"}],"default":null}},"required":["intent","action","reason"],"title":"ActionDecision","type":"object"}}'
+FAILED tests/test_v040_post4_remediation.py::test_scale_bounds_retain_positive_sentinel_without_full_store[view_notebook-1000] - assert 'SAFE_SCALE_view_notebook_1000' in '{"perception":{"body":{"position":{"subjective_origin":"self","known":true},"facing":"north","movement":"stationary",...},{"type":"null"}],"default":null}},"required":["intent","action","reason"],"title":"ActionDecision","type":"object"}}'
+FAILED tests/test_v040_post4_remediation.py::test_origin_policy_retains_safe_text_and_omits_unknown_private_and_conflicting_records - assert 'agent recipe task' in '{"action": "view_task_journal", "data": {"source_scan_truncated": false, "status_counts": {}, "tasks": [], "total_tasks": 0, "visible_tasks": 0}, "details": "Ari reviewed the task journal.", "reason": "viewed", "success": true}'
+FAILED tests/test_v040_remediation.py::test_view_map_and_normal_prompt_hide_absolute_and_hidden_sentinels - IndexError: list index out of range
+FAILED tests/test_v040_remediation.py::test_belief_summary_and_all_store_prompt_growth_are_bounded - AssertionError: assert 0 == (400 + 0)
+ +  where 0 = len({})
+ +    where {} = AgentState(name='Ari', x=24.0, y=34.0, facing='north', movement_speed=2.0, collision_radius=0.35, health=100.0, energy...s_remaining=240.0, last_damage_time=-1.0, last_decision_reason='', decision_source='fallback', ari_knowledge_proofs={}).beliefs
+FAILED tests/test_v040_remediation.py::test_realistic_legacy_and_malformed_state_normalizes_without_truth_promotion - KeyError: 'good'
+FAILED tests/test_v040_remediation.py::test_every_normal_prompt_source_has_fixed_final_bounds_at_three_scales - assert 0 == 10
+45 failed, 103 passed, 1 warning in 5.24s
+
+PYTEST_EXIT=1
+COMPILE_EXIT=0
