@@ -39,7 +39,7 @@ def test_appdock_manifest_is_project_relative_and_structurally_private() -> None
         lambda: "FILE:///" + _synthetic_private_path("/").lower(),
         lambda: "".join(("synthetic-device", ".synthetic-tailnet", ".ts", ".net")),
         lambda: "https://" + "drive.google.com/drive/folders/" + "synthetic",
-        lambda: "api_key="" + "synthetic-secret-value-1234567890" + """,
+        lambda: "api_key=\"" + "synthetic-secret-value-1234567890" + "\"",
     ],
 )
 def test_privacy_scanner_detects_raw_decoded_case_and_separator_variants(factory) -> None:
