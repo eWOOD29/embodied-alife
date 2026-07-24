@@ -45,11 +45,23 @@ def finite_number(
     minimum: float | None = None,
     maximum: float | None = None,
 ) -> float | None:
-    """Convert a scalar to a bounded finite float without treating booleans as numbers."""
+    """Convert an explicitly supported scalar to a bounded finite float.
+
+    Booleans, bytes, containers, and arbitrary objects are rejected even when their
+    Python type implements numeric conversion. Numeric strings remain supported.
+    """
     if isinstance(value, bool):
         return default
+    if isinstance(value, (int, float)):
+        candidate: int | float | str = value
+    elif isinstance(value, str):
+        candidate = value.strip()
+        if not candidate:
+            return default
+    else:
+        return default
     try:
-        number = float(value)
+        number = float(candidate)
     except (TypeError, ValueError, OverflowError):
         return default
     if not math.isfinite(number):

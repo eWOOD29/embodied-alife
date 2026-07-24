@@ -369,11 +369,19 @@ class AwakeningState:
 
 
 def starter_key_items() -> dict[str, KeyItem]:
-    source = Provenance("system_initialization", detail="v0.4.0 starter kit")
     return {
-        "blank_field_map": KeyItem("blank_field_map", "Blank Field Map", "A blank field map for recording Ari's own knowledge.", source),
-        "task_journal": KeyItem("task_journal", "Task Journal", "A journal containing broad survival reminders.", source),
-        "field_notebook": KeyItem("field_notebook", "Field Notebook", "A notebook for Ari's own observations and notes.", source),
+        "blank_field_map": KeyItem(
+            "blank_field_map", "Blank Field Map", "A blank field map for recording Ari's own knowledge.",
+            Provenance("system_initialization", detail="v0.4.0 starter kit"),
+        ),
+        "task_journal": KeyItem(
+            "task_journal", "Task Journal", "A journal containing broad survival reminders.",
+            Provenance("system_initialization", detail="v0.4.0 starter kit"),
+        ),
+        "field_notebook": KeyItem(
+            "field_notebook", "Field Notebook", "A notebook for Ari's own observations and notes.",
+            Provenance("system_initialization", detail="v0.4.0 starter kit"),
+        ),
     }
 
 
