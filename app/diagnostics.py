@@ -270,7 +270,7 @@ def build_diagnostic_bundle(*, engine: Any, updater: Any, health: dict[str, Any]
 
     bundle = {
         "diagnostic_bundle": {
-            "schema_version": 4,
+            "schema_version": 3,
             "exported_at_utc": exported_at.isoformat(),
             "application": "embodied-alife",
             "application_version": _text(application_version, 80),

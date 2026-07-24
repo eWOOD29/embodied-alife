@@ -109,8 +109,14 @@ def _boundary_text(value: Any, limit: int) -> str:
     return text
 
 
-def _finite_number(value: Any, default: float | None = None) -> float | None:
-    return finite_number(value, default)
+def _finite_number(
+    value: Any,
+    default: float | None = None,
+    *,
+    minimum: float | None = None,
+    maximum: float | None = None,
+) -> float | None:
+    return finite_number(value, default, minimum=minimum, maximum=maximum)
 
 
 def _origin(marker: Any) -> tuple[str, str]:
