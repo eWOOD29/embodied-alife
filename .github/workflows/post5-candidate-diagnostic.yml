@@ -1,0 +1,44 @@
+name: post5-candidate-diagnostic
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Check out exact candidate
+        run: git worktree add "$RUNNER_TEMP/post5-candidate" 375f8fc8c897533fd0ea1f00e432e892841632a8
+      - name: Install
+        run: python -m pip install -e "$RUNNER_TEMP/post5-candidate[dev]"
+      - name: Capture tests
+        shell: bash
+        run: |
+          set +e
+          mkdir -p post5-diagnostic-evidence
+          cd "$RUNNER_TEMP/post5-candidate"
+          python -m pytest -q > "$GITHUB_WORKSPACE/post5-diagnostic-evidence/full.txt" 2>&1
+          code=$?
+          printf 'candidate=%s\npytest=%s\n' "$(git rev-parse HEAD)" "$code" > "$GITHUB_WORKSPACE/post5-diagnostic-evidence/status.txt"
+          exit 0
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: post5-diagnostic-375f8fc
+          path: post5-diagnostic-evidence
+          if-no-files-found: error
+      - name: Enforce result
+        run: grep -q '^pytest=0$' post5-diagnostic-evidence/status.txt
