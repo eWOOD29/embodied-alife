@@ -1,0 +1,115 @@
+name: post5-ruff-regression-audit
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Check out baseline and candidate
+        run: |
+          git worktree add "$RUNNER_TEMP/post4-main" a403074be5b48986ca71e51a4d591eaffff92971
+          git worktree add "$RUNNER_TEMP/post5-candidate" 8fa2b359dd214fb1b77fb4a169734f8b8dd996f5
+      - name: Install Ruff
+        run: python -m pip install 'ruff>=0.11,<1'
+      - name: Compare Ruff findings
+        shell: bash
+        run: |
+          set +e
+          E="$GITHUB_WORKSPACE/post5-ruff-evidence"
+          B="$RUNNER_TEMP/post4-main"
+          C="$RUNNER_TEMP/post5-candidate"
+          mkdir -p "$E"
+          (cd "$B" && python -m ruff check app tests scripts --output-format=json) > "$E/main.json" 2> "$E/main.stderr"
+          main_code=$?
+          (cd "$C" && python -m ruff check app tests scripts --output-format=json) > "$E/candidate.json" 2> "$E/candidate.stderr"
+          candidate_code=$?
+          BASELINE="$B" CANDIDATE="$C" EVIDENCE="$E" python - <<'PY'
+          import json
+          import os
+          from collections import Counter
+          from pathlib import Path
+
+          evidence = Path(os.environ['EVIDENCE'])
+          baseline_root = Path(os.environ['BASELINE']).resolve()
+          candidate_root = Path(os.environ['CANDIDATE']).resolve()
+          baseline = json.loads((evidence / 'main.json').read_text(encoding='utf-8') or '[]')
+          candidate = json.loads((evidence / 'candidate.json').read_text(encoding='utf-8') or '[]')
+
+          def normalize(items, root):
+              rows = []
+              for item in items:
+                  filename = Path(item['filename']).resolve()
+                  try:
+                      relative = filename.relative_to(root).as_posix()
+                  except ValueError:
+                      relative = filename.as_posix()
+                  rows.append({
+                      'path': relative,
+                      'code': item.get('code'),
+                      'message': item.get('message'),
+                      'row': item.get('location', {}).get('row'),
+                      'column': item.get('location', {}).get('column'),
+                  })
+              return rows
+
+          baseline_rows = normalize(baseline, baseline_root)
+          candidate_rows = normalize(candidate, candidate_root)
+          baseline_counts = Counter((row['path'], row['code'], row['message']) for row in baseline_rows)
+          candidate_counts = Counter((row['path'], row['code'], row['message']) for row in candidate_rows)
+          added_counts = candidate_counts - baseline_counts
+          removed_counts = baseline_counts - candidate_counts
+          added = []
+          remaining = added_counts.copy()
+          for row in candidate_rows:
+              key = (row['path'], row['code'], row['message'])
+              if remaining[key] > 0:
+                  added.append(row)
+                  remaining[key] -= 1
+          removed = [
+              {'path': path, 'code': code, 'message': message, 'count': count}
+              for (path, code, message), count in sorted(removed_counts.items())
+          ]
+          summary = {
+              'baseline_total': len(baseline_rows),
+              'candidate_total': len(candidate_rows),
+              'added_total': sum(added_counts.values()),
+              'removed_total': sum(removed_counts.values()),
+              'net_change': len(candidate_rows) - len(baseline_rows),
+              'added': added,
+              'removed': removed,
+          }
+          (evidence / 'comparison.json').write_text(json.dumps(summary, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+          with (evidence / 'summary.txt').open('w', encoding='utf-8') as output:
+              for key in ('baseline_total', 'candidate_total', 'added_total', 'removed_total', 'net_change'):
+                  output.write(f'{key}={summary[key]}\n')
+              output.write('added_findings_begin\n')
+              for row in added:
+                  output.write(f"{row['path']}:{row['row']}:{row['column']} {row['code']} {row['message']}\n")
+              output.write('added_findings_end\n')
+          PY
+          compare_code=$?
+          printf 'baseline_ruff_exit=%s\ncandidate_ruff_exit=%s\ncomparison=%s\n' "$main_code" "$candidate_code" "$compare_code" > "$E/status.txt"
+          exit 0
+      - name: Upload Ruff regression evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: post5-ruff-regression-8fa2b35
+          path: post5-ruff-evidence
+          if-no-files-found: error
+      - name: Enforce comparison generation
+        run: grep -q '^comparison=0$' post5-ruff-evidence/status.txt
