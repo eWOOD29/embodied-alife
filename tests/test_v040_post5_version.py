@@ -8,7 +8,7 @@ from pathlib import Path
 from packaging.version import Version
 
 from app.updater.manager import UpdateManager
-from app.updater.security import ReleaseInfo
+from app.updater.models import ReleaseInfo
 from app.version import __version__
 from scripts.build_release import project_version
 
