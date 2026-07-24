@@ -14,18 +14,27 @@ DEFAULT_MAX_ITEMS = 256
 DEFAULT_MAX_TEXT = 4000
 DEFAULT_MAX_NODES = 8192
 MAX_FINITE_MAGNITUDE = 1_000_000_000_000_000.0
+TRUNCATED = "<truncated>"
+UNORDERED_OMITTED = "<unordered-omitted>"
 
 
 class _Budget:
-    __slots__ = ("remaining",)
+    __slots__ = ("nodes", "source")
 
-    def __init__(self, maximum: int) -> None:
-        self.remaining = max(1, int(maximum))
+    def __init__(self, maximum_nodes: int, maximum_source: int) -> None:
+        self.nodes = max(1, int(maximum_nodes))
+        self.source = max(1, int(maximum_source))
 
-    def take(self) -> bool:
-        if self.remaining <= 0:
+    def take_node(self) -> bool:
+        if self.nodes <= 0:
             return False
-        self.remaining -= 1
+        self.nodes -= 1
+        return True
+
+    def take_source(self) -> bool:
+        if self.source <= 0:
+            return False
+        self.source -= 1
         return True
 
 
@@ -75,6 +84,15 @@ def _safe_key(value: Any, maximum: int) -> str | None:
     return None
 
 
+def _truncation_key(result: Mapping[str, Any]) -> str:
+    key = "__truncated__"
+    suffix = 2
+    while key in result:
+        key = f"__truncated__#{suffix}"
+        suffix += 1
+    return key
+
+
 def json_safe(
     value: Any,
     *,
@@ -82,19 +100,23 @@ def json_safe(
     max_items: int = DEFAULT_MAX_ITEMS,
     max_text: int = DEFAULT_MAX_TEXT,
     max_nodes: int = DEFAULT_MAX_NODES,
+    max_source_items: int | None = None,
 ) -> Any:
-    """Return a deterministic, bounded value accepted by strict JSON encoders.
+    """Return deterministic bounded strict-JSON data with bounded source work.
 
-    Unknown objects never use repr() or class-qualified names. Circular references,
-    excessive depth, oversized containers, binary values, and non-finite numbers
-    degrade to explicit inert sentinels.
+    Mapping selection follows insertion order, which is deterministic for normal Python
+    mappings and avoids enumerating/sorting the full source. Ordered sequences are scanned
+    only through the output boundary plus one truncation probe. Oversized unordered sets are
+    omitted rather than fully projected or sorted. Unknown objects never use repr() or str().
     """
 
-    budget = _Budget(max_nodes)
+    item_limit = max(1, int(max_items))
+    source_limit = max_source_items if max_source_items is not None else max(max_nodes * 2, item_limit + 1)
+    budget = _Budget(max_nodes, source_limit)
     active: set[int] = set()
 
     def project(current: Any, depth: int) -> Any:
-        if not budget.take():
+        if not budget.take_node():
             return "<max-nodes>"
         if depth > max_depth:
             return "<max-depth>"
@@ -123,8 +145,20 @@ def json_safe(
             active.add(identity)
             try:
                 result: dict[str, Any] = {}
-                for field_info in fields(current)[:max_items]:
-                    result[field_info.name] = project(getattr(current, field_info.name), depth + 1)
+                dataclass_fields = fields(current)
+                truncated = len(dataclass_fields) > item_limit
+                selected = dataclass_fields[: item_limit - 1] if truncated and item_limit > 1 else dataclass_fields[:item_limit]
+                for field_info in selected:
+                    if not budget.take_source():
+                        result[_truncation_key(result)] = True
+                        break
+                    try:
+                        raw_value = getattr(current, field_info.name)
+                    except Exception:
+                        raw_value = "<unavailable>"
+                    result[field_info.name] = project(raw_value, depth + 1)
+                if truncated:
+                    result[_truncation_key(result)] = True
                 return result
             finally:
                 active.discard(identity)
@@ -132,20 +166,41 @@ def json_safe(
         if isinstance(current, Mapping):
             active.add(identity)
             try:
-                keyed: list[tuple[str, Any]] = []
-                for raw_key, raw_value in current.items():
+                result: dict[str, Any] = {}
+                selected: list[tuple[str, Any]] = []
+                truncated = False
+                try:
+                    iterator = iter(current.items())
+                except Exception:
+                    return {"__omitted__": "<unavailable-mapping>"}
+                while len(selected) < item_limit + 1:
+                    if not budget.take_source():
+                        truncated = True
+                        break
+                    try:
+                        raw_key, raw_value = next(iterator)
+                    except StopIteration:
+                        break
+                    except Exception:
+                        truncated = True
+                        break
                     key = _safe_key(raw_key, 160)
                     if key is not None:
-                        keyed.append((key, raw_value))
-                keyed.sort(key=lambda item: item[0])
-                result: dict[str, Any] = {}
-                for key, raw_value in keyed[:max_items]:
+                        selected.append((key, raw_value))
+                if len(selected) > item_limit:
+                    truncated = True
+                    selected = selected[:item_limit]
+                if truncated and item_limit > 1 and len(selected) >= item_limit:
+                    selected = selected[: item_limit - 1]
+                for key, raw_value in selected:
                     unique_key = key
                     suffix = 2
                     while unique_key in result:
                         unique_key = _bounded_text(f"{key}#{suffix}", 160)
                         suffix += 1
                     result[unique_key] = project(raw_value, depth + 1)
+                if truncated:
+                    result[_truncation_key(result)] = True
                 return result
             finally:
                 active.discard(identity)
@@ -153,14 +208,58 @@ def json_safe(
         if isinstance(current, (list, tuple, deque)):
             active.add(identity)
             try:
-                return [project(item, depth + 1) for item in list(current)[:max_items]]
+                result: list[Any] = []
+                truncated = False
+                try:
+                    iterator = iter(current)
+                except Exception:
+                    return ["<unavailable-sequence>"]
+                while len(result) < item_limit + 1:
+                    if not budget.take_source():
+                        truncated = True
+                        break
+                    try:
+                        item = next(iterator)
+                    except StopIteration:
+                        break
+                    except Exception:
+                        truncated = True
+                        break
+                    result.append(project(item, depth + 1))
+                if len(result) > item_limit:
+                    truncated = True
+                    result = result[:item_limit]
+                if truncated:
+                    if len(result) >= item_limit:
+                        result[-1] = TRUNCATED
+                    else:
+                        result.append(TRUNCATED)
+                return result
             finally:
                 active.discard(identity)
 
         if isinstance(current, (set, frozenset)):
             active.add(identity)
             try:
-                projected = [project(item, depth + 1) for item in current]
+                try:
+                    size = len(current)
+                except Exception:
+                    return [UNORDERED_OMITTED]
+                if size > item_limit:
+                    return [UNORDERED_OMITTED]
+                projected: list[Any] = []
+                try:
+                    iterator = iter(current)
+                except Exception:
+                    return [UNORDERED_OMITTED]
+                for _ in range(size):
+                    if not budget.take_source():
+                        return [UNORDERED_OMITTED]
+                    try:
+                        item = next(iterator)
+                    except (StopIteration, Exception):
+                        return [UNORDERED_OMITTED]
+                    projected.append(project(item, depth + 1))
                 projected.sort(
                     key=lambda item: json.dumps(
                         item,
@@ -170,7 +269,7 @@ def json_safe(
                         allow_nan=False,
                     )
                 )
-                return projected[:max_items]
+                return projected
             finally:
                 active.discard(identity)
 
