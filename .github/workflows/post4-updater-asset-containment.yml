@@ -1,0 +1,146 @@
+name: post4-updater-asset-containment
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  contain:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPOSITORY: eWOOD29/embodied-alife
+      POST4_TAG: v0.4.0.post4
+      POST5_TAG: v0.4.0.post5
+      POST4_ZIP_ASSET_ID: "487940025"
+      POST4_CHECKSUM_ASSET_ID: "487940026"
+    steps:
+      - uses: actions/checkout@v5
+      - name: Fail-closed pre-action identity verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          E="$GITHUB_WORKSPACE/post4-containment-evidence"
+          mkdir -p "$E"
+          gh api "repos/$REPOSITORY/releases/tags/$POST4_TAG" > "$E/post4-release-before.json"
+          gh api "repos/$REPOSITORY/git/ref/tags/$POST4_TAG" > "$E/post4-tag-before.json"
+          gh api "repos/$REPOSITORY/releases/tags/$POST5_TAG" > "$E/post5-release-before.json"
+          gh api "repos/$REPOSITORY/releases/latest" > "$E/latest-before.json"
+          EVIDENCE="$E" python - <<'PY' > "$E/precheck.txt"
+          import json, os
+          from pathlib import Path
+          e=Path(os.environ['EVIDENCE'])
+          post4=json.loads((e/'post4-release-before.json').read_text())
+          post5=json.loads((e/'post5-release-before.json').read_text())
+          latest=json.loads((e/'latest-before.json').read_text())
+          expected={
+              487940025:'embodied-alife-update.zip',
+              487940026:'embodied-alife-update.zip.sha256',
+          }
+          assets={a['id']:a for a in post4.get('assets',[])}
+          if post4.get('id') != 359062800 or post4.get('tag_name') != 'v0.4.0.post4':
+              raise SystemExit(f'Post4 release identity mismatch: id={post4.get("id")} tag={post4.get("tag_name")}')
+          if set(assets) != set(expected):
+              raise SystemExit(f'Post4 asset ID set mismatch: {sorted(assets)}')
+          for asset_id,name in expected.items():
+              if assets[asset_id].get('name') != name:
+                  raise SystemExit(f'Post4 asset name mismatch: {asset_id} {assets[asset_id].get("name")}')
+          if post5.get('tag_name') != 'v0.4.0.post5' or post5.get('draft') or post5.get('prerelease'):
+              raise SystemExit('Post5 release is not safely published')
+          if latest.get('id') != post5.get('id') or latest.get('tag_name') != 'v0.4.0.post5':
+              raise SystemExit('Post5 is not latest before containment')
+          print(f"post4_release_id={post4['id']}")
+          print(f"post4_tag={post4['tag_name']}")
+          for asset_id in sorted(expected):
+              a=assets[asset_id]
+              print(f"asset_before={a['id']}|{a['name']}|{a['size']}|{a['created_at']}|{a['browser_download_url']}")
+          print(f"post5_release_id={post5['id']}")
+          print('pre-action exact identity verification passed')
+          PY
+      - name: Delete only the two authorized contaminated Post4 assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --method DELETE "repos/$REPOSITORY/releases/assets/$POST4_ZIP_ASSET_ID"
+          gh api --method DELETE "repos/$REPOSITORY/releases/assets/$POST4_CHECKSUM_ASSET_ID"
+      - name: Prove containment and preserved Post5 distribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          E="$GITHUB_WORKSPACE/post4-containment-evidence"
+          gh api "repos/$REPOSITORY/releases/tags/$POST4_TAG" > "$E/post4-release-after.json"
+          gh api "repos/$REPOSITORY/git/ref/tags/$POST4_TAG" > "$E/post4-tag-after.json"
+          gh api "repos/$REPOSITORY/releases/tags/$POST5_TAG" > "$E/post5-release-after.json"
+          gh api "repos/$REPOSITORY/releases/latest" > "$E/latest-after.json"
+          if gh api "repos/$REPOSITORY/releases/assets/$POST4_ZIP_ASSET_ID" > "$E/unexpected-post4-zip.json" 2>&1; then
+            echo 'Deleted Post4 ZIP asset remains API-accessible' >&2
+            exit 1
+          fi
+          if gh api "repos/$REPOSITORY/releases/assets/$POST4_CHECKSUM_ASSET_ID" > "$E/unexpected-post4-checksum.json" 2>&1; then
+            echo 'Deleted Post4 checksum asset remains API-accessible' >&2
+            exit 1
+          fi
+          printf 'zip_asset_api=unavailable\nchecksum_asset_api=unavailable\n' > "$E/deleted-asset-api-status.txt"
+          ZIP_HTTP=$(curl -L -sS -o /dev/null -w '%{http_code}' "https://github.com/$REPOSITORY/releases/download/$POST4_TAG/embodied-alife-update.zip")
+          CHECKSUM_HTTP=$(curl -L -sS -o /dev/null -w '%{http_code}' "https://github.com/$REPOSITORY/releases/download/$POST4_TAG/embodied-alife-update.zip.sha256")
+          printf 'post4_zip_download_http=%s\npost4_checksum_download_http=%s\n' "$ZIP_HTTP" "$CHECKSUM_HTTP" > "$E/deleted-download-status.txt"
+          if [ "$ZIP_HTTP" = "200" ] || [ "$CHECKSUM_HTTP" = "200" ]; then
+            echo 'A deleted Post4 updater URL remains downloadable' >&2
+            exit 1
+          fi
+          EVIDENCE="$E" python - <<'PY' > "$E/postcheck.txt"
+          import hashlib, json, os, subprocess
+          from pathlib import Path
+          e=Path(os.environ['EVIDENCE'])
+          before_tag=json.loads((e/'post4-tag-before.json').read_text())['object']
+          after_tag=json.loads((e/'post4-tag-after.json').read_text())['object']
+          post4=json.loads((e/'post4-release-after.json').read_text())
+          post5=json.loads((e/'post5-release-after.json').read_text())
+          latest=json.loads((e/'latest-after.json').read_text())
+          if before_tag != after_tag:
+              raise SystemExit(f'Post4 tag changed: before={before_tag} after={after_tag}')
+          if post4.get('id') != 359062800 or post4.get('tag_name') != 'v0.4.0.post4':
+              raise SystemExit('Post4 release identity changed')
+          remaining=post4.get('assets',[])
+          if any(a.get('id') in {487940025,487940026} or a.get('name') in {'embodied-alife-update.zip','embodied-alife-update.zip.sha256'} for a in remaining):
+              raise SystemExit(f'Post4 updater assets remain or were replaced: {remaining}')
+          if latest.get('id') != post5.get('id') or latest.get('tag_name') != 'v0.4.0.post5':
+              raise SystemExit('Post5 is not latest after containment')
+          assets={a['name']:a for a in post5.get('assets',[])}
+          if set(assets) != {'embodied-alife-update.zip','embodied-alife-update.zip.sha256'}:
+              raise SystemExit(f'Post5 asset set changed: {sorted(assets)}')
+          for name,a in assets.items():
+              out=e/f'post5-{name}'
+              with out.open('wb') as stream:
+                  subprocess.run(['gh','api','-H','Accept: application/octet-stream',f"repos/{os.environ['REPOSITORY']}/releases/assets/{a['id']}"],check=True,stdout=stream)
+              if out.stat().st_size != a['size']:
+                  raise SystemExit(f'Post5 asset size mismatch: {name}')
+          digest=hashlib.sha256((e/'post5-embodied-alife-update.zip').read_bytes()).hexdigest()
+          declared=(e/'post5-embodied-alife-update.zip.sha256').read_text().split()[0]
+          if digest != declared:
+              raise SystemExit('Post5 checksum mismatch after Post4 containment')
+          print(f"post4_release_id={post4['id']}")
+          print(f"post4_tag_target_preserved={after_tag['sha']}")
+          print(f"post4_remaining_assets={len(remaining)}")
+          print('post4_authorized_asset_ids_absent=487940025,487940026')
+          print(f"post5_release_id={post5['id']}")
+          print(f"post5_latest={latest['tag_name']}")
+          print(f"post5_sha256={digest}")
+          print('no Post4 replacement bytes detected')
+          print('no tag retarget or history rewrite performed')
+          PY
+          printf 'overall=0\n' > "$E/status.txt"
+      - name: Upload containment evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: post4-authorized-asset-containment
+          path: post4-containment-evidence
+          if-no-files-found: error
+      - name: Enforce containment result
+        run: grep -q '^overall=0$' post4-containment-evidence/status.txt
