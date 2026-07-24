@@ -20,7 +20,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Check out exact candidate
-        run: git worktree add "$RUNNER_TEMP/post5-candidate" 375f8fc8c897533fd0ea1f00e432e892841632a8
+        run: git worktree add "$RUNNER_TEMP/post5-candidate" 41611b3cf3f6687debd0ab4e16b40394456dfc58
       - name: Install
         run: python -m pip install -e "$RUNNER_TEMP/post5-candidate[dev]"
       - name: Capture tests
@@ -37,7 +37,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: post5-diagnostic-375f8fc
+          name: post5-diagnostic-41611b3
           path: post5-diagnostic-evidence
           if-no-files-found: error
       - name: Enforce result
