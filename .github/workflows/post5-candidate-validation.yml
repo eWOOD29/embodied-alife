@@ -1,0 +1,187 @@
+name: post5-candidate-validation
+
+on:
+  push:
+    branches:
+      - ops/post5-validation-e54b91a
+    paths:
+      - .github/workflows/post5-candidate-validation.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out operations branch
+        uses: actions/checkout@v5
+        with:
+          ref: ops/post5-validation-e54b91a
+          fetch-depth: 0
+          path: ops
+      - name: Check out exact clean candidate
+        uses: actions/checkout@v5
+        with:
+          ref: e54b91a7c2aa845f30586cf87fa6d75d208c9552
+          fetch-depth: 0
+          path: candidate
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install candidate
+        run: python -m pip install -e './candidate[dev]'
+      - name: Validate exact candidate and build package
+        shell: bash
+        run: |
+          set +e
+          mkdir -p ops/post5-candidate-evidence
+          E=../ops/post5-candidate-evidence
+          cd candidate
+
+          python -m pytest -q \
+            tests/test_v040_post5_remediation.py \
+            tests/test_v040_post4_remediation.py \
+            tests/test_v040_cognitive_foundations.py \
+            tests/test_v040_remediation.py \
+            > "$E/focused-tests.txt" 2>&1
+          focused=$?
+
+          python -m pytest -q > "$E/full-tests.txt" 2>&1
+          full=$?
+
+          python -m compileall -q app tests scripts > "$E/compile.txt" 2>&1
+          compile=$?
+
+          python -m ruff check app tests scripts > "$E/ruff.txt" 2>&1
+          ruff=$?
+
+          rm -rf .pytest_cache .ruff_cache
+          find app tests scripts -type d -name '__pycache__' -prune -exec rm -rf {} +
+          find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
+          python - <<'PY' > "$E/generated-file-cleanup.txt" 2>&1
+          from pathlib import Path
+          forbidden_dirs = {"__pycache__", ".pytest_cache", ".ruff_cache"}
+          forbidden_suffixes = {".pyc", ".pyo"}
+          leftovers = [
+              path.as_posix()
+              for path in Path(".").rglob("*")
+              if any(part in forbidden_dirs for part in path.parts)
+              or (path.is_file() and path.suffix in forbidden_suffixes)
+          ]
+          if leftovers:
+              raise SystemExit(f"generated-file cleanup failed: {leftovers}")
+          print("generated-file cleanup passed")
+          PY
+          cleanup=$?
+
+          python scripts/validate_package.py > "$E/source-package-validation.txt" 2>&1
+          source_validation=$?
+
+          python scripts/build_release.py --output dist/embodied-alife-update.zip --app-id embodied-alife > "$E/build-release.txt" 2>&1
+          build=$?
+
+          rm -rf "$RUNNER_TEMP/post5-extracted"
+          mkdir -p "$RUNNER_TEMP/post5-extracted"
+          python - <<'PY' > "$E/archive-audit.txt" 2>&1
+          import hashlib
+          import json
+          import zipfile
+          from pathlib import Path
+
+          archive_path = Path("dist/embodied-alife-update.zip")
+          data = archive_path.read_bytes()
+          print(f"sha256={hashlib.sha256(data).hexdigest()}")
+          print(f"size={len(data)}")
+          with zipfile.ZipFile(archive_path) as archive:
+              bad = archive.testzip()
+              if bad is not None:
+                  raise SystemExit(f"corrupt_member={bad}")
+              names = archive.namelist()
+              print(f"member_count={len(names)}")
+              print("members:")
+              for name in names:
+                  print(name)
+              manifest = json.loads(archive.read("update-manifest.json"))
+              print("manifest=" + json.dumps(manifest, sort_keys=True, separators=(",", ":")))
+              archive.extractall(Path("$RUNNER_TEMP/post5-extracted"))
+          PY
+          archive_audit=$?
+
+          if [ -f dist/embodied-alife-update.zip ]; then
+            cp dist/embodied-alife-update.zip ../ops/post5-candidate-evidence/
+            sha256sum dist/embodied-alife-update.zip > "$E/computed-sha256.txt"
+          fi
+
+          if [ -d "$RUNNER_TEMP/post5-extracted" ]; then
+            (
+              cd "$RUNNER_TEMP/post5-extracted"
+              python scripts/validate_package.py > "$GITHUB_WORKSPACE/ops/post5-candidate-evidence/extracted-package-validation.txt" 2>&1
+            )
+            extracted_validation=$?
+          else
+            extracted_validation=1
+          fi
+
+          python - <<'PY' > "$E/version-evidence.txt" 2>&1
+          import json
+          import re
+          from pathlib import Path
+          from packaging.version import Version
+          from app.version import __version__
+          from scripts.build_release import project_version
+
+          print(f"runtime={__version__}")
+          print(f"package={project_version()}")
+          print(f"post5_gt_post4={Version('0.4.0.post5') > Version('0.4.0.post4')}")
+          print(f"post5_gt_post3={Version('0.4.0.post5') > Version('0.4.0.post3')}")
+          workflow = Path('.github/workflows/release.yml').read_text(encoding='utf-8')
+          print(f"workflow_dynamic_tag={'TAG=\"v${PACKAGE_VERSION}\"' in workflow}")
+          manifest = json.loads(Path('$RUNNER_TEMP/post5-extracted/update-manifest.json').read_text(encoding='utf-8'))
+          print(f"manifest_version={manifest.get('version')}")
+          print(f"manifest_app_id={manifest.get('app_id')}")
+          PY
+          version_evidence=$?
+
+          overall=0
+          for status in "$focused" "$full" "$compile" "$ruff" "$cleanup" "$source_validation" "$build" "$archive_audit" "$extracted_validation" "$version_evidence"; do
+            if [ "$status" -ne 0 ]; then overall=1; fi
+          done
+          cat > "$E/status.txt" <<EOF
+          candidate=e54b91a7c2aa845f30586cf87fa6d75d208c9552
+          focused=$focused
+          full=$full
+          compile=$compile
+          ruff=$ruff
+          cleanup=$cleanup
+          source_validation=$source_validation
+          build=$build
+          archive_audit=$archive_audit
+          extracted_validation=$extracted_validation
+          version_evidence=$version_evidence
+          overall=$overall
+          EOF
+          exit 0
+      - name: Commit textual evidence
+        working-directory: ops
+        shell: bash
+        run: |
+          rm -f post5-candidate-evidence/embodied-alife-update.zip
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add post5-candidate-evidence
+          git commit -m "Record isolated post5 candidate validation evidence" || true
+          git push origin HEAD:ops/post5-validation-e54b91a
+      - name: Upload candidate archive and evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: post5-candidate-e54b91a-evidence
+          path: ops/post5-candidate-evidence
+          if-no-files-found: error
+      - name: Enforce validation result
+        working-directory: ops
+        shell: bash
+        run: grep -q '^overall=0$' post5-candidate-evidence/status.txt
