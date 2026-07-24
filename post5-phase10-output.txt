@@ -1,2 +1,0 @@
-diagnostic path privacy expectation: expected one match, found 0
-exit=1
