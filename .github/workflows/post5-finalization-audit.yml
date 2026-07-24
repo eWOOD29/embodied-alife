@@ -1,0 +1,45 @@
+name: post5-finalization-audit
+
+on:
+  push:
+    branches:
+      - audit/v0.4.0-post5-finalization
+    paths:
+      - .github/workflows/post5-finalization-audit.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Check out exact candidate
+        run: git worktree add "$RUNNER_TEMP/post5-candidate" e112ed6407d6f28fcba79991685165a96c18edb8
+      - name: Install
+        run: python -m pip install -e "$RUNNER_TEMP/post5-candidate[dev]"
+      - name: Capture tests
+        shell: bash
+        run: |
+          set +e
+          mkdir -p post5-audit-evidence
+          cd "$RUNNER_TEMP/post5-candidate"
+          python -m pytest -q > "$GITHUB_WORKSPACE/post5-audit-evidence/full.txt" 2>&1
+          code=$?
+          printf 'candidate=%s\npytest=%s\n' "$(git rev-parse HEAD)" "$code" > "$GITHUB_WORKSPACE/post5-audit-evidence/status.txt"
+          exit 0
+      - name: Upload evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: post5-diagnostic-e112ed6
+          path: post5-audit-evidence
+          if-no-files-found: error
+      - name: Enforce result
+        run: grep -q '^pytest=0$' post5-audit-evidence/status.txt
