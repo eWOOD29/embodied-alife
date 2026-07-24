@@ -20,25 +20,37 @@ jobs:
         with:
           python-version: "3.11"
       - name: Check out exact candidate
-        run: git worktree add "$RUNNER_TEMP/post5-candidate" 41611b3cf3f6687debd0ab4e16b40394456dfc58
+        run: git worktree add "$RUNNER_TEMP/post5-candidate" 9fe7518a1ae8730656ebe6671761163d6d4b1de7
       - name: Install
         run: python -m pip install -e "$RUNNER_TEMP/post5-candidate[dev]"
-      - name: Capture tests
+      - name: Capture tests and package validation
         shell: bash
         run: |
           set +e
-          mkdir -p post5-diagnostic-evidence
-          cd "$RUNNER_TEMP/post5-candidate"
-          python -m pytest -q > "$GITHUB_WORKSPACE/post5-diagnostic-evidence/full.txt" 2>&1
-          code=$?
-          printf 'candidate=%s\npytest=%s\n' "$(git rev-parse HEAD)" "$code" > "$GITHUB_WORKSPACE/post5-diagnostic-evidence/status.txt"
+          E="$GITHUB_WORKSPACE/post5-diagnostic-evidence"
+          C="$RUNNER_TEMP/post5-candidate"
+          mkdir -p "$E"
+          cd "$C"
+          python -m pytest -q > "$E/full.txt" 2>&1
+          pytest_code=$?
+          python -m compileall -q app tests scripts > "$E/compile.txt" 2>&1
+          compile_code=$?
+          find app tests scripts -type d -name __pycache__ -prune -exec rm -rf {} +
+          rm -rf .pytest_cache .ruff_cache
+          find data/runtime -maxdepth 1 -type f ! -name .gitkeep -delete
+          python scripts/validate_package.py > "$E/package.txt" 2>&1
+          package_code=$?
+          printf 'candidate=%s\npytest=%s\ncompile=%s\npackage=%s\n' "$(git rev-parse HEAD)" "$pytest_code" "$compile_code" "$package_code" > "$E/status.txt"
           exit 0
       - name: Upload evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: post5-diagnostic-41611b3
+          name: post5-diagnostic-9fe7518
           path: post5-diagnostic-evidence
           if-no-files-found: error
       - name: Enforce result
-        run: grep -q '^pytest=0$' post5-diagnostic-evidence/status.txt
+        run: |
+          grep -q '^pytest=0$' post5-diagnostic-evidence/status.txt
+          grep -q '^compile=0$' post5-diagnostic-evidence/status.txt
+          grep -q '^package=0$' post5-diagnostic-evidence/status.txt
