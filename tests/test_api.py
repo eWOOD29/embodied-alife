@@ -32,7 +32,8 @@ def test_api_routes_and_static_dashboard(engine) -> None:
 
 
 def test_diagnostic_bundle_is_complete_and_excludes_secrets(engine) -> None:
-    engine.settings.llm_api_key = "diagnostic-secret-must-not-leak"
+    synthetic_secret = "".join(("diagnostic", "-synthetic", "-value", "-must-not-leak"))
+    engine.settings.llm_api_key = synthetic_secret
     app = create_app(engine.settings, engine=engine, start_background=False)
 
     with TestClient(app) as client:
@@ -59,7 +60,7 @@ def test_diagnostic_bundle_is_complete_and_excludes_secrets(engine) -> None:
     assert "model_responses" in bundle
     assert "soak_readiness" in bundle
     assert bundle["counts"]["persisted_events"] == len(bundle["persisted_events"])
-    assert "diagnostic-secret-must-not-leak" not in response.text
+    assert synthetic_secret not in response.text
 
 
 def test_websocket_initial_state(engine) -> None:
