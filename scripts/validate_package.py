@@ -3,7 +3,10 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 from pathlib import Path
+
+sys.dont_write_bytecode = True
 
 from scripts.privacy_scan import scan_tree, validate_appdock
 
