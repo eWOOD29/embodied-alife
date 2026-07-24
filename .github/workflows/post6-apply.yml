@@ -71,10 +71,11 @@ jobs:
         run: python scripts/build_release.py --output dist/embodied-alife-update.zip
       - name: Validate archive, manifest, checksum, hygiene, and privacy
         run: python scripts/validate_candidate_archive.py dist/embodied-alife-update.zip
-      - name: Commit frozen candidate
+      - name: Commit validated product and test changes
         shell: bash
         run: |
           set -euo pipefail
+          git restore --source=HEAD --staged --worktree .github/workflows
           git add -A
           git diff --cached --check
           git config user.name "OpenAI"
