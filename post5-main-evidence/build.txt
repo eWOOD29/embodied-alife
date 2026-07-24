@@ -1,0 +1,2 @@
+usage: build_release.py [-h] [--output OUTPUT]
+build_release.py: error: unrecognized arguments: --app-id embodied-alife

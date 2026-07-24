@@ -1,0 +1,1268 @@
+RUF046 Value being cast to `int` is already an integer
+  --> app/diagnostics.py:24:42
+   |
+22 |         return None
+23 |     ordered = sorted(values)
+24 |     index = min(len(ordered) - 1, max(0, int(round((len(ordered) - 1) * fraction))))
+   |                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+25 |     return round(ordered[index], 2)
+   |
+help: Remove unnecessary `int` call
+
+RUF007 Prefer `itertools.pairwise()` over `zip()` when iterating over successive pairs
+   --> app/diagnostics.py:160:28
+    |
+158 |     duplicate_restore_events = sum(
+159 |         1
+160 |         for left, right in zip(events, events[1:])
+    |                            ^^^
+161 |         if left.get("kind") == right.get("kind") == "system"
+162 |         and left.get("message") == right.get("message") == "Restored the latest local runtime state."
+    |
+help: Replace `zip()` with `itertools.pairwise()`
+
+TRY004 Prefer `TypeError` exception for invalid type
+  --> app/llm/client.py:95:17
+   |
+93 |             records = payload.get("data") if isinstance(payload, dict) else None
+94 |             if not isinstance(records, list):
+95 |                 raise ValueError("The model server returned an invalid /v1/models response")
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+96 |             models = [
+97 |                 {
+   |
+
+UP037 [*] Remove quotes from type annotation
+  --> app/llm/settings.py:17:50
+   |
+16 |     @classmethod
+17 |     def for_settings(cls, settings: Settings) -> "LLMSettingsStore":
+   |                                                  ^^^^^^^^^^^^^^^^^^
+18 |         return cls(settings.runtime_dir / "llm-settings.json")
+   |
+help: Remove quotes
+   |
+16 |     @classmethod
+   -     def for_settings(cls, settings: Settings) -> "LLMSettingsStore":
+17 +     def for_settings(cls, settings: Settings) -> LLMSettingsStore:
+18 |         return cls(settings.runtime_dir / "llm-settings.json")
+   |
+
+UP035 [*] Import from `collections.abc` instead: `Callable`
+ --> app/main.py:5:1
+  |
+3 | from contextlib import asynccontextmanager
+4 | from pathlib import Path
+5 | from typing import Callable
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+6 |
+7 | from fastapi import FastAPI
+  |
+help: Import from `collections.abc`
+  |
+4 | from pathlib import Path
+  - from typing import Callable
+5 + from collections.abc import Callable
+6 |
+  |
+
+UP035 [*] Import from `collections.abc` instead: `Iterable`
+ --> app/memory/retrieval.py:5:1
+  |
+3 | import math
+4 | import re
+5 | from typing import Iterable
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+6 |
+7 | from app.memory.vault import MemoryRecord
+  |
+help: Import from `collections.abc`
+  |
+4 | import re
+  - from typing import Iterable
+5 + from collections.abc import Iterable
+6 |
+  |
+
+UP035 [*] Import from `collections.abc` instead: `Mapping`
+  --> app/serialization.py:10:1
+   |
+ 8 | from enum import Enum
+ 9 | from pathlib import Path
+10 | from typing import Any, Mapping
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+11 |
+12 | DEFAULT_MAX_DEPTH = 8
+   |
+help: Import from `collections.abc`
+   |
+9  | from pathlib import Path
+   - from typing import Any, Mapping
+10 + from typing import Any
+11 + from collections.abc import Mapping
+12 |
+   |
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> app/simulation/actions.py:1:1
+   |
+ 1 | / from __future__ import annotations
+ 2 | |
+ 3 | | import math
+ 4 | | import re
+ 5 | | from dataclasses import dataclass
+ 6 | | from typing import Any
+ 7 | |
+ 8 | | from app.llm.schemas import ActionDecision
+ 9 | | from app.serialization import finite_number, json_safe_dict
+10 | | from app.simulation.agent import AgentState
+11 | | from app.simulation.affordances import INTERACTION_RADIUS
+12 | | from app.simulation.body import ActionExecution, astar, move_along_path
+13 | | from app.simulation.world import Shelter, Terrain, WorldState
+   | |_____________________________________________________________^
+   |
+help: Organize imports
+   |
+9  | from app.serialization import finite_number, json_safe_dict
+10 + from app.simulation.affordances import INTERACTION_RADIUS
+11 | from app.simulation.agent import AgentState
+   - from app.simulation.affordances import INTERACTION_RADIUS
+12 | from app.simulation.body import ActionExecution, astar, move_along_path
+   |
+
+RUF046 Value being cast to `int` is already an integer
+   --> app/simulation/actions.py:397:34
+    |
+395 |             if goal is None:
+396 |                 return ActionResult(False, action, "unknown_target", "No reachable target or direction was provided.")
+397 |             path = astar(world, (int(round(agent_x)), int(round(agent_y))), goal)
+    |                                  ^^^^^^^^^^^^^^^^^^^
+398 |             if not path and goal != (int(round(agent_x)), int(round(agent_y))):
+399 |                 return ActionResult(False, action, "target_unreachable", f"No legal path to {goal}.")
+    |
+help: Remove unnecessary `int` call
+
+RUF046 Value being cast to `int` is already an integer
+   --> app/simulation/actions.py:397:55
+    |
+395 |             if goal is None:
+396 |                 return ActionResult(False, action, "unknown_target", "No reachable target or direction was provided.")
+397 |             path = astar(world, (int(round(agent_x)), int(round(agent_y))), goal)
+    |                                                       ^^^^^^^^^^^^^^^^^^^
+398 |             if not path and goal != (int(round(agent_x)), int(round(agent_y))):
+399 |                 return ActionResult(False, action, "target_unreachable", f"No legal path to {goal}.")
+    |
+help: Remove unnecessary `int` call
+
+RUF046 Value being cast to `int` is already an integer
+   --> app/simulation/actions.py:398:38
+    |
+396 |                 return ActionResult(False, action, "unknown_target", "No reachable target or direction was provided.")
+397 |             path = astar(world, (int(round(agent_x)), int(round(agent_y))), goal)
+398 |             if not path and goal != (int(round(agent_x)), int(round(agent_y))):
+    |                                      ^^^^^^^^^^^^^^^^^^^
+399 |                 return ActionResult(False, action, "target_unreachable", f"No legal path to {goal}.")
+400 |             duration = max(duration, max(0.5, len(path) / max(0.25, agent.movement_speed)))
+    |
+help: Remove unnecessary `int` call
+
+RUF046 Value being cast to `int` is already an integer
+   --> app/simulation/actions.py:398:59
+    |
+396 |                 return ActionResult(False, action, "unknown_target", "No reachable target or direction was provided.")
+397 |             path = astar(world, (int(round(agent_x)), int(round(agent_y))), goal)
+398 |             if not path and goal != (int(round(agent_x)), int(round(agent_y))):
+    |                                                           ^^^^^^^^^^^^^^^^^^^
+399 |                 return ActionResult(False, action, "target_unreachable", f"No legal path to {goal}.")
+400 |             duration = max(duration, max(0.5, len(path) / max(0.25, agent.movement_speed)))
+    |
+help: Remove unnecessary `int` call
+
+RUF046 Value being cast to `int` is already an integer
+   --> app/simulation/actions.py:419:27
+    |
+417 | …             return ActionResult(False, action, "no_water", "No reachable water is close enough to drink.")
+418 | …     elif action == "build":
+419 | …         if world.tile(int(round(agent_x)), int(round(agent_y))) != Terrain.BUILD_AREA:
+    |                         ^^^^^^^^^^^^^^^^^^^
+420 | …             return ActionResult(False, action, "illegal_location", "A basic shelter can only be built on stable clearing terrain.")
+421 | …         if agent.inventory.get("branch", 0) < 3 or agent.inventory.get("stone", 0) < 2:
+    |
+help: Remove unnecessary `int` call
+
+RUF046 Value being cast to `int` is already an integer
+   --> app/simulation/actions.py:419:48
+    |
+417 | …             return ActionResult(False, action, "no_water", "No reachable water is close enough to drink.")
+418 | …     elif action == "build":
+419 | …         if world.tile(int(round(agent_x)), int(round(agent_y))) != Terrain.BUILD_AREA:
+    |                                              ^^^^^^^^^^^^^^^^^^^
+420 | …             return ActionResult(False, action, "illegal_location", "A basic shelter can only be built on stable clearing terrain.")
+421 | …         if agent.inventory.get("branch", 0) < 3 or agent.inventory.get("stone", 0) < 2:
+    |
+help: Remove unnecessary `int` call
+
+RUF046 Value being cast to `int` is already an integer
+   --> app/simulation/actions.py:523:27
+    |
+521 |             return ActionResult(True, action, "rested", "Ari rested briefly.")
+522 |         if action == "build":
+523 |             if world.tile(int(round(agent_x)), int(round(agent_y))) != Terrain.BUILD_AREA:
+    |                           ^^^^^^^^^^^^^^^^^^^
+524 |                 return ActionResult(False, action, "location_changed", "The build location is no longer legal.")
+525 |             if agent.inventory.get("branch", 0) < 3 or agent.inventory.get("stone", 0) < 2:
+    |
+help: Remove unnecessary `int` call
+
+RUF046 Value being cast to `int` is already an integer
+   --> app/simulation/actions.py:523:48
+    |
+521 |             return ActionResult(True, action, "rested", "Ari rested briefly.")
+522 |         if action == "build":
+523 |             if world.tile(int(round(agent_x)), int(round(agent_y))) != Terrain.BUILD_AREA:
+    |                                                ^^^^^^^^^^^^^^^^^^^
+524 |                 return ActionResult(False, action, "location_changed", "The build location is no longer legal.")
+525 |             if agent.inventory.get("branch", 0) < 3 or agent.inventory.get("stone", 0) < 2:
+    |
+help: Remove unnecessary `int` call
+
+RUF046 Value being cast to `int` is already an integer
+   --> app/simulation/actions.py:529:43
+    |
+527 |             agent.remove_item("branch", 3); agent.remove_item("stone", 2)
+528 |             shelter_id = f"shelter_{len(world.shelters) + 1:02d}"
+529 |             shelter = Shelter(shelter_id, int(round(agent_x)), int(round(agent_y)), quality=0.65)
+    |                                           ^^^^^^^^^^^^^^^^^^^
+530 |             world.shelters[shelter_id] = shelter
+531 |             agent.known_locations[shelter_id] = {"x": shelter.x, "y": shelter.y, "certainty": 1.0, "last_seen": world.sim_time}
+    |
+help: Remove unnecessary `int` call
+
+RUF046 Value being cast to `int` is already an integer
+   --> app/simulation/actions.py:529:64
+    |
+527 |             agent.remove_item("branch", 3); agent.remove_item("stone", 2)
+528 |             shelter_id = f"shelter_{len(world.shelters) + 1:02d}"
+529 |             shelter = Shelter(shelter_id, int(round(agent_x)), int(round(agent_y)), quality=0.65)
+    |                                                                ^^^^^^^^^^^^^^^^^^^
+530 |             world.shelters[shelter_id] = shelter
+531 |             agent.known_locations[shelter_id] = {"x": shelter.x, "y": shelter.y, "certainty": 1.0, "last_seen": world.sim_time}
+    |
+help: Remove unnecessary `int` call
+
+RUF046 Value being cast to `int` is already an integer
+   --> app/simulation/actions.py:541:61
+    |
+539 |             rid = f"dropped_{target_id}_{int(world.sim_time * 10)}"
+540 |             is_edible = target_id in {"berry", "edible_plant"}
+541 |             world.resources[rid] = Resource(rid, target_id, int(round(agent_x)), int(round(agent_y)), edible=is_edible,
+    |                                                             ^^^^^^^^^^^^^^^^^^^
+542 |                 nutrition=22.0 if target_id == "berry" else (12.0 if is_edible else 0.0),
+543 |                 energy=5.0 if target_id == "berry" else (2.0 if is_edible else 0.0))
+    |
+help: Remove unnecessary `int` call
+
+RUF046 Value being cast to `int` is already an integer
+   --> app/simulation/actions.py:541:82
+    |
+539 |             rid = f"dropped_{target_id}_{int(world.sim_time * 10)}"
+540 |             is_edible = target_id in {"berry", "edible_plant"}
+541 |             world.resources[rid] = Resource(rid, target_id, int(round(agent_x)), int(round(agent_y)), edible=is_edible,
+    |                                                                                  ^^^^^^^^^^^^^^^^^^^
+542 |                 nutrition=22.0 if target_id == "berry" else (12.0 if is_edible else 0.0),
+543 |                 energy=5.0 if target_id == "berry" else (2.0 if is_edible else 0.0))
+    |
+help: Remove unnecessary `int` call
+
+RUF046 Value being cast to `int` is already an integer
+   --> app/simulation/actions.py:550:22
+    |
+548 |             agent_x = _finite_number(agent.x, 0.0) or 0.0
+549 |             agent_y = _finite_number(agent.y, 0.0) or 0.0
+550 |             ax, ay = int(round(agent_x)), int(round(agent_y))
+    |                      ^^^^^^^^^^^^^^^^^^^
+551 |             cells: list[dict[str, Any]] = []
+552 |             known_terrain = agent.known_terrain if isinstance(agent.known_terrain, dict) else {}
+    |
+help: Remove unnecessary `int` call
+
+RUF046 Value being cast to `int` is already an integer
+   --> app/simulation/actions.py:550:43
+    |
+548 |             agent_x = _finite_number(agent.x, 0.0) or 0.0
+549 |             agent_y = _finite_number(agent.y, 0.0) or 0.0
+550 |             ax, ay = int(round(agent_x)), int(round(agent_y))
+    |                                           ^^^^^^^^^^^^^^^^^^^
+551 |             cells: list[dict[str, Any]] = []
+552 |             known_terrain = agent.known_terrain if isinstance(agent.known_terrain, dict) else {}
+    |
+help: Remove unnecessary `int` call
+
+RUF046 Value being cast to `int` is already an integer
+   --> app/simulation/actions.py:639:25
+    |
+637 |             norm = max(0.001, math.hypot(dx, dy))
+638 |             for distance in (8, 6, 4, 2):
+639 |                 goal = (int(round(agent_x + dx / norm * distance)), int(round(agent_y + dy / norm * distance)))
+    |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+640 |                 if world.is_walkable(*goal):
+641 |                     return goal
+    |
+help: Remove unnecessary `int` call
+
+RUF046 Value being cast to `int` is already an integer
+   --> app/simulation/actions.py:639:69
+    |
+637 |             norm = max(0.001, math.hypot(dx, dy))
+638 |             for distance in (8, 6, 4, 2):
+639 |                 goal = (int(round(agent_x + dx / norm * distance)), int(round(agent_y + dy / norm * distance)))
+    |                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+640 |                 if world.is_walkable(*goal):
+641 |                     return goal
+    |
+help: Remove unnecessary `int` call
+
+RUF046 Value being cast to `int` is already an integer
+   --> app/simulation/actions.py:657:28
+    |
+655 |                 y = _finite_number(location.get("y"))
+656 |                 if x is not None and y is not None:
+657 |                     return int(round(x)), int(round(y))
+    |                            ^^^^^^^^^^^^^
+658 |         if decision.direction in DIRECTION_DELTAS:
+659 |             dx, dy = DIRECTION_DELTAS[decision.direction]
+    |
+help: Remove unnecessary `int` call
+
+RUF046 Value being cast to `int` is already an integer
+   --> app/simulation/actions.py:657:43
+    |
+655 |                 y = _finite_number(location.get("y"))
+656 |                 if x is not None and y is not None:
+657 |                     return int(round(x)), int(round(y))
+    |                                           ^^^^^^^^^^^^^
+658 |         if decision.direction in DIRECTION_DELTAS:
+659 |             dx, dy = DIRECTION_DELTAS[decision.direction]
+    |
+help: Remove unnecessary `int` call
+
+RUF046 Value being cast to `int` is already an integer
+   --> app/simulation/actions.py:662:39
+    |
+660 |             speed = max(0.25, _finite_number(agent.movement_speed, 2.0) or 2.0)
+661 |             duration = max(0.0, _finite_number(decision.duration_seconds, 1.0) or 1.0)
+662 |             distance = max(1, min(12, int(round(duration * speed))))
+    |                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+663 |             for dist in range(distance, 0, -1):
+664 |                 goal = (int(round(agent_x)) + dx * dist, int(round(agent_y)) + dy * dist)
+    |
+help: Remove unnecessary `int` call
+
+RUF046 Value being cast to `int` is already an integer
+   --> app/simulation/actions.py:664:25
+    |
+662 |             distance = max(1, min(12, int(round(duration * speed))))
+663 |             for dist in range(distance, 0, -1):
+664 |                 goal = (int(round(agent_x)) + dx * dist, int(round(agent_y)) + dy * dist)
+    |                         ^^^^^^^^^^^^^^^^^^^
+665 |                 if world.is_walkable(*goal):
+666 |                     return goal
+    |
+help: Remove unnecessary `int` call
+
+RUF046 Value being cast to `int` is already an integer
+   --> app/simulation/actions.py:664:58
+    |
+662 |             distance = max(1, min(12, int(round(duration * speed))))
+663 |             for dist in range(distance, 0, -1):
+664 |                 goal = (int(round(agent_x)) + dx * dist, int(round(agent_y)) + dy * dist)
+    |                                                          ^^^^^^^^^^^^^^^^^^^
+665 |                 if world.is_walkable(*goal):
+666 |                     return goal
+    |
+help: Remove unnecessary `int` call
+
+RUF046 Value being cast to `int` is already an integer
+   --> app/simulation/actions.py:679:14
+    |
+677 |     @staticmethod
+678 |     def _near_water(world: WorldState, agent: AgentState) -> bool:
+679 |         ax = int(round(_finite_number(agent.x, 0.0) or 0.0))
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+680 |         ay = int(round(_finite_number(agent.y, 0.0) or 0.0))
+681 |         return any(world.is_water(x, y) for y in range(max(0, ay - 1), min(world.size, ay + 2)) for x in range(max(0, ax - 1), min(wo…
+    |
+help: Remove unnecessary `int` call
+
+RUF046 Value being cast to `int` is already an integer
+   --> app/simulation/actions.py:680:14
+    |
+678 |     def _near_water(world: WorldState, agent: AgentState) -> bool:
+679 |         ax = int(round(_finite_number(agent.x, 0.0) or 0.0))
+680 |         ay = int(round(_finite_number(agent.y, 0.0) or 0.0))
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+681 |         return any(world.is_water(x, y) for y in range(max(0, ay - 1), min(world.size, ay + 2)) for x in range(max(0, ax - 1), min(wo…
+    |
+help: Remove unnecessary `int` call
+
+RUF046 Value being cast to `int` is already an integer
+  --> app/simulation/affordances.py:94:14
+   |
+92 |         }
+93 |
+94 |     ax, ay = int(round(agent.x)), int(round(agent.y))
+   |              ^^^^^^^^^^^^^^^^^^^
+95 |     underfoot = world.tile(ax, ay)
+96 |     can_build = (
+   |
+help: Remove unnecessary `int` call
+
+RUF046 Value being cast to `int` is already an integer
+  --> app/simulation/affordances.py:94:35
+   |
+92 |         }
+93 |
+94 |     ax, ay = int(round(agent.x)), int(round(agent.y))
+   |                                   ^^^^^^^^^^^^^^^^^^^
+95 |     underfoot = world.tile(ax, ay)
+96 |     can_build = (
+   |
+help: Remove unnecessary `int` call
+
+UP037 [*] Remove quotes from type annotation
+   --> app/simulation/agent.py:122:49
+    |
+121 |     @classmethod
+122 |     def from_dict(cls, data: dict[str, Any]) -> "AgentState":
+    |                                                 ^^^^^^^^^^^^
+123 |         copied = dict(data)
+124 |         explored = copied.get("explored", [])
+    |
+help: Remove quotes
+    |
+121 |     @classmethod
+    -     def from_dict(cls, data: dict[str, Any]) -> "AgentState":
+122 +     def from_dict(cls, data: dict[str, Any]) -> AgentState:
+123 |         copied = dict(data)
+    |
+
+UP037 [*] Remove quotes from type annotation
+  --> app/simulation/body.py:29:49
+   |
+28 |     @classmethod
+29 |     def from_dict(cls, data: dict[str, Any]) -> "ActionExecution":
+   |                                                 ^^^^^^^^^^^^^^^^^
+30 |         copied = dict(data)
+31 |         copied["path"] = [tuple(p) for p in copied.get("path", [])]
+   |
+help: Remove quotes
+   |
+28 |     @classmethod
+   -     def from_dict(cls, data: dict[str, Any]) -> "ActionExecution":
+29 +     def from_dict(cls, data: dict[str, Any]) -> ActionExecution:
+30 |         copied = dict(data)
+   |
+
+RUF046 Value being cast to `int` is already an integer
+  --> app/simulation/body.py:96:34
+   |
+94 |         nx = agent.x + dx / distance * step
+95 |         ny = agent.y + dy / distance * step
+96 |         if not world.is_walkable(int(round(nx)), int(round(ny))):
+   |                                  ^^^^^^^^^^^^^^
+97 |             execution.path.clear()
+98 |             break
+   |
+help: Remove unnecessary `int` call
+
+RUF046 Value being cast to `int` is already an integer
+  --> app/simulation/body.py:96:50
+   |
+94 |         nx = agent.x + dx / distance * step
+95 |         ny = agent.y + dy / distance * step
+96 |         if not world.is_walkable(int(round(nx)), int(round(ny))):
+   |                                                  ^^^^^^^^^^^^^^
+97 |             execution.path.clear()
+98 |             break
+   |
+help: Remove unnecessary `int` call
+
+UP037 [*] Remove quotes from type annotation
+   --> app/simulation/cognition.py:133:93
+    |
+132 |     @classmethod
+133 |     def from_dict(cls, value: dict[str, Any] | None, *, default_source: str = "unknown") -> "Provenance":
+    |                                                                                             ^^^^^^^^^^^^
+134 |         value = value or {}
+135 |         return cls(
+    |
+help: Remove quotes
+    |
+132 |     @classmethod
+    -     def from_dict(cls, value: dict[str, Any] | None, *, default_source: str = "unknown") -> "Provenance":
+133 +     def from_dict(cls, value: dict[str, Any] | None, *, default_source: str = "unknown") -> Provenance:
+134 |         value = value or {}
+    |
+
+UP037 [*] Remove quotes from type annotation
+   --> app/simulation/cognition.py:153:50
+    |
+152 |     @classmethod
+153 |     def from_dict(cls, value: dict[str, Any]) -> "KeyItem":
+    |                                                  ^^^^^^^^^
+154 |         return cls(
+155 |             key_item_id=_text(value.get("key_item_id"), limit=160),
+    |
+help: Remove quotes
+    |
+152 |     @classmethod
+    -     def from_dict(cls, value: dict[str, Any]) -> "KeyItem":
+153 +     def from_dict(cls, value: dict[str, Any]) -> KeyItem:
+154 |         return cls(
+    |
+
+UP037 [*] Remove quotes from type annotation
+   --> app/simulation/cognition.py:182:50
+    |
+181 |     @classmethod
+182 |     def from_dict(cls, value: dict[str, Any]) -> "TaskRecord":
+    |                                                  ^^^^^^^^^^^^
+183 |         return cls(
+184 |             task_id=_text(value.get("task_id"), limit=160),
+    |
+help: Remove quotes
+    |
+181 |     @classmethod
+    -     def from_dict(cls, value: dict[str, Any]) -> "TaskRecord":
+182 +     def from_dict(cls, value: dict[str, Any]) -> TaskRecord:
+183 |         return cls(
+    |
+
+UP037 [*] Remove quotes from type annotation
+   --> app/simulation/cognition.py:217:50
+    |
+216 |     @classmethod
+217 |     def from_dict(cls, value: dict[str, Any]) -> "NoteRecord":
+    |                                                  ^^^^^^^^^^^^
+218 |         return cls(
+219 |             note_id=_text(value.get("note_id"), limit=160),
+    |
+help: Remove quotes
+    |
+216 |     @classmethod
+    -     def from_dict(cls, value: dict[str, Any]) -> "NoteRecord":
+217 +     def from_dict(cls, value: dict[str, Any]) -> NoteRecord:
+218 |         return cls(
+    |
+
+UP037 [*] Remove quotes from type annotation
+   --> app/simulation/cognition.py:251:50
+    |
+250 |     @classmethod
+251 |     def from_dict(cls, value: dict[str, Any]) -> "MapMarker":
+    |                                                  ^^^^^^^^^^^
+252 |         return cls(
+253 |             marker_id=_text(value.get("marker_id"), limit=160),
+    |
+help: Remove quotes
+    |
+250 |     @classmethod
+    -     def from_dict(cls, value: dict[str, Any]) -> "MapMarker":
+251 +     def from_dict(cls, value: dict[str, Any]) -> MapMarker:
+252 |         return cls(
+    |
+
+UP037 [*] Remove quotes from type annotation
+   --> app/simulation/cognition.py:286:50
+    |
+285 |     @classmethod
+286 |     def from_dict(cls, value: dict[str, Any]) -> "BeliefRecord":
+    |                                                  ^^^^^^^^^^^^^^
+287 |         return cls(
+288 |             belief_id=_text(value.get("belief_id"), limit=160),
+    |
+help: Remove quotes
+    |
+285 |     @classmethod
+    -     def from_dict(cls, value: dict[str, Any]) -> "BeliefRecord":
+286 +     def from_dict(cls, value: dict[str, Any]) -> BeliefRecord:
+287 |         return cls(
+    |
+
+UP037 [*] Remove quotes from type annotation
+   --> app/simulation/cognition.py:322:50
+    |
+321 |     @classmethod
+322 |     def from_dict(cls, value: dict[str, Any]) -> "EpisodeRecord":
+    |                                                  ^^^^^^^^^^^^^^^
+323 |         return cls(
+324 |             episode_id=_text(value.get("episode_id"), limit=160),
+    |
+help: Remove quotes
+    |
+321 |     @classmethod
+    -     def from_dict(cls, value: dict[str, Any]) -> "EpisodeRecord":
+322 +     def from_dict(cls, value: dict[str, Any]) -> EpisodeRecord:
+323 |         return cls(
+    |
+
+UP037 [*] Remove quotes from type annotation
+   --> app/simulation/cognition.py:350:57
+    |
+349 |     @classmethod
+350 |     def from_dict(cls, value: dict[str, Any] | None) -> "AwakeningState":
+    |                                                         ^^^^^^^^^^^^^^^^
+351 |         value = value or {}
+352 |         return cls(
+    |
+help: Remove quotes
+    |
+349 |     @classmethod
+    -     def from_dict(cls, value: dict[str, Any] | None) -> "AwakeningState":
+350 +     def from_dict(cls, value: dict[str, Any] | None) -> AwakeningState:
+351 |         value = value or {}
+    |
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> app/simulation/engine.py:1:1
+   |
+ 1 | / from __future__ import annotations
+ 2 | |
+ 3 | | import weakref
+ 4 | | from pathlib import Path
+ 5 | | from typing import Any
+ 6 | |
+ 7 | | from app.config import Settings
+ 8 | | from app.llm.observed_client import ObservedLocalLLMClient
+ 9 | | from app.llm.schemas import ActionDecision, MemoryWrite
+10 | | from app.memory.retrieval import retrieve_memories
+11 | | from app.memory.vault import MemoryValidationError, MemoryVault
+12 | | from app.simulation.actions import ActionResult, VIEW_ACTIONS, project_view_result_for_recent_outcome
+13 | | from app.simulation.affordances import build_action_affordances
+14 | | from app.simulation.perception import build_perception
+15 | | from app.simulation.scheduler import SimulationEngine as BaseSimulationEngine
+16 | | from app.storage.database import Database
+   | |_________________________________________^
+   |
+help: Organize imports
+   |
+11 | from app.memory.vault import MemoryValidationError, MemoryVault
+   - from app.simulation.actions import ActionResult, VIEW_ACTIONS, project_view_result_for_recent_outcome
+12 + from app.simulation.actions import VIEW_ACTIONS, ActionResult, project_view_result_for_recent_outcome
+13 | from app.simulation.affordances import build_action_affordances
+   |
+
+UP037 [*] Remove quotes from type annotation
+  --> app/simulation/events.py:21:49
+   |
+20 |     @classmethod
+21 |     def from_dict(cls, data: dict[str, Any]) -> "Event":
+   |                                                 ^^^^^^^
+22 |         return cls(**data)
+   |
+help: Remove quotes
+   |
+20 |     @classmethod
+   -     def from_dict(cls, data: dict[str, Any]) -> "Event":
+21 +     def from_dict(cls, data: dict[str, Any]) -> Event:
+22 |         return cls(**data)
+   |
+
+RUF046 Value being cast to `int` is already an integer
+  --> app/simulation/needs.py:21:26
+   |
+20 |     shelter = world.nearby_shelter(agent.x, agent.y)
+21 |     terrain = world.tile(int(round(agent.x)), int(round(agent.y)))
+   |                          ^^^^^^^^^^^^^^^^^^^
+22 |     weather_exposure = {"clear": 0.0, "cloudy": -0.5, "rain": -2.5, "storm": -5.0}[world.weather]
+23 |     terrain_delta = -2.0 if terrain in {Terrain.SHALLOW_WATER, Terrain.DEEP_WATER} else 0.0
+   |
+help: Remove unnecessary `int` call
+
+RUF046 Value being cast to `int` is already an integer
+  --> app/simulation/needs.py:21:47
+   |
+20 |     shelter = world.nearby_shelter(agent.x, agent.y)
+21 |     terrain = world.tile(int(round(agent.x)), int(round(agent.y)))
+   |                                               ^^^^^^^^^^^^^^^^^^^
+22 |     weather_exposure = {"clear": 0.0, "cloudy": -0.5, "rain": -2.5, "storm": -5.0}[world.weather]
+23 |     terrain_delta = -2.0 if terrain in {Terrain.SHALLOW_WATER, Terrain.DEEP_WATER} else 0.0
+   |
+help: Remove unnecessary `int` call
+
+RUF046 Value being cast to `int` is already an integer
+   --> app/simulation/perception.py:181:14
+    |
+179 |     agent_x = _safe_number(agent.x, 0.0, minimum=0.0, maximum=maximum_coordinate)
+180 |     agent_y = _safe_number(agent.y, 0.0, minimum=0.0, maximum=maximum_coordinate)
+181 |     ax, ay = int(round(agent_x)), int(round(agent_y))
+    |              ^^^^^^^^^^^^^^^^^^^
+182 |     if not isinstance(agent.explored, set):
+183 |         agent.explored = set()
+    |
+help: Remove unnecessary `int` call
+
+RUF046 Value being cast to `int` is already an integer
+   --> app/simulation/perception.py:181:35
+    |
+179 |     agent_x = _safe_number(agent.x, 0.0, minimum=0.0, maximum=maximum_coordinate)
+180 |     agent_y = _safe_number(agent.y, 0.0, minimum=0.0, maximum=maximum_coordinate)
+181 |     ax, ay = int(round(agent_x)), int(round(agent_y))
+    |                                   ^^^^^^^^^^^^^^^^^^^
+182 |     if not isinstance(agent.explored, set):
+183 |         agent.explored = set()
+    |
+help: Remove unnecessary `int` call
+
+RUF046 Value being cast to `int` is already an integer
+   --> app/simulation/perception.py:216:18
+    |
+214 |         if not math.isfinite(resource_x) or not math.isfinite(resource_y) or quantity <= 0:
+215 |             continue
+216 |         rx, ry = int(round(resource_x)), int(round(resource_y))
+    |                  ^^^^^^^^^^^^^^^^^^^^^^
+217 |         distance = math.hypot(resource_x - agent_x, resource_y - agent_y)
+218 |         if distance <= radius and has_line_of_sight(world, ax, ay, rx, ry):
+    |
+help: Remove unnecessary `int` call
+
+RUF046 Value being cast to `int` is already an integer
+   --> app/simulation/perception.py:216:42
+    |
+214 |         if not math.isfinite(resource_x) or not math.isfinite(resource_y) or quantity <= 0:
+215 |             continue
+216 |         rx, ry = int(round(resource_x)), int(round(resource_y))
+    |                                          ^^^^^^^^^^^^^^^^^^^^^^
+217 |         distance = math.hypot(resource_x - agent_x, resource_y - agent_y)
+218 |         if distance <= radius and has_line_of_sight(world, ax, ay, rx, ry):
+    |
+help: Remove unnecessary `int` call
+
+RUF046 Value being cast to `int` is already an integer
+   --> app/simulation/perception.py:237:68
+    |
+235 | …         continue
+236 | …     distance = math.hypot(npc_x - agent_x, npc_y - agent_y)
+237 | …     if distance <= radius and has_line_of_sight(world, ax, ay, int(round(npc_x)), int(round(npc_y))):
+    |                                                                  ^^^^^^^^^^^^^^^^^
+238 | …         classification = npc.kind if distance <= 4 else ("large animal" if npc.kind in {"deer", "wolf"} else "small moving creature…
+239 | …         entities.append({
+    |
+help: Remove unnecessary `int` call
+
+RUF046 Value being cast to `int` is already an integer
+   --> app/simulation/perception.py:237:87
+    |
+235 | …         continue
+236 | …     distance = math.hypot(npc_x - agent_x, npc_y - agent_y)
+237 | …     if distance <= radius and has_line_of_sight(world, ax, ay, int(round(npc_x)), int(round(npc_y))):
+    |                                                                                     ^^^^^^^^^^^^^^^^^
+238 | …         classification = npc.kind if distance <= 4 else ("large animal" if npc.kind in {"deer", "wolf"} else "small moving creature…
+239 | …         entities.append({
+    |
+help: Remove unnecessary `int` call
+
+UP037 [*] Remove quotes from type annotation
+  --> app/simulation/world.py:97:54
+   |
+96 |     @classmethod
+97 |     def generate(cls, seed: int, size: int = 128) -> "WorldState":
+   |                                                      ^^^^^^^^^^^^
+98 |         rng = random.Random(seed)
+99 |         tiles = [[Terrain.MEADOW.value for _ in range(size)] for _ in range(size)]
+   |
+help: Remove quotes
+   |
+96 |     @classmethod
+   -     def generate(cls, seed: int, size: int = 128) -> "WorldState":
+97 +     def generate(cls, seed: int, size: int = 128) -> WorldState:
+98 |         rng = random.Random(seed)
+   |
+
+RUF046 Value being cast to `int` is already an integer
+   --> app/simulation/world.py:303:22
+    |
+301 |             npc.last_move_slot = slot
+302 |             dx, dy = self._npc_delta(npc, slot)
+303 |             nx, ny = int(round(npc.x + dx)), int(round(npc.y + dy))
+    |                      ^^^^^^^^^^^^^^^^^^^^^^
+304 |             if self.is_walkable(nx, ny):
+305 |                 npc.x, npc.y = float(nx), float(ny)
+    |
+help: Remove unnecessary `int` call
+
+RUF046 Value being cast to `int` is already an integer
+   --> app/simulation/world.py:303:46
+    |
+301 |             npc.last_move_slot = slot
+302 |             dx, dy = self._npc_delta(npc, slot)
+303 |             nx, ny = int(round(npc.x + dx)), int(round(npc.y + dy))
+    |                                              ^^^^^^^^^^^^^^^^^^^^^^
+304 |             if self.is_walkable(nx, ny):
+305 |                 npc.x, npc.y = float(nx), float(ny)
+    |
+help: Remove unnecessary `int` call
+
+SIM102 Use a single `if` statement instead of nested `if` statements
+   --> app/simulation/world.py:312:9
+    |
+310 |           directions = [(0, 0), (1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1)]
+311 |           dx, dy = directions[value % len(directions)]
+312 | /         if npc.kind == "wolf":
+313 | |             # Wolf tends to remain near its cave.
+314 | |             if math.hypot(npc.x - self.cave_position[0], npc.y - self.cave_position[1]) > 12:
+    | |_____________________________________________________________________________________________^
+315 |                   dx = 1 if self.cave_position[0] > npc.x else -1
+316 |                   dy = 1 if self.cave_position[1] > npc.y else -1
+    |
+help: Combine `if` statements using `and`
+
+UP037 [*] Remove quotes from type annotation
+   --> app/simulation/world.py:325:49
+    |
+324 |     @classmethod
+325 |     def from_dict(cls, data: dict[str, Any]) -> "WorldState":
+    |                                                 ^^^^^^^^^^^^
+326 |         return cls(
+327 |             seed=data["seed"],
+    |
+help: Remove quotes
+    |
+324 |     @classmethod
+    -     def from_dict(cls, data: dict[str, Any]) -> "WorldState":
+325 +     def from_dict(cls, data: dict[str, Any]) -> WorldState:
+326 |         return cls(
+    |
+
+UP035 [*] Import from `collections.abc` instead: `Callable`
+  --> app/storage/database.py:8:1
+   |
+ 6 | import time
+ 7 | from pathlib import Path
+ 8 | from typing import Any, Callable, TypeVar
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 9 |
+10 | from app.serialization import finite_number, json_safe, strict_json_dumps
+   |
+help: Import from `collections.abc`
+   |
+7  | from pathlib import Path
+   - from typing import Any, Callable, TypeVar
+8  + from typing import Any, TypeVar
+9  + from collections.abc import Callable
+10 |
+   |
+
+F401 [*] `app.serialization.json_safe` imported but unused
+  --> app/storage/database.py:10:46
+   |
+ 8 | from typing import Any, Callable, TypeVar
+ 9 |
+10 | from app.serialization import finite_number, json_safe, strict_json_dumps
+   |                                              ^^^^^^^^^
+11 |
+12 | T = TypeVar("T")
+   |
+help: Remove unused import: `app.serialization.json_safe`
+   |
+9  |
+   - from app.serialization import finite_number, json_safe, strict_json_dumps
+10 + from app.serialization import finite_number, strict_json_dumps
+11 |
+   |
+
+UP035 [*] Import from `collections.abc` instead: `Callable`
+  --> app/updater/manager.py:11:1
+   |
+ 9 | from datetime import UTC, datetime
+10 | from pathlib import Path
+11 | from typing import Any, Callable
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+12 |
+13 | import httpx
+   |
+help: Import from `collections.abc`
+   |
+10 | from pathlib import Path
+   - from typing import Any, Callable
+11 + from typing import Any
+12 + from collections.abc import Callable
+13 |
+   |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> app/updater/manager.py:118:13
+    |
+116 |               try:
+117 |                   await self.check()
+118 | /             except Exception:
+119 | |                 pass
+    | |____________________^
+120 |               await asyncio.sleep(max(3600.0, self.settings.update_check_interval_hours * 3600.0))
+    |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> app/updater/manager.py:118:20
+    |
+116 |             try:
+117 |                 await self.check()
+118 |             except Exception:
+    |                    ^^^^^^^^^
+119 |                 pass
+120 |             await asyncio.sleep(max(3600.0, self.settings.update_check_interval_hours * 3600.0))
+    |
+
+ASYNC220 Async functions should not create subprocesses with blocking methods
+   --> app/updater/manager.py:307:27
+    |
+305 |         try:
+306 |             try:
+307 |                 process = subprocess.Popen(
+    |                           ^^^^^^^^^^^^^^^^
+308 |                     command,
+309 |                     cwd=self.project_root,
+    |
+
+F401 [*] `sys` imported but unused
+  --> scripts/apply_update.py:9:8
+   |
+ 7 | import shutil
+ 8 | import subprocess
+ 9 | import sys
+   |        ^^^
+10 | import time
+11 | from datetime import UTC, datetime
+   |
+help: Remove unused import: `sys`
+  |
+8 | import subprocess
+  - import sys
+9 | import time
+  |
+
+BLE001 Do not catch blind exception: `Exception`
+   --> scripts/apply_update.py:287:12
+    |
+285 |             restart_app(project_root, str(request["python_executable"]), log_path)
+286 |         return 0
+287 |     except Exception as exc:
+    |            ^^^^^^^^^
+288 |         _log(log_path, f"Updater terminated with an error: {exc}")
+289 |         return 1
+    |
+
+S102 Use of `exec` detected
+  --> scripts/build_release.py:22:5
+   |
+20 |     version = str(data["project"]["version"])
+21 |     namespace: dict[str, str] = {}
+22 |     exec((ROOT / "app" / "version.py").read_text(encoding="utf-8"), namespace)
+   |     ^^^^
+23 |     if namespace.get("__version__") != version:
+24 |         raise SystemExit("pyproject.toml and app/version.py versions do not match")
+   |
+
+I001 [*] Import block is un-sorted or un-formatted
+ --> scripts/smoke_simulation.py:1:1
+  |
+1 | / from __future__ import annotations
+2 | |
+3 | | import asyncio
+4 | | import tempfile
+5 | | from pathlib import Path
+6 | | import sys
+  | |__________^
+7 |
+8 |   ROOT = Path(__file__).resolve().parents[1]
+  |
+help: Organize imports
+  |
+3 | import asyncio
+4 + import sys
+5 | import tempfile
+6 | from pathlib import Path
+  - import sys
+7 |
+  |
+
+SIM117 [*] Use a single `with` statement with multiple contexts instead of nested `with` statements
+  --> tests/test_api.py:67:5
+   |
+65 |   def test_websocket_initial_state(engine) -> None:
+66 |       app = create_app(engine.settings, engine=engine, start_background=False)
+67 | /     with TestClient(app) as client:
+68 | |         with client.websocket_connect("/ws") as socket:
+   | |_______________________________________________________^
+69 |               payload = socket.receive_json()
+70 |               assert payload["world"]["seed"] == engine.world.seed
+   |
+help: Combine `with` statements
+   |
+66 |     app = create_app(engine.settings, engine=engine, start_background=False)
+   -     with TestClient(app) as client:
+   -         with client.websocket_connect("/ws") as socket:
+   -             payload = socket.receive_json()
+   -             assert payload["world"]["seed"] == engine.world.seed
+   -             assert "agent_perception" in payload
+   -             assert "tiles" not in payload["world"]
+67 +     with TestClient(app) as client, client.websocket_connect("/ws") as socket:
+68 +         payload = socket.receive_json()
+69 +         assert payload["world"]["seed"] == engine.world.seed
+70 +         assert "agent_perception" in payload
+71 +         assert "tiles" not in payload["world"]
+   |
+
+I001 [*] Import block is un-sorted or un-formatted
+ --> tests/test_config_and_serve.py:1:1
+  |
+1 | / from __future__ import annotations
+2 | |
+3 | | from pathlib import Path
+4 | |
+5 | | from app import serve
+6 | | from app.config import Settings, load_settings
+  | |______________________________________________^
+  |
+help: Organize imports
+  |
+7 |
+  -
+8 | ROOT = Path(__file__).resolve().parents[1]
+  |
+
+I001 [*] Import block is un-sorted or un-formatted
+ --> tests/test_public_repository_hygiene.py:1:1
+  |
+1 | / from __future__ import annotations
+2 | |
+3 | | from pathlib import Path
+  | |________________________^
+  |
+help: Organize imports
+  |
+4 |
+  -
+5 | ROOT = Path(__file__).resolve().parents[1]
+  |
+
+FLY002 Consider `"c:\\users\\ethan"` instead of string join
+  --> tests/test_public_repository_hygiene.py:15:5
+   |
+13 | # examples are allowed. This file is excluded because it defines the markers.
+14 | FORBIDDEN_MARKERS = {
+15 |     "".join(("c:\\users\\", "ethan")),
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+16 |     "".join(("/c/users/", "ethan")),
+17 |     "".join(("ethan", "-pc")),
+   |
+help: Replace with `"c:\\users\\ethan"`
+
+FLY002 Consider `"/c/users/ethan"` instead of string join
+  --> tests/test_public_repository_hygiene.py:16:5
+   |
+14 | FORBIDDEN_MARKERS = {
+15 |     "".join(("c:\\users\\", "ethan")),
+16 |     "".join(("/c/users/", "ethan")),
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+17 |     "".join(("ethan", "-pc")),
+18 |     "".join(("tail", "ce5cf1")),
+   |
+help: Replace with `"/c/users/ethan"`
+
+FLY002 Consider `"ethan-pc"` instead of string join
+  --> tests/test_public_repository_hygiene.py:17:5
+   |
+15 |     "".join(("c:\\users\\", "ethan")),
+16 |     "".join(("/c/users/", "ethan")),
+17 |     "".join(("ethan", "-pc")),
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+18 |     "".join(("tail", "ce5cf1")),
+19 |     "".join(("docs/project_", "handoff.md")),
+   |
+help: Replace with `"ethan-pc"`
+
+FLY002 Consider `"tailce5cf1"` instead of string join
+  --> tests/test_public_repository_hygiene.py:18:5
+   |
+16 |     "".join(("/c/users/", "ethan")),
+17 |     "".join(("ethan", "-pc")),
+18 |     "".join(("tail", "ce5cf1")),
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+19 |     "".join(("docs/project_", "handoff.md")),
+20 |     "".join(("docs/new_session_", "prompt.md")),
+   |
+help: Replace with `"tailce5cf1"`
+
+FLY002 Consider `"docs/project_handoff.md"` instead of string join
+  --> tests/test_public_repository_hygiene.py:19:5
+   |
+17 |     "".join(("ethan", "-pc")),
+18 |     "".join(("tail", "ce5cf1")),
+19 |     "".join(("docs/project_", "handoff.md")),
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+20 |     "".join(("docs/new_session_", "prompt.md")),
+21 | }
+   |
+help: Replace with `"docs/project_handoff.md"`
+
+FLY002 Consider `"docs/new_session_prompt.md"` instead of string join
+  --> tests/test_public_repository_hygiene.py:20:5
+   |
+18 |     "".join(("tail", "ce5cf1")),
+19 |     "".join(("docs/project_", "handoff.md")),
+20 |     "".join(("docs/new_session_", "prompt.md")),
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+21 | }
+   |
+help: Replace with `"docs/new_session_prompt.md"`
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> tests/test_v040_cognitive_foundations.py:1:1
+   |
+ 1 | / from __future__ import annotations
+ 2 | |
+ 3 | | import json
+ 4 | |
+ 5 | | from app.llm.prompts import decision_messages
+ 6 | | from app.llm.schemas import ActionDecision
+ 7 | | from app.simulation.actions import ActionController
+ 8 | | from app.simulation.agent import AgentState
+ 9 | | from app.simulation.cognition import AWAKENING_NARRATIVE, BeliefRecord, BeliefStatus, EpisodeRecord, MapMarker, NoteRecord, Provenance
+10 | | from app.simulation.perception import build_perception
+11 | | from app.simulation.world import WorldState
+12 | | from app.storage.database import Database
+   | |_________________________________________^
+   |
+help: Organize imports
+   |
+8  | from app.simulation.agent import AgentState
+   - from app.simulation.cognition import AWAKENING_NARRATIVE, BeliefRecord, BeliefStatus, EpisodeRecord, MapMarker, NoteRecord, Provenance
+9  + from app.simulation.cognition import (
+10 +     AWAKENING_NARRATIVE,
+11 +     BeliefRecord,
+12 +     BeliefStatus,
+13 +     EpisodeRecord,
+14 +     MapMarker,
+15 +     NoteRecord,
+16 +     Provenance,
+17 + )
+18 | from app.simulation.perception import build_perception
+   |
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> tests/test_v040_post3_remediation.py:1:1
+   |
+ 1 | / from __future__ import annotations
+ 2 | |
+ 3 | | import json
+ 4 | | import math
+ 5 | | import pytest
+ 6 | |
+ 7 | | from app.llm.prompts import decision_messages
+ 8 | | from app.llm.schemas import ActionDecision
+ 9 | | from app.simulation.actions import ARI_MAP_CELL_LIMIT, ARI_MAP_MARKER_LIMIT, ARI_NOTE_LIMIT, ARI_TASK_LIMIT, ActionController, project…
+10 | | from app.simulation.agent import AgentState
+11 | | from app.simulation.cognition import MapMarker, NoteRecord, Provenance, TaskRecord
+12 | | from app.simulation.perception import build_perception
+13 | | from app.simulation.world import WorldState
+   | |___________________________________________^
+   |
+help: Organize imports
+   |
+4  | import math
+5  +
+6  | import pytest
+7  |
+8  | from app.llm.prompts import decision_messages
+9  | from app.llm.schemas import ActionDecision
+   - from app.simulation.actions import ARI_MAP_CELL_LIMIT, ARI_MAP_MARKER_LIMIT, ARI_NOTE_LIMIT, ARI_TASK_LIMIT, ActionController, project_view_result_for_recent_outcome
+10 + from app.simulation.actions import (
+11 +     ARI_MAP_CELL_LIMIT,
+12 +     ARI_MAP_MARKER_LIMIT,
+13 +     ARI_NOTE_LIMIT,
+14 +     ARI_TASK_LIMIT,
+15 +     ActionController,
+16 +     project_view_result_for_recent_outcome,
+17 + )
+18 | from app.simulation.agent import AgentState
+   |
+
+UP035 [*] Import from `collections.abc` instead: `Callable`
+ --> tests/test_v040_post4_remediation.py:6:1
+  |
+4 | import math
+5 | from pathlib import Path
+6 | from typing import Any, Callable
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+7 |
+8 | import pytest
+  |
+help: Import from `collections.abc`
+  |
+5 | from pathlib import Path
+  - from typing import Any, Callable
+6 + from typing import Any
+7 + from collections.abc import Callable
+8 |
+  |
+
+RUF046 Value being cast to `int` is already an integer
+  --> tests/test_v040_post4_remediation.py:83:16
+   |
+81 |     if action == "view_map":
+82 |         safe = "SAFE_MAP_CELL_DESCRIPTOR"
+83 |         x, y = int(round(float(engine.agent.x))), int(round(float(engine.agent.y)))
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+84 |         engine.agent.known_terrain = {f"{x},{y}": safe}
+85 |         engine.agent.map_markers = {
+   |
+help: Remove unnecessary `int` call
+
+RUF046 Value being cast to `int` is already an integer
+  --> tests/test_v040_post4_remediation.py:83:51
+   |
+81 |     if action == "view_map":
+82 |         safe = "SAFE_MAP_CELL_DESCRIPTOR"
+83 |         x, y = int(round(float(engine.agent.x))), int(round(float(engine.agent.y)))
+   |                                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+84 |         engine.agent.known_terrain = {f"{x},{y}": safe}
+85 |         engine.agent.map_markers = {
+   |
+help: Remove unnecessary `int` call
+
+PIE807 [*] Prefer `list` over useless lambda
+   --> tests/test_v040_post4_remediation.py:181:9
+    |
+179 |         lambda: "12.5",
+180 |         lambda: True,
+181 |         lambda: [],
+    |         ^^^^^^^^^^
+182 |         lambda: {"x": 1},
+183 |         lambda: {1, 2},
+    |
+help: Replace with `lambda` with `list`
+    |
+180 |         lambda: True,
+    -         lambda: [],
+181 +         list,
+182 |         lambda: {"x": 1},
+    |
+
+F401 [*] `app.simulation.world.Terrain` imported but unused
+ --> tests/test_world_and_needs.py:7:43
+  |
+5 | from app.simulation.agent import AgentState
+6 | from app.simulation.needs import update_needs
+7 | from app.simulation.world import Shelter, Terrain, WorldState
+  |                                           ^^^^^^^
+  |
+help: Remove unused import: `app.simulation.world.Terrain`
+  |
+6 | from app.simulation.needs import update_needs
+  - from app.simulation.world import Shelter, Terrain, WorldState
+7 + from app.simulation.world import Shelter, WorldState
+8 |
+  |
+
+Found 86 errors.
+[*] 32 fixable with the `--fix` option (47 hidden fixes can be enabled with the `--unsafe-fixes` option).
