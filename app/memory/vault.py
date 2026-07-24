@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import shutil
 import time
@@ -173,20 +174,39 @@ class MemoryVault:
             path=str(path.relative_to(self.root)).replace("\\", "/"),
         )
 
-    def list_records(self) -> list[MemoryRecord]:
-        records: list[MemoryRecord] = []
+    def list_records(self, limit: int | None = None, scan_limit: int = 10000) -> list[MemoryRecord]:
+        maximum_scan = max(1, min(100000, int(scan_limit)))
+        maximum_output = maximum_scan if limit is None else max(0, min(maximum_scan, int(limit)))
+        if maximum_output == 0:
+            return []
         quarantine_root = (self.root / "quarantine").resolve()
-        for path in sorted(self.root.rglob("*.md")):
-            resolved = path.resolve()
-            if quarantine_root == resolved or quarantine_root in resolved.parents:
-                continue
+        candidate_paths: list[Path] = []
+        scanned = 0
+        for directory, dirnames, filenames in os.walk(self.root):
+            dirnames[:] = sorted(name for name in dirnames if name != "quarantine")
+            for filename in sorted(filenames):
+                if not filename.endswith(".md"):
+                    continue
+                scanned += 1
+                if scanned > maximum_scan:
+                    break
+                path = Path(directory) / filename
+                resolved = path.resolve()
+                if quarantine_root == resolved or quarantine_root in resolved.parents:
+                    continue
+                candidate_paths.append(path)
+            if scanned > maximum_scan:
+                break
+        candidate_paths.sort(key=lambda path: path.relative_to(self.root).as_posix())
+        records: deque[MemoryRecord] = deque(maxlen=maximum_output)
+        for path in candidate_paths:
             try:
                 record = self._parse_file(path)
-            except (OSError, ValueError):
+            except (OSError, ValueError, KeyError, TypeError, OverflowError):
                 continue
             if record:
                 records.append(record)
-        return records
+        return list(records)
 
     def _parse_file(self, path: Path) -> MemoryRecord | None:
         resolved = path.resolve()
