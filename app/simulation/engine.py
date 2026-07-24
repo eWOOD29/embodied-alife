@@ -9,7 +9,7 @@ from app.llm.observed_client import ObservedLocalLLMClient
 from app.llm.schemas import ActionDecision, MemoryWrite
 from app.memory.retrieval import retrieve_memories
 from app.memory.vault import MemoryValidationError, MemoryVault
-from app.simulation.actions import ActionResult
+from app.simulation.actions import ActionResult, VIEW_ACTIONS, project_view_result_for_recent_outcome
 from app.simulation.affordances import build_action_affordances
 from app.simulation.perception import build_perception
 from app.simulation.scheduler import SimulationEngine as BaseSimulationEngine
@@ -64,17 +64,31 @@ class SimulationEngine(BaseSimulationEngine):
             result = event.get("data") or {}
             if result.get("reason") == "started":
                 continue
-            outcomes.append(
-                {
-                    "sim_time": event.get("sim_time"),
-                    "action": result.get("action") or (current_decision or {}).get("action"),
-                    "target_id": (current_decision or {}).get("target_id"),
-                    "success": bool(result.get("success")),
-                    "reason": result.get("reason"),
-                    "details": result.get("details") or event.get("message"),
-                }
+            action = result.get("action") or (current_decision or {}).get("action")
+            outcome = {
+                "sim_time": event.get("sim_time"),
+                "action": action,
+                "target_id": (current_decision or {}).get("target_id"),
+                "success": bool(result.get("success")),
+                "reason": result.get("reason"),
+                "details": result.get("details") or event.get("message"),
+            }
+            outcomes.append(outcome)
+        selected = outcomes[-limit:]
+        if selected:
+            latest = selected[-1]
+            latest_event = next(
+                (event for event in reversed(self.events) if event.get("kind") == "action_result" and (event.get("data") or {}).get("reason") != "started"),
+                None,
             )
-        return outcomes[-limit:]
+            if latest_event is not None:
+                latest_result = latest_event.get("data") or {}
+                latest_action = latest_result.get("action")
+                if latest.get("success") and latest_action in VIEW_ACTIONS:
+                    projected = project_view_result_for_recent_outcome(latest_action, latest_result.get("data"))
+                    if projected:
+                        latest["view_result"] = projected
+        return selected
 
     def _correct_decision(
         self,
@@ -252,7 +266,10 @@ class SimulationEngine(BaseSimulationEngine):
         perception = build_perception(self.world, self.agent)
         action_affordances = build_action_affordances(self.world, self.agent, perception)
         recent_outcomes = self._recent_action_outcomes(limit=8)
-        action_affordances["recent_authoritative_outcomes"] = recent_outcomes
+        action_affordances["recent_authoritative_outcomes"] = [
+            {key: value for key, value in outcome.items() if key != "view_result"}
+            for outcome in recent_outcomes
+        ]
         action_affordances["blocked_recent_failures"] = [
             {
                 "action": outcome.get("action"),

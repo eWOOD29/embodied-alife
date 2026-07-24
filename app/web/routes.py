@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from app.diagnostics import build_diagnostic_bundle
+from app.serialization import json_safe
 from app.updater.manager import UpdateError
 from app.version import __version__
 
@@ -77,12 +78,12 @@ def health(request: Request) -> dict:
 
 @router.get("/api/state")
 def state(request: Request) -> dict:
-    return _engine(request).observer_state()
+    return json_safe(_engine(request).observer_state(), max_depth=12, max_items=10000, max_text=4000, max_nodes=250000)
 
 
 @router.get("/api/world")
 def world(request: Request) -> dict:
-    return _engine(request).observer_state(include_map=True)
+    return json_safe(_engine(request).observer_state(include_map=True), max_depth=12, max_items=10000, max_text=4000, max_nodes=250000)
 
 
 @router.get("/api/diagnostics/download")
@@ -107,12 +108,12 @@ def download_diagnostics(request: Request) -> JSONResponse:
 
 @router.get("/api/snapshots")
 def snapshots(request: Request) -> list[dict]:
-    return _engine(request).snapshots.list()
+    return json_safe(_engine(request).snapshots.list(), max_depth=6, max_items=1000, max_text=1000, max_nodes=10000)
 
 
 @router.get("/api/memories")
 def memories(request: Request) -> list[dict]:
-    return [record.to_dict() for record in _engine(request).vault.list_records()]
+    return json_safe([record.to_dict() for record in _engine(request).vault.list_records()], max_depth=8, max_items=1000, max_text=4000, max_nodes=50000)
 
 
 @router.get("/api/llm/settings")

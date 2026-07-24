@@ -299,16 +299,8 @@ def test_exact_marker_branch_uses_allowlist_and_preserves_observer_cognition() -
     }
     for payload in (result_payload, json.loads(normal_prompt), json.loads(first_prompt), fallback):
         _assert_forbidden(payload, forbidden_keys, forbidden_values)
-    projected = result.data["markers"][0]
-    assert projected == {
-        "marker_id": "marker-safe",
-        "label": "possible landmark",
-        "marker_type": "subjective",
-        "status": "active",
-        "confidence": 0.55,
-        "provenance_category": "subjective",
-        "believed_location": {"direction": "northwest", "distance_band": "near", "uncertainty": 0.3},
-    }
+    assert result.data["markers"] == []
+    assert result.data["total_markers"] == 0
     observer = agent.to_dict()
     assert observer["map_markers"]["marker-safe"]["believed_location"]["cave_truth"] == "CAVE_TRUTH_SENTINEL"
     assert observer["map_markers"]["marker-safe"]["notes"] == "NOTES_SENTINEL"
@@ -331,13 +323,13 @@ def _large_prompt_case(world: WorldState, size: int, *, awakening: bool) -> tupl
         key_id = sentinel + ("k" * 500)
         agent.key_items[key_id] = KeyItem(key_id, sentinel + ("d" * 500), "description", Provenance("test"))
         task_id = f"task-{index}"
-        agent.tasks[task_id] = TaskRecord(task_id, sentinel + ("t" * 500), "summary" + ("s" * 500), "test", "proposed", index, 0, 0, provenance=Provenance("test"))
+        agent.tasks[task_id] = TaskRecord(task_id, sentinel + ("t" * 500), "summary" + ("s" * 500), "ari", "proposed", index, 0, 0, provenance=Provenance("agent"))
         agent.personality_traits[sentinel + ("p" * 300)] = sentinel + ("v" * 800)
         agent.known_locations[sentinel + ("l" * 400)] = {"x": index, "y": index, "certainty": sentinel + "bad"}
         agent.recent_events.append({"sim_time": sentinel, "kind": sentinel + ("e" * 300), "message": sentinel + ("m" * 900), "importance": sentinel})
         agent.beliefs[f"belief-{index}"] = BeliefRecord(f"belief-{index}", sentinel + ("b" * 900), 0.5, sentinel + ("q" * 900), "hypothesis", index, None, provenance=Provenance("test"))
-        agent.notes[f"note-{index}"] = NoteRecord(f"note-{index}", sentinel, sentinel + ("n" * 900), [], "active", 0, 0, provenance=Provenance("test"))
-        agent.map_markers[f"marker-{index}"] = MapMarker(f"marker-{index}", sentinel, "test", {"relative_direction": "north", "metadata": sentinel}, 0.5, "active", sentinel, 0, 0, provenance=Provenance("test"))
+        agent.notes[f"note-{index}"] = NoteRecord(f"note-{index}", sentinel, sentinel + ("n" * 900), [], "active", 0, 0, provenance=Provenance("agent"))
+        agent.map_markers[f"marker-{index}"] = MapMarker(f"marker-{index}", sentinel, "test", {"relative_direction": "north", "metadata": sentinel}, 0.5, "active", sentinel, 0, 0, provenance=Provenance("agent"))
         agent.short_term_episodes[f"episode-{index}"] = EpisodeRecord(f"episode-{index}", index, index, sentinel + ("z" * 900), "test", 0.5, "recent", provenance=Provenance("test"))
         memories.append({"memory_id": f"memory-{index}", "title": sentinel + ("r" * 600), "content": sentinel + ("c" * 5000), "tags": [sentinel + ("g" * 500)] * 50})
         active_plan.append(sentinel + ("a" * 3000))

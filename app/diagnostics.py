@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from app.build_info import BUILD_COMMIT, BUILD_TIME_UTC, BUILD_VERSION
+from app.serialization import json_safe_dict
 from app.validation import build_soak_readiness
 
 PROCESS_STARTED_AT = datetime.now(UTC)
@@ -184,7 +185,7 @@ def build_diagnostic_bundle(
         anomaly_checks=anomaly_checks,
     )
 
-    return {
+    bundle = {
         "diagnostic_bundle": {
             "schema_version": 3,
             "exported_at_utc": exported_at.isoformat(),
@@ -253,3 +254,4 @@ def build_diagnostic_bundle(
             "recent_memory_writes": len(engine.memory_writes),
         },
     }
+    return json_safe_dict(bundle, max_depth=14, max_items=10000, max_text=4000, max_nodes=300000)

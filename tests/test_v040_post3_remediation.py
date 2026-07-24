@@ -6,7 +6,7 @@ import pytest
 
 from app.llm.prompts import decision_messages
 from app.llm.schemas import ActionDecision
-from app.simulation.actions import ARI_MAP_CELL_LIMIT, ARI_MAP_MARKER_LIMIT, ARI_NOTE_LIMIT, ARI_TASK_LIMIT, ActionController
+from app.simulation.actions import ARI_MAP_CELL_LIMIT, ARI_MAP_MARKER_LIMIT, ARI_NOTE_LIMIT, ARI_TASK_LIMIT, ActionController, project_view_result_for_recent_outcome
 from app.simulation.agent import AgentState
 from app.simulation.cognition import MapMarker, NoteRecord, Provenance, TaskRecord
 from app.simulation.perception import build_perception
@@ -113,7 +113,15 @@ def test_action_results_remain_bounded_when_inserted_into_later_prompt():
     for index in range(1000):
         token = f'SENTINEL_{index}_' + 'x' * 2000
         agent.notes[str(index)] = NoteRecord(str(index), token, token, [token], 'active', index, index, provenance=Provenance('note', token, token))
-    outcome = complete(world, agent, 'view_notebook').to_dict()
+    result = complete(world, agent, 'view_notebook')
+    outcome = {
+        'action': 'view_notebook',
+        'success': True,
+        'reason': 'viewed',
+        'details': result.details,
+        'view_result': project_view_result_for_recent_outcome('view_notebook', result.data),
+    }
     prompt = decision_messages({'perception': build_perception(world, agent), 'active_plan': [], 'retrieved_memories': [], 'recent_outcomes': [outcome]})[-1]['content']
     assert len(prompt) < 20000
-    assert 'SENTINEL_999_' not in prompt
+    assert 'SENTINEL_999_' in prompt
+    assert 'SENTINEL_993_' not in prompt
