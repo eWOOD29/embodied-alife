@@ -210,8 +210,8 @@ def _ari_marker_projection(marker: Any, agent: AgentState) -> dict[str, Any] | N
     location = _ari_location_projection(getattr(marker, "believed_location", None), agent)
     if location:
         item["believed_location"] = location
-    tasks = agent.tasks if isinstance(agent.tasks, dict) else {}
-    notes = agent.notes if isinstance(agent.notes, dict) else {}
+    tasks = agent.tasks if type(agent.tasks) is dict else {}
+    notes = agent.notes if type(agent.notes) is dict else {}
     task_links = _safe_link_ids(getattr(marker, "linked_task_ids", []), "task", tasks, agent)
     note_links = _safe_link_ids(getattr(marker, "linked_note_ids", []), "note", notes, agent)
     if task_links:
@@ -250,9 +250,9 @@ def _ari_task_projection(task: Any, agent: AgentState) -> dict[str, Any] | None:
         "updated_at": _ari_time(getattr(task, "updated_at", 0.0)),
         "provenance_category": ARI_PROVENANCE_CATEGORIES[source_type],
     }
-    tasks = agent.tasks if isinstance(agent.tasks, dict) else {}
-    markers = agent.map_markers if isinstance(agent.map_markers, dict) else {}
-    notes = agent.notes if isinstance(agent.notes, dict) else {}
+    tasks = agent.tasks if type(agent.tasks) is dict else {}
+    markers = agent.map_markers if type(agent.map_markers) is dict else {}
+    notes = agent.notes if type(agent.notes) is dict else {}
     parent = _bounded_text(getattr(task, "parent_task_id", ""), 96)
     parent_record = tasks.get(parent) if parent else None
     if parent_record is not None and verify_record("task", parent_record, agent):
@@ -295,8 +295,8 @@ def _ari_note_projection(note: Any, agent: AgentState) -> dict[str, Any] | None:
                 break
     if tags:
         item["tags"] = tags
-    tasks = agent.tasks if isinstance(agent.tasks, dict) else {}
-    markers = agent.map_markers if isinstance(agent.map_markers, dict) else {}
+    tasks = agent.tasks if type(agent.tasks) is dict else {}
+    markers = agent.map_markers if type(agent.map_markers) is dict else {}
     task_links = _safe_link_ids(getattr(note, "linked_task_ids", []), "task", tasks, agent)
     marker_links = _safe_link_ids(getattr(note, "linked_marker_ids", []), "marker", markers, agent)
     if task_links:
@@ -386,9 +386,9 @@ class ActionController:
         self.execution: ActionExecution | None = None
 
     def start(self, decision: ActionDecision, world: WorldState, agent: AgentState) -> ActionResult:
-        if not agent.alive:
+        if agent.alive is not True:
             return ActionResult(False, decision.action, "agent_dead", "The body cannot act.")
-        if agent.sleeping:
+        if agent.sleeping is True:
             return ActionResult(False, decision.action, "already_sleeping", "The body is already asleep.")
         action = decision.action
         agent_x = _finite_number(getattr(agent, "x", None))
@@ -408,15 +408,23 @@ class ActionController:
             path = astar(world, (int(round(safe_agent_x)), int(round(safe_agent_y))), goal)
             if not path and goal != (int(round(safe_agent_x)), int(round(safe_agent_y))):
                 return ActionResult(False, action, "target_unreachable", f"No legal path to {goal}.")
-            duration = max(duration, max(0.5, len(path) / max(0.25, agent.movement_speed)))
+            movement_speed = _finite_number(getattr(agent, "movement_speed", None), None, minimum=0.25, maximum=1000.0)
+            if movement_speed is None:
+                return ActionResult(False, action, "movement_unknown", "Movement speed is invalid; movement feasibility is unknown.")
+            duration = max(duration, max(0.5, len(path) / movement_speed))
             metadata["goal"] = list(goal)
         elif action == "pick_up":
-            resource = world.resources.get(decision.target_id or "")
-            if not resource or resource.quantity <= 0:
-                return ActionResult(False, action, "target_missing", "The requested resource is not present.")
-            if math.hypot(resource.x - safe_agent_x, resource.y - safe_agent_y) > INTERACTION_RADIUS:
+            from app.simulation.world import Resource
+            resources = world.resources if type(getattr(world, "resources", None)) is dict else {}
+            resource = resources.get(decision.target_id or "")
+            quantity = _finite_number(getattr(resource, "quantity", None), None, minimum=0.0, maximum=1_000_000.0) if type(resource) is Resource else None
+            resource_x = _finite_number(getattr(resource, "x", None)) if type(resource) is Resource else None
+            resource_y = _finite_number(getattr(resource, "y", None)) if type(resource) is Resource else None
+            if quantity is None or quantity <= 0 or resource_x is None or resource_y is None:
+                return ActionResult(False, action, "target_missing", "The requested resource is not present or valid.")
+            if math.hypot(resource_x - safe_agent_x, resource_y - safe_agent_y) > INTERACTION_RADIUS:
                 return ActionResult(False, action, "out_of_reach", "The resource is too far away.")
-            if not resource.portable and resource.kind != "berry_bush":
+            if resource.portable is not True and resource.kind != "berry_bush":
                 return ActionResult(False, action, "not_portable", "That object cannot be picked up.")
             if not agent.can_add(1):
                 return ActionResult(False, action, "inventory_full", "The inventory is full.")
@@ -429,7 +437,10 @@ class ActionController:
         elif action == "build":
             if world.tile(int(round(safe_agent_x)), int(round(safe_agent_y))) != Terrain.BUILD_AREA:
                 return ActionResult(False, action, "illegal_location", "A basic shelter can only be built on stable clearing terrain.")
-            if agent.inventory.get("branch", 0) < 3 or agent.inventory.get("stone", 0) < 2:
+            inventory = agent.inventory if type(getattr(agent, "inventory", None)) is dict else {}
+            branches = _finite_number(inventory.get("branch"), None, minimum=0.0, maximum=1_000_000.0)
+            stones = _finite_number(inventory.get("stone"), None, minimum=0.0, maximum=1_000_000.0)
+            if branches is None or stones is None or branches < 3 or stones < 2:
                 return ActionResult(False, action, "missing_materials", "A shelter needs 3 branches and 2 stones.")
             if world.nearby_shelter(safe_agent_x, safe_agent_y, 2.0):
                 return ActionResult(False, action, "already_built", "A shelter already occupies this location.")
@@ -437,7 +448,9 @@ class ActionController:
         elif action == "drop":
             if decision.target_id in agent.key_items:
                 return ActionResult(False, action, "key_item_protected", "Key items cannot be dropped.")
-            if not decision.target_id or agent.inventory.get(decision.target_id, 0) <= 0:
+            inventory = agent.inventory if type(getattr(agent, "inventory", None)) is dict else {}
+            quantity = _finite_number(inventory.get(decision.target_id), None, minimum=0.0, maximum=1_000_000.0) if decision.target_id else None
+            if not decision.target_id or quantity is None or quantity <= 0:
                 return ActionResult(False, action, "item_missing", "The requested inventory item is unavailable.")
         elif action == "inspect" and decision.target_id:
             if not self._target_near(decision.target_id, world, agent, INTERACTION_RADIUS):
@@ -452,8 +465,9 @@ class ActionController:
 
         if not agent.awakening.presented:
             agent.awakening.presented = True
-            agent.awakening.presented_at = world.sim_time
-        self.execution = ActionExecution(action, decision.target_id, duration, duration, path, decision.direction, world.sim_time, metadata)
+            agent.awakening.presented_at = _finite_number(getattr(world, "sim_time", None), 0.0) or 0.0
+        started_at = _finite_number(getattr(world, "sim_time", None), 0.0) or 0.0
+        self.execution = ActionExecution(action, decision.target_id, duration, duration, path, decision.direction, started_at, metadata)
         agent.current_action = self.execution.to_dict()
         agent.current_intention = decision.intent
         agent.last_decision_reason = decision.reason
@@ -463,10 +477,19 @@ class ActionController:
         execution = self.execution
         if not execution:
             return False, None, False
-        moving = execution.action in {"move", "move_to", "flee"} and bool(execution.path)
+        safe_dt = _finite_number(dt, None, minimum=0.0, maximum=3600.0)
+        remaining = _finite_number(getattr(execution, "remaining", None), None, minimum=0.0, maximum=1_000_000_000.0)
+        path = execution.path if type(execution.path) is list else []
+        execution.path = path
+        if safe_dt is None or remaining is None:
+            action = execution.action if type(execution.action) is str else "unknown"
+            self.execution = None
+            agent.current_action = None
+            return True, ActionResult(False, action, "malformed_execution", "The active action state was invalid and was safely cancelled."), False
+        moving = execution.action in {"move", "move_to", "flee"} and bool(path)
         if moving:
-            move_along_path(agent, world, execution, dt)
-        execution.remaining -= dt
+            move_along_path(agent, world, execution, safe_dt)
+        execution.remaining = max(0.0, remaining - safe_dt)
         agent.current_action = execution.to_dict()
         completed = (execution.action in {"move", "move_to", "flee"} and not execution.path) or execution.remaining <= 0
         if not completed:
@@ -497,7 +520,7 @@ class ActionController:
         if action in {"move", "move_to", "flee"}:
             return ActionResult(True, action, "completed", "The body reached the destination.", {"position": [round(safe_agent_x, 2), round(safe_agent_y, 2)]})
         if action == "pick_up":
-            resources = world.resources if isinstance(getattr(world, "resources", None), dict) else {}
+            resources = world.resources if type(getattr(world, "resources", None)) is dict else {}
             resource = resources.get(target_id or "")
             quantity = _finite_number(getattr(resource, "quantity", None)) if resource is not None else None
             resource_x = _finite_number(getattr(resource, "x", None)) if resource is not None else None
@@ -522,10 +545,17 @@ class ActionController:
                 agent.remove_item(kind, 1)
                 if kind == "berry": nutrition, energy = 22.0, 5.0
             else:
-                resource = world.resources[kind]
-                resource.quantity -= 1
-                resource.last_harvest_time = world.sim_time
-                nutrition, energy, kind = resource.nutrition, resource.energy, resource.kind
+                resources = world.resources if type(getattr(world, "resources", None)) is dict else {}
+                resource = resources.get(kind)
+                quantity = _finite_number(getattr(resource, "quantity", None), None, minimum=0.0, maximum=1_000_000.0)
+                nutrition_value = _finite_number(getattr(resource, "nutrition", None), None, minimum=0.0, maximum=1000.0)
+                energy_value = _finite_number(getattr(resource, "energy", None), None, minimum=0.0, maximum=1000.0)
+                resource_kind = _bounded_text(getattr(resource, "kind", ""), 80) if resource is not None else ""
+                if resource is None or quantity is None or quantity <= 0 or nutrition_value is None or energy_value is None or not resource_kind:
+                    return ActionResult(False, action, "edible_changed", "The edible resource is no longer valid.")
+                resource.quantity = quantity - 1
+                resource.last_harvest_time = _finite_number(getattr(world, "sim_time", None), 0.0) or 0.0
+                nutrition, energy, kind = nutrition_value, energy_value, resource_kind
             hunger = _finite_number(getattr(agent, "hunger", None), 0.0, minimum=0.0, maximum=100.0) or 0.0
             current_energy = _finite_number(getattr(agent, "energy", None), 0.0, minimum=0.0, maximum=100.0) or 0.0
             agent.hunger = max(0.0, hunger - nutrition)
@@ -547,17 +577,17 @@ class ActionController:
         if action == "build":
             if world.tile(int(round(safe_agent_x)), int(round(safe_agent_y))) != Terrain.BUILD_AREA:
                 return ActionResult(False, action, "location_changed", "The build location is no longer legal.")
-            inventory = agent.inventory if isinstance(getattr(agent, "inventory", None), dict) else {}
+            inventory = agent.inventory if type(getattr(agent, "inventory", None)) is dict else {}
             branches = _finite_number(inventory.get("branch"), None, minimum=0.0, maximum=1_000_000.0)
             stones = _finite_number(inventory.get("stone"), None, minimum=0.0, maximum=1_000_000.0)
             if branches is None or stones is None or branches < 3 or stones < 2:
                 return ActionResult(False, action, "materials_changed", "Required materials were no longer available.")
             agent.remove_item("branch", 3); agent.remove_item("stone", 2)
-            shelters = world.shelters if isinstance(getattr(world, "shelters", None), dict) else {}
+            shelters = world.shelters if type(getattr(world, "shelters", None)) is dict else {}
             shelter_id = f"shelter_{len(shelters) + 1:02d}"
             shelter = Shelter(shelter_id, int(round(safe_agent_x)), int(round(safe_agent_y)), quality=0.65)
             shelters[shelter_id] = shelter
-            if isinstance(getattr(agent, "known_locations", None), dict):
+            if type(getattr(agent, "known_locations", None)) is dict:
                 agent.known_locations[shelter_id] = {"x": shelter.x, "y": shelter.y, "certainty": 1.0, "last_seen": _finite_number(getattr(world, "sim_time", None), 0.0) or 0.0}
             return ActionResult(True, action, "built", "A basic shelter was built from branches and stones.", shelter.to_dict())
         if action == "drop":
@@ -566,9 +596,13 @@ class ActionController:
             if not target_id or not agent.remove_item(target_id, 1):
                 return ActionResult(False, action, "item_missing", "The item is no longer in inventory.")
             from app.simulation.world import Resource
-            rid = f"dropped_{target_id}_{int(world.sim_time * 10)}"
+            sim_time = _finite_number(getattr(world, "sim_time", None), 0.0) or 0.0
+            resources = world.resources if type(getattr(world, "resources", None)) is dict else None
+            if resources is None:
+                return ActionResult(False, action, "world_container_invalid", "The world resource container is invalid; the item was not dropped.")
+            rid = f"dropped_{target_id}_{int(sim_time * 10)}"
             is_edible = target_id in {"berry", "edible_plant"}
-            world.resources[rid] = Resource(rid, target_id, int(round(safe_agent_x)), int(round(safe_agent_y)), edible=is_edible,
+            resources[rid] = Resource(rid, target_id, int(round(safe_agent_x)), int(round(safe_agent_y)), edible=is_edible,
                 nutrition=22.0 if target_id == "berry" else (12.0 if is_edible else 0.0),
                 energy=5.0 if target_id == "berry" else (2.0 if is_edible else 0.0))
             return ActionResult(True, action, "dropped", f"Dropped 1 {target_id}.")
@@ -583,7 +617,7 @@ class ActionController:
             cells: list[dict[str, Any]] = []
             total_cells = 0
             cell_scan_truncated = False
-            known_terrain = agent.known_terrain if isinstance(agent.known_terrain, dict) else {}
+            known_terrain = agent.known_terrain if type(agent.known_terrain) is dict else {}
             for index, (key, terrain) in enumerate(known_terrain.items()):
                 if index >= ARI_SOURCE_SCAN_LIMIT:
                     cell_scan_truncated = True
@@ -612,7 +646,7 @@ class ActionController:
             markers: list[dict[str, Any]] = []
             total_markers = 0
             marker_scan_truncated = False
-            marker_values = agent.map_markers.values() if isinstance(agent.map_markers, dict) else []
+            marker_values = agent.map_markers.values() if type(agent.map_markers) is dict else []
             for index, marker in enumerate(marker_values):
                 if index >= ARI_SOURCE_SCAN_LIMIT:
                     marker_scan_truncated = True
@@ -642,7 +676,7 @@ class ActionController:
             total_tasks = 0
             status_counts: dict[str, int] = {}
             source_truncated = False
-            task_values = agent.tasks.values() if isinstance(agent.tasks, dict) else []
+            task_values = agent.tasks.values() if type(agent.tasks) is dict else []
             seen_ids: set[str] = set()
             for index, task in enumerate(task_values):
                 if index >= ARI_SOURCE_SCAN_LIMIT:
@@ -669,7 +703,7 @@ class ActionController:
             total_notes = 0
             total_active = 0
             source_truncated = False
-            note_values = agent.notes.values() if isinstance(agent.notes, dict) else []
+            note_values = agent.notes.values() if type(agent.notes) is dict else []
             seen_ids: set[str] = set()
             for index, note in enumerate(note_values):
                 if index >= ARI_SOURCE_SCAN_LIMIT:
@@ -703,7 +737,7 @@ class ActionController:
         agent_x = _finite_number(agent.x, 0.0) or 0.0
         agent_y = _finite_number(agent.y, 0.0) or 0.0
         if decision.action == "flee":
-            npcs = world.npcs if isinstance(world.npcs, dict) else {}
+            npcs = world.npcs if type(world.npcs) is dict else {}
             dangers = [npc for npc in npcs.values() if bool(getattr(npc, "dangerous", False))]
             if not dangers:
                 return None
@@ -717,15 +751,15 @@ class ActionController:
                 if world.is_walkable(*goal):
                     return goal
         if decision.target_id:
-            resources = world.resources if isinstance(world.resources, dict) else {}
+            resources = world.resources if type(world.resources) is dict else {}
             resource = resources.get(decision.target_id)
             if resource:
                 return self._adjacent_walkable(world, int(_finite_number(getattr(resource, "x", 0.0), 0.0) or 0.0), int(_finite_number(getattr(resource, "y", 0.0), 0.0) or 0.0), agent)
-            npcs = world.npcs if isinstance(world.npcs, dict) else {}
+            npcs = world.npcs if type(world.npcs) is dict else {}
             npc = npcs.get(decision.target_id)
             if npc:
                 return self._adjacent_walkable(world, int(_finite_number(getattr(npc, "x", 0.0), 0.0) or 0.0), int(_finite_number(getattr(npc, "y", 0.0), 0.0) or 0.0), agent)
-            known_locations = agent.known_locations if isinstance(agent.known_locations, dict) else {}
+            known_locations = agent.known_locations if type(agent.known_locations) is dict else {}
             location = known_locations.get(decision.target_id)
             if isinstance(location, dict):
                 x = _finite_number(location.get("x"))
@@ -759,13 +793,13 @@ class ActionController:
 
     @staticmethod
     def _find_edible(target_id: str | None, world: WorldState, agent: AgentState) -> tuple[str, str] | None:
-        inventory = agent.inventory if isinstance(agent.inventory, dict) else {}
+        inventory = agent.inventory if type(agent.inventory) is dict else {}
         if target_id and (_finite_number(inventory.get(target_id), 0.0) or 0.0) > 0 and target_id in {"berry", "edible_plant"}:
             return "inventory", target_id
         for kind in ("berry", "edible_plant"):
             if (_finite_number(inventory.get(kind), 0.0) or 0.0) > 0:
                 return "inventory", kind
-        resources = world.resources if isinstance(world.resources, dict) else {}
+        resources = world.resources if type(world.resources) is dict else {}
         agent_x = _finite_number(agent.x, 0.0) or 0.0
         agent_y = _finite_number(agent.y, 0.0) or 0.0
         candidates = [resources[target_id]] if target_id and target_id in resources else list(resources.values())
@@ -781,9 +815,9 @@ class ActionController:
     def _target_near(target_id: str, world: WorldState, agent: AgentState, radius: float) -> bool:
         agent_x = _finite_number(agent.x, 0.0) or 0.0
         agent_y = _finite_number(agent.y, 0.0) or 0.0
-        resources = world.resources if isinstance(world.resources, dict) else {}
-        npcs = world.npcs if isinstance(world.npcs, dict) else {}
-        locations = agent.known_locations if isinstance(agent.known_locations, dict) else {}
+        resources = world.resources if type(world.resources) is dict else {}
+        npcs = world.npcs if type(world.npcs) is dict else {}
+        locations = agent.known_locations if type(agent.known_locations) is dict else {}
         target: Any = resources.get(target_id) or npcs.get(target_id)
         if target is not None:
             x = _finite_number(getattr(target, "x", None))

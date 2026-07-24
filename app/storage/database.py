@@ -59,6 +59,9 @@ class Database:
                     message TEXT NOT NULL,
                     importance REAL NOT NULL,
                     data_json TEXT NOT NULL,
+                    run_id TEXT NOT NULL DEFAULT '',
+                    world_generation_id TEXT NOT NULL DEFAULT '',
+                    authorization_epoch_id TEXT NOT NULL DEFAULT '',
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP
                 );
                 CREATE TABLE IF NOT EXISTS snapshots (
@@ -96,6 +99,10 @@ class Database:
             columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(model_responses)").fetchall()}
             if "metadata_json" not in columns:
                 self._conn.execute("ALTER TABLE model_responses ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'")
+            event_columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(events)").fetchall()}
+            for column in ("run_id", "world_generation_id", "authorization_epoch_id"):
+                if column not in event_columns:
+                    self._conn.execute(f"ALTER TABLE events ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
 
     def _retry(self, operation: Callable[[], T]) -> T:
         last: Exception | None = None
@@ -155,16 +162,50 @@ class Database:
         def op() -> int:
             with self._conn:
                 cursor = self._conn.execute(
-                    "INSERT INTO events(sim_time, kind, message, importance, data_json) VALUES(?,?,?,?,?)",
+                    "INSERT INTO events(sim_time, kind, message, importance, data_json, run_id, world_generation_id, authorization_epoch_id) VALUES(?,?,?,?,?,?,?,?)",
                     (
                         finite_number(event.get("sim_time"), 0.0) or 0.0,
                         _safe_text(event.get("kind"), "unknown", 120) or "unknown",
                         _safe_text(event.get("message"), "", 4000),
                         finite_number(event.get("importance"), 0.3, minimum=0.0, maximum=1.0) or 0.3,
                         strict_json_dumps(event.get("data", {}), max_depth=10, max_items=1000, max_text=4000, max_nodes=50000),
+                        _safe_text(event.get("run_id"), "", 160),
+                        _safe_text(event.get("world_generation_id"), "", 160),
+                        _safe_text(event.get("authorization_epoch_id"), "", 64),
                     ),
                 )
                 return int(cursor.lastrowid)
+
+        return self._retry(op)
+
+    def add_finalized_event(self, finalize: Callable[[int], dict[str, Any]]) -> dict[str, Any]:
+        """Allocate the authoritative sequence ID, finalize/sign, then commit atomically."""
+
+        def op() -> dict[str, Any]:
+            with self._conn:
+                cursor = self._conn.execute(
+                    "INSERT INTO events(sim_time, kind, message, importance, data_json) VALUES(0,'pending','',0,'{}')"
+                )
+                event_id = int(cursor.lastrowid)
+                event = finalize(event_id)
+                if type(event) is not dict or event.get("id") != event_id:
+                    raise ValueError("invalid_finalized_event")
+                self._conn.execute(
+                    """UPDATE events SET sim_time=?, kind=?, message=?, importance=?, data_json=?,
+                    run_id=?, world_generation_id=?, authorization_epoch_id=? WHERE id=?""",
+                    (
+                        finite_number(event.get("sim_time"), 0.0) or 0.0,
+                        _safe_text(event.get("kind"), "unknown", 120) or "unknown",
+                        _safe_text(event.get("message"), "", 4000),
+                        finite_number(event.get("importance"), 0.3, minimum=0.0, maximum=1.0) or 0.3,
+                        strict_json_dumps(event.get("data", {}), max_depth=12, max_items=2048, max_text=12000, max_nodes=100000),
+                        _safe_text(event.get("run_id"), "", 160),
+                        _safe_text(event.get("world_generation_id"), "", 160),
+                        _safe_text(event.get("authorization_epoch_id"), "", 64),
+                        event_id,
+                    ),
+                )
+                return event
 
         return self._retry(op)
 
@@ -180,6 +221,9 @@ class Database:
                 "message": row["message"],
                 "importance": row["importance"],
                 "data": _safe_json_loads(row["data_json"], {}),
+                "run_id": row["run_id"],
+                "world_generation_id": row["world_generation_id"],
+                "authorization_epoch_id": row["authorization_epoch_id"],
                 "created_at": row["created_at"],
             }
             for row in reversed(rows)

@@ -41,7 +41,7 @@ def _number(value: Any, default: float | None = None, *, minimum: float | None =
 
 
 def _mapping(value: Any) -> Mapping[Any, Any]:
-    return value if isinstance(value, Mapping) else {}
+    return value if type(value) is dict else {}
 
 
 def _tail(value: Any, limit: int) -> list[Any]:

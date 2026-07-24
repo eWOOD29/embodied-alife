@@ -14,7 +14,7 @@ from app.serialization import finite_number
 from app.simulation.actions import ActionResult, VIEW_ACTIONS, project_view_result_for_recent_outcome
 from app.simulation.affordances import build_action_affordances
 from app.simulation.perception import build_perception
-from app.simulation.integrity import seal_memory_record, seal_record, verify_memory_record, verify_payload
+from app.simulation.integrity import seal_memory_record, seal_record, verify_event, verify_memory_record
 from app.simulation.scheduler import SimulationEngine as BaseSimulationEngine
 from app.storage.database import Database
 
@@ -56,42 +56,45 @@ class SimulationEngine(BaseSimulationEngine):
         )
 
     def _recent_action_outcomes(self, limit: int = 8) -> list[dict[str, Any]]:
-        bounded_limit = max(1, min(32, int(limit))) if isinstance(limit, int) and not isinstance(limit, bool) else 8
-        verified: list[tuple[dict[str, Any], dict[str, Any], dict[str, Any]]] = []
-        current_decision: dict[str, Any] | None = None
+        bounded_limit = max(1, min(32, int(limit))) if type(limit) is int and not isinstance(limit, bool) else 8
+        verified_by_id: dict[int, tuple[dict[str, Any], dict[str, Any]]] = {}
         events = self.events if isinstance(self.events, (list, tuple, deque)) else []
         for index, event in enumerate(events):
-            if index >= 4096 or not isinstance(event, dict):
+            if index >= 4096:
                 break
-            kind = event.get("kind") if isinstance(event.get("kind"), str) else ""
-            if kind == "decision":
-                data = event.get("data") if isinstance(event.get("data"), dict) else {}
-                current_decision = data.get("decision") if isinstance(data.get("decision"), dict) else {}
+            if type(event) is not dict or event.get("kind") != "action_result":
                 continue
-            if kind != "action_result":
-                continue
-            raw_result = event.get("data") if isinstance(event.get("data"), dict) else None
-            if raw_result is None:
+            event_id = event.get("id")
+            raw_result = event.get("data")
+            if type(event_id) is not int or event_id <= 0 or type(raw_result) is not dict:
                 continue
             evidence = raw_result.get("_ari_integrity")
             result = {key: value for key, value in raw_result.items() if key != "_ari_integrity"}
-            if not verify_payload(self.agent, "recent_outcome", result, evidence) or result.get("reason") == "started":
+            clean_event = dict(event)
+            clean_event["data"] = result
+            if result.get("reason") == "started" or not verify_event(self.agent, "recent_outcome", clean_event, evidence):
                 continue
-            action = result.get("action") if isinstance(result.get("action"), str) else (current_decision or {}).get("action")
+            action = result.get("action") if type(result.get("action")) is str else None
+            target_id = result.get("target_id") if type(result.get("target_id")) is str else None
             outcome = {
+                "event_id": event_id,
+                "decision_event_id": result.get("decision_event_id") if type(result.get("decision_event_id")) is int else None,
                 "sim_time": finite_number(event.get("sim_time"), None),
-                "action": action if isinstance(action, str) else None,
-                "target_id": (current_decision or {}).get("target_id") if isinstance((current_decision or {}).get("target_id"), str) else None,
+                "action": action,
+                "target_id": target_id,
                 "success": result.get("success") is True,
-                "reason": result.get("reason") if isinstance(result.get("reason"), str) else "unknown",
-                "details": result.get("details") if isinstance(result.get("details"), str) else (event.get("message") if isinstance(event.get("message"), str) else ""),
+                "reason": result.get("reason") if type(result.get("reason")) is str else "unknown",
+                "details": result.get("details") if type(result.get("details")) is str else "",
             }
-            verified.append((outcome, event, result))
-        selected_pairs = verified[-bounded_limit:]
-        selected = [outcome for outcome, _, _ in selected_pairs]
+            # Duplicate event IDs never create additional authority. If a later
+            # duplicate differs, the first valid authoritative event wins.
+            verified_by_id.setdefault(event_id, (outcome, result))
+        ordered = [verified_by_id[key] for key in sorted(verified_by_id)]
+        selected_pairs = ordered[-bounded_limit:]
+        selected = [outcome for outcome, _ in selected_pairs]
         if selected_pairs:
-            latest, _, latest_result = selected_pairs[-1]
-            latest_action = latest_result.get("action") if isinstance(latest_result.get("action"), str) else None
+            latest, latest_result = selected_pairs[-1]
+            latest_action = latest_result.get("action") if type(latest_result.get("action")) is str else None
             if latest.get("success") and latest_action in VIEW_ACTIONS:
                 projected = project_view_result_for_recent_outcome(latest_action, latest_result.get("data"))
                 if projected:
@@ -261,7 +264,7 @@ class SimulationEngine(BaseSimulationEngine):
     async def make_decision(self) -> None:
         if self.agent.alive is not True or self.controller.execution or self.agent.sleeping is True:
             return
-        recent_events = self.agent.recent_events if isinstance(self.agent.recent_events, list) else []
+        recent_events = self.agent.recent_events if type(self.agent.recent_events) is list else []
         due_consolidation = next(
             (event for event in recent_events[-4:] if isinstance(event, dict) and event.get("kind") == "consolidation_due"),
             None,
@@ -302,7 +305,7 @@ class SimulationEngine(BaseSimulationEngine):
         for entity in visible_entities[:5]:
             if isinstance(entity, dict) and isinstance(entity.get("classification"), str) and entity.get("classification"):
                 query_parts.append(entity["classification"][:80])
-        inventory = self.agent.inventory if isinstance(self.agent.inventory, dict) else {}
+        inventory = self.agent.inventory if type(self.agent.inventory) is dict else {}
         tags = {
             key[:80]
             for index, key in enumerate(inventory)
@@ -311,7 +314,7 @@ class SimulationEngine(BaseSimulationEngine):
         verified_memory_records = [
             record
             for record in self.vault.list_records(limit=4096, scan_limit=4096)
-            if verify_memory_record(self.settings.runtime_dir, record, self._ari_integrity_key)
+            if verify_memory_record(self.settings.runtime_dir, record, self._ari_integrity_key, authority=self.agent)
         ]
         memories = retrieve_memories(
             verified_memory_records,
@@ -329,7 +332,7 @@ class SimulationEngine(BaseSimulationEngine):
             "recent_outcomes": recent_outcomes,
         }
         result = await self.brain.decide(context)
-        model_response_id = self.database.add_model_response(self.world.sim_time, result)
+        model_response_id = self.database.add_model_response(finite_number(getattr(self.world, "sim_time", None), 0.0) or 0.0, result)
         proposed_decision = result.value
         decision, correction = self._correct_decision(proposed_decision, action_affordances, recent_outcomes)
         self.agent.decision_source = result.source
@@ -362,6 +365,7 @@ class SimulationEngine(BaseSimulationEngine):
                     "validated_model_response",
                     source_type="model_belief_update",
                     source_ref=f"model-response:{model_response_id}:{safe_key}",
+                    authority=self.agent,
                 )
         self.last_decision = decision.model_dump()
         provider = {
@@ -388,6 +392,7 @@ class SimulationEngine(BaseSimulationEngine):
                 "action_affordances": action_affordances,
             },
         )
+        self.current_decision_event_id = decision_event["id"]
 
         self.pending_memory = None
         eligible, policy_reason = self._memory_candidate_policy(decision)
@@ -447,13 +452,14 @@ class SimulationEngine(BaseSimulationEngine):
 
         request = self._verified_memory_request_from(pending, result, action_event["id"])
         try:
-            record = self.vault.write(request, self.world.sim_time)
+            record = self.vault.write(request, finite_number(getattr(self.world, "sim_time", None), 0.0) or 0.0)
             if not seal_memory_record(
                 self.settings.runtime_dir,
                 record,
                 self._ari_integrity_key,
                 "validated_action_event",
                 source_ref=f"action-result:{action_event['id']}:{record.id}",
+                authority=self.agent,
             ):
                 raise MemoryValidationError("memory_integrity_proof_failed")
             self.database.add_memory(record)

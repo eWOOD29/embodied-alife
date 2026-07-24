@@ -44,7 +44,7 @@ def _flag(value: Any) -> bool:
 
 
 def _mapping(value: Any) -> dict[Any, Any]:
-    return value if isinstance(value, dict) else {}
+    return value if type(value) is dict else {}
 
 
 def _sequence(value: Any) -> list[Any]:

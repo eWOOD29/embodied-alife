@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from app.simulation.agent import AgentState
+from app.simulation.safe_state import finite, finite_pair
 from app.simulation.world import WorldState
 
 
@@ -69,39 +70,62 @@ def astar(world: WorldState, start: tuple[int, int], goal: tuple[int, int], max_
 
 
 def effective_speed(agent: AgentState) -> float:
+    movement_speed = finite(getattr(agent, "movement_speed", None), None, minimum=0.25, maximum=1000.0)
+    if movement_speed is None:
+        return 0.0
     multiplier = 1.0
-    if agent.energy < 20:
+    energy = finite(getattr(agent, "energy", None), None, minimum=0.0, maximum=100.0)
+    health = finite(getattr(agent, "health", None), None, minimum=0.0, maximum=1_000_000.0)
+    pain = finite(getattr(agent, "pain", None), None, minimum=0.0, maximum=100.0)
+    if energy is not None and energy < 20:
         multiplier *= 0.55
-    if agent.health < 40:
+    if health is not None and health < 40:
         multiplier *= 0.65
-    if agent.pain > 50:
+    if pain is not None and pain > 50:
         multiplier *= 0.75
-    return max(0.25, agent.movement_speed * multiplier)
+    return max(0.25, movement_speed * multiplier)
 
 
 def move_along_path(agent: AgentState, world: WorldState, execution: ActionExecution, dt: float) -> float:
-    distance_budget = effective_speed(agent) * dt
+    speed = effective_speed(agent)
+    safe_dt = finite(dt, None, minimum=0.0, maximum=3600.0)
+    position = finite_pair(getattr(agent, "x", None), getattr(agent, "y", None))
+    if speed <= 0 or safe_dt is None or position is None or type(execution.path) is not list:
+        return 0.0
+    distance_budget = speed * safe_dt
     moved = 0.0
+    agent_x, agent_y = position
     while execution.path and distance_budget > 0:
-        tx, ty = execution.path[0]
-        dx, dy = tx - agent.x, ty - agent.y
+        raw = execution.path[0]
+        if type(raw) not in {tuple, list} or len(raw) != 2:
+            execution.path.clear()
+            break
+        target = finite_pair(raw[0], raw[1])
+        if target is None:
+            execution.path.clear()
+            break
+        tx, ty = target
+        dx, dy = tx - agent_x, ty - agent_y
         distance = math.hypot(dx, dy)
         if distance < 0.05:
-            agent.x, agent.y = float(tx), float(ty)
+            agent_x, agent_y = float(tx), float(ty)
+            agent.x, agent.y = agent_x, agent_y
             execution.path.pop(0)
             continue
         step = min(distance, distance_budget)
-        nx = agent.x + dx / distance * step
-        ny = agent.y + dy / distance * step
+        nx = agent_x + dx / distance * step
+        ny = agent_y + dy / distance * step
         if not world.is_walkable(int(round(nx)), int(round(ny))):
             execution.path.clear()
             break
+        agent_x, agent_y = nx, ny
         agent.x, agent.y = nx, ny
         moved += step
         distance_budget -= step
         agent.facing = _facing(dx, dy)
         if step >= distance - 1e-6:
-            agent.x, agent.y = float(tx), float(ty)
+            agent_x, agent_y = float(tx), float(ty)
+            agent.x, agent.y = agent_x, agent_y
             execution.path.pop(0)
     return moved
 

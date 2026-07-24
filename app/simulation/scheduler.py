@@ -18,12 +18,14 @@ from app.serialization import finite_number, json_safe, json_safe_dict
 from app.simulation.integrity import (
     agent_key,
     attach_key,
+    current_epoch_id,
     load_or_create_key,
+    rotate_authority_epoch,
     safe_message,
     seal_deterministic_starters,
     seal_memory_record,
     seal_record,
-    sign_payload,
+    sign_event,
     state_contains_proofs,
     verify_memory_record,
 )
@@ -34,7 +36,8 @@ from app.simulation.needs import update_needs
 from app.simulation.observer import build_observer_state
 from app.simulation.npcs import resolve_npc_interactions
 from app.simulation.perception import build_perception
-from app.simulation.world import WorldState
+from app.simulation.safe_state import exact_dict, exact_sequence, finite, finite_pair, integer, records, strict_text
+from app.simulation.world import Shelter, WorldState
 from app.storage.database import Database
 from app.storage.snapshots import SnapshotStore
 
@@ -73,6 +76,7 @@ class SimulationEngine:
         self.pending_memory: dict[str, Any] | None = None
         self.run_id = uuid.uuid4().hex
         self.world_generation_id = uuid.uuid4().hex
+        self.current_decision_event_id: int | None = None
 
         self._migrate_memory_integrity()
         existing = self.database.get_metadata("current_state") if load_existing else None
@@ -108,15 +112,24 @@ class SimulationEngine:
 
     def _new_world(self, seed: int, *, clean_experiment: bool = False) -> None:
         if clean_experiment:
+            rotate_authority_epoch(self.settings.runtime_dir, self._ari_integrity_key)
             self.database.clear_experiment()
             self.vault.clear()
         self.run_id = uuid.uuid4().hex
         self.world_generation_id = uuid.uuid4().hex
+        live_epoch = current_epoch_id(self.settings.runtime_dir)
         self.database.set_metadata("run_id", self.run_id)
         self.database.set_metadata("world_generation_id", self.world_generation_id)
+        self.database.set_metadata("authorization_epoch_id", live_epoch)
         self.world = WorldState.generate(seed, self.settings.world_size)
         self.agent = AgentState(x=float(self.world.spawn[0]), y=float(self.world.spawn[1]))
-        attach_key(self.agent, self._ari_integrity_key)
+        attach_key(
+            self.agent,
+            self._ari_integrity_key,
+            epoch_id=current_epoch_id(self.settings.runtime_dir),
+            run_id=self.run_id,
+            world_generation_id=self.world_generation_id,
+        )
         seal_deterministic_starters(self.agent, self._ari_integrity_key)
         self.agent.beliefs = {
             "self": "I have a physical body in an unfamiliar place.",
@@ -135,6 +148,7 @@ class SimulationEngine:
                 "deterministic_starter",
                 source_type="system_initialization",
                 source_ref=f"initial-belief:{belief_id}",
+                authority=self.agent,
             )
         self.controller = ActionController()
         self.events.clear()
@@ -142,6 +156,7 @@ class SimulationEngine:
         self.last_action_result = None
         self.last_decision = None
         self.pending_memory = None
+        self.current_decision_event_id = None
         self._decision_pending = True
         self._record(
             "awakening",
@@ -181,70 +196,99 @@ class SimulationEngine:
             await asyncio.sleep(max(0.01, self.settings.sim_tick_seconds - elapsed))
 
     async def advance(self, sim_dt: float, *, allow_decision: bool = True) -> None:
-        if sim_dt <= 0:
+        safe_dt = finite(sim_dt, None, minimum=0.0, maximum=86_400.0)
+        if safe_dt is None or safe_dt <= 0:
             return
-        remaining = sim_dt
+        remaining = safe_dt
         while remaining > 1e-9:
             dt = min(1.0, remaining)
             remaining -= dt
             self._advance_substep(dt)
-        if allow_decision and self.agent.alive and not self.agent.sleeping and not self.controller.execution:
+        if allow_decision and self.agent.alive is True and self.agent.sleeping is not True and not self.controller.execution:
             now = time.monotonic()
             if self._decision_pending and (now - self._last_real_decision_time >= 1.0 or self._last_real_decision_time == 0):
                 await self.make_decision()
                 self._last_real_decision_time = now
-        if self.world.sim_time - self._last_persist_time >= 30.0:
+        current_time = finite(getattr(self.world, "sim_time", None), None, minimum=0.0)
+        last_persist = finite(self._last_persist_time, None, minimum=0.0)
+        if current_time is not None and last_persist is not None and current_time - last_persist >= 30.0:
             self._persist_current()
-        self._state_version += 1
+        self._state_version = (integer(self._state_version, 0, minimum=0, maximum=10**15) or 0) + 1
         await self._broadcast()
 
     def _advance_substep(self, dt: float) -> None:
-        for world_event in self.world.tick(dt):
-            self._record(
-                world_event["kind"],
-                world_event["message"],
-                world_event.get("importance", 0.4),
-                world_event.get("data", {}),
-            )
+        safe_dt = finite(dt, None, minimum=0.0, maximum=1.0)
+        if safe_dt is None or safe_dt <= 0:
+            return
+        try:
+            world_events = self.world.tick(safe_dt)
+        except Exception:
+            world_events = []
+        for world_event in exact_sequence(world_events, limit=4096):
+            if type(world_event) is not dict:
+                continue
+            kind = strict_text(world_event.get("kind"), maximum=120)
+            message = strict_text(world_event.get("message"), maximum=4000, allow_empty=True)
+            if kind is None or message is None:
+                continue
+            self._record(kind, message, world_event.get("importance", 0.4), exact_dict(world_event.get("data")))
 
-        completed, result, moving = self.controller.step(dt, self.world, self.agent)
-        need_result = update_needs(self.agent, self.world, dt, moving=moving)
-        for message in need_result.messages or []:
-            self._record("needs", message, 0.8 if need_result.damage else 0.4)
+        try:
+            completed, result, moving = self.controller.step(safe_dt, self.world, self.agent)
+        except Exception:
+            completed, result, moving = False, None, False
+        need_result = update_needs(self.agent, self.world, safe_dt, moving=moving is True)
+        for message in exact_sequence(need_result.messages, limit=128):
+            if type(message) is str:
+                self._record("needs", message, 0.8 if need_result.damage else 0.4)
 
-        npc_events = resolve_npc_interactions(self.world, self.agent, dt)
-        for event in npc_events:
-            self._record(event["kind"], event["message"], event.get("importance", 0.5), event.get("data", {}))
+        for event in exact_sequence(resolve_npc_interactions(self.world, self.agent, safe_dt), limit=4096):
+            if type(event) is not dict:
+                continue
+            kind = strict_text(event.get("kind"), maximum=120)
+            message = strict_text(event.get("message"), maximum=4000, allow_empty=True)
+            if kind is not None and message is not None:
+                self._record(kind, message, event.get("importance", 0.5), exact_dict(event.get("data")))
 
-        if self.world.weather == "storm":
-            for shelter in self.world.shelters.values():
-                if self.world._coord_value(self.world.seed, int(self.world.sim_time), shelter.x + shelter.y, shelter.id) > 0.985:
-                    shelter.durability = max(0.0, shelter.durability - 0.4 * dt)
+        sim_time = finite(getattr(self.world, "sim_time", None), None, minimum=0.0)
+        seed = integer(getattr(self.world, "seed", None), None, minimum=-2_147_483_648, maximum=2_147_483_647)
+        if getattr(self.world, "weather", None) == "storm" and sim_time is not None and seed is not None:
+            for shelter in records(getattr(self.world, "shelters", None), Shelter):
+                durability = finite(shelter.durability, None, minimum=0.0, maximum=1_000_000.0)
+                position = finite_pair(shelter.x, shelter.y)
+                shelter_id = strict_text(shelter.id, maximum=160)
+                if durability is None or position is None or shelter_id is None:
+                    continue
+                if self.world._coord_value(seed, int(sim_time), int(position[0] + position[1]), shelter_id) > 0.985:
+                    shelter.durability = max(0.0, durability - 0.4 * safe_dt)
                     if shelter.durability == 0:
-                        self._record("shelter", f"{shelter.id} was destroyed by the storm.", 0.9)
+                        self._record("shelter", f"{shelter_id} was destroyed by the storm.", 0.9)
 
         interrupt_reason = self._interrupt_reason()
         if interrupt_reason:
-            interrupted = self.controller.interrupt(interrupt_reason, self.agent)
+            try:
+                interrupted = self.controller.interrupt(interrupt_reason, self.agent)
+            except Exception:
+                interrupted = None
             if interrupted:
                 self._handle_action_result(interrupted)
                 self._decision_pending = True
 
-        if completed and result:
+        if completed and type(result) is ActionResult:
             self._handle_action_result(result)
             self._decision_pending = True
             if result.reason == "woke":
-                self.agent.recent_events.append(
-                    {
-                        "sim_time": self.world.sim_time,
-                        "kind": "consolidation_due",
-                        "message": "A waking memory-consolidation pass is due.",
-                        "importance": 0.7,
-                        "data": {},
-                    }
-                )
+                recent = self.agent.recent_events if type(self.agent.recent_events) is list else []
+                recent.append({
+                    "sim_time": sim_time,
+                    "kind": "consolidation_due",
+                    "message": "A waking memory-consolidation pass is due.",
+                    "importance": 0.7,
+                    "data": {},
+                })
+                self.agent.recent_events = recent[-50:]
 
-        if not self.agent.alive:
+        if self.agent.alive is not True:
             self.paused = True
             self._decision_pending = False
 
@@ -252,27 +296,36 @@ class SimulationEngine:
         execution = self.controller.execution
         if not execution:
             return None
-        conditions = set(execution.metadata.get("interrupt_if", []))
-        if "damage_taken" in conditions and self.agent.last_damage_time >= execution.started_at:
+        metadata = exact_dict(getattr(execution, "metadata", None))
+        conditions = {item for item in exact_sequence(metadata.get("interrupt_if"), limit=32) if type(item) is str}
+        last_damage = finite(getattr(self.agent, "last_damage_time", None), None)
+        started_at = finite(getattr(execution, "started_at", None), None)
+        if "damage_taken" in conditions and last_damage is not None and started_at is not None and last_damage >= started_at:
             return "damage_taken"
-        if "energy_critical" in conditions and self.agent.energy <= 8:
+        energy = finite(getattr(self.agent, "energy", None), None)
+        hydration = finite(getattr(self.agent, "hydration", None), None)
+        if "energy_critical" in conditions and energy is not None and energy <= 8:
             return "energy_critical"
-        if "hydration_critical" in conditions and self.agent.hydration <= 7:
+        if "hydration_critical" in conditions and hydration is not None and hydration <= 7:
             return "hydration_critical"
-        if "weather_worsens" in conditions and self.world.weather == "storm":
+        if "weather_worsens" in conditions and getattr(self.world, "weather", None) == "storm":
             return "weather_worsens"
         if "danger_detected" in conditions:
-            agent_x = finite_number(self.agent.x, 0.0) or 0.0
-            agent_y = finite_number(self.agent.y, 0.0) or 0.0
-            npcs = self.world.npcs if isinstance(self.world.npcs, dict) else {}
-            if any(bool(getattr(npc, "dangerous", False)) and math.hypot((finite_number(getattr(npc, "x", None), 0.0) or 0.0) - agent_x, (finite_number(getattr(npc, "y", None), 0.0) or 0.0) - agent_y) <= 5 for npc in npcs.values()):
-                return "danger_detected"
+            position = finite_pair(getattr(self.agent, "x", None), getattr(self.agent, "y", None))
+            if position is not None:
+                from app.simulation.world import NPC
+                for npc in records(getattr(self.world, "npcs", None), NPC):
+                    npc_position = finite_pair(npc.x, npc.y)
+                    health = finite(npc.health, None, minimum=0.0)
+                    if npc.dangerous is True and health is not None and health > 0 and npc_position is not None:
+                        if math.hypot(npc_position[0] - position[0], npc_position[1] - position[1]) <= 5:
+                            return "danger_detected"
         return None
 
     async def make_decision(self) -> None:
         if self.agent.alive is not True or self.controller.execution or self.agent.sleeping is True:
             return
-        recent_events = self.agent.recent_events if isinstance(self.agent.recent_events, list) else []
+        recent_events = self.agent.recent_events if type(self.agent.recent_events) is list else []
         due_consolidation = next(
             (event for event in recent_events[-4:] if isinstance(event, dict) and event.get("kind") == "consolidation_due"),
             None,
@@ -292,12 +345,12 @@ class SimulationEngine:
         for entity in (perception.get("visible_entities") if isinstance(perception.get("visible_entities"), list) else [])[:5]:
             if isinstance(entity, dict) and isinstance(entity.get("classification"), str) and entity.get("classification"):
                 query_parts.append(entity["classification"][:80])
-        inventory = self.agent.inventory if isinstance(self.agent.inventory, dict) else {}
+        inventory = self.agent.inventory if type(self.agent.inventory) is dict else {}
         tags = {key[:80] for index, key in enumerate(inventory) if index < 64 and isinstance(key, str) and key}
         verified_memory_records = [
             record
             for record in self.vault.list_records(limit=4096, scan_limit=4096)
-            if verify_memory_record(self.settings.runtime_dir, record, self._ari_integrity_key)
+            if verify_memory_record(self.settings.runtime_dir, record, self._ari_integrity_key, authority=self.agent)
         ]
         memories = retrieve_memories(
             verified_memory_records,
@@ -314,7 +367,7 @@ class SimulationEngine:
             "recent_outcomes": [self.last_action_result] if self.last_action_result else [],
         }
         result = await self.brain.decide(context)
-        model_response_id = self.database.add_model_response(self.world.sim_time, result)
+        model_response_id = self.database.add_model_response(finite(getattr(self.world, "sim_time", None), 0.0) or 0.0, result)
         decision = result.value
         self.agent.decision_source = result.source
         if decision.plan:
@@ -337,6 +390,7 @@ class SimulationEngine:
                     "validated_model_response",
                     source_type="model_belief_update",
                     source_ref=f"model-response:{model_response_id}:{safe_key}",
+                    authority=self.agent,
                 )
         self.last_decision = decision.model_dump()
         decision_event = self._record(
@@ -351,6 +405,7 @@ class SimulationEngine:
                 "model_response_id": model_response_id,
             },
         )
+        self.current_decision_event_id = decision_event["id"]
 
         self.pending_memory = None
         if decision.memory_write:
@@ -425,13 +480,14 @@ class SimulationEngine:
         if request is None:
             return
         try:
-            record = self.vault.write(request, self.world.sim_time)
+            record = self.vault.write(request, finite(getattr(self.world, "sim_time", None), 0.0) or 0.0)
             if not seal_memory_record(
                 self.settings.runtime_dir,
                 record,
                 self._ari_integrity_key,
                 "validated_action_event",
                 source_ref=f"action-result:{action_event['id']}:{record.id}",
+                authority=self.agent,
             ):
                 raise MemoryValidationError("memory_integrity_proof_failed")
             self.database.add_memory(record)
@@ -464,7 +520,7 @@ class SimulationEngine:
             self.vault,
             self.agent,
             day=self.world.day,
-            sim_time=self.world.sim_time,
+            sim_time=finite(getattr(self.world, "sim_time", None), 0.0) or 0.0,
             events=list(self.events),
         )
         for record in outcome.written:
@@ -485,39 +541,75 @@ class SimulationEngine:
     def _handle_action_result(self, result: ActionResult) -> None:
         payload = result.to_dict()
         if result.reason != "started":
-            evidence = sign_payload(
-                self.agent,
-                "recent_outcome",
-                payload,
-                "validated_action_event",
-                source_ref=uuid.uuid4().hex,
-            )
-            if evidence is not None:
-                payload["_ari_integrity"] = evidence
-        self.last_action_result = payload
+            payload["decision_event_id"] = self.current_decision_event_id
+            decision = self.last_decision if type(self.last_decision) is dict else {}
+            target_id = decision.get("target_id")
+            if type(target_id) is str and target_id:
+                payload["target_id"] = target_id
         event = self._record(
             "action_result",
             f"{result.action}: {result.details}",
             0.5 if result.success else 0.7,
             payload,
+            authorize_family="recent_outcome" if result.reason != "started" else None,
         )
+        self.last_action_result = event["data"]
         self._resolve_pending_memory(result, event)
 
-    def _record(self, kind: str, message: str, importance: float = 0.3, data: dict[str, Any] | None = None) -> dict[str, Any]:
-        event = Event(self.world.sim_time if hasattr(self, "world") else 0.0, kind, safe_message(message, 4000), json_safe_dict(data or {}, max_depth=10, max_items=1000, max_text=4000, max_nodes=50000), finite_number(importance, 0.3) or 0.3).to_dict()
-        event["id"] = self.database.add_event(event)
-        event["run_id"] = self.run_id
-        event["world_generation_id"] = self.world_generation_id
+    def _record(
+        self,
+        kind: str,
+        message: str,
+        importance: float = 0.3,
+        data: dict[str, Any] | None = None,
+        *,
+        authorize_family: str | None = None,
+    ) -> dict[str, Any]:
+        safe_time = finite_number(getattr(self.world, "sim_time", None), 0.0) if hasattr(self, "world") else 0.0
+        safe_kind = safe_message(kind, 120) or "unknown"
+        safe_event_message = safe_message(message, 4000)
+        safe_importance = finite_number(importance, 0.3, minimum=0.0, maximum=1.0) or 0.3
+        safe_data = json_safe_dict(
+            data if type(data) is dict else {},
+            max_depth=12,
+            max_items=2048,
+            max_text=12000,
+            max_nodes=100000,
+            max_source_items=120000,
+        )
+        epoch = current_epoch_id(self.settings.runtime_dir) or "missing-authorization-epoch"
+
+        def finalize(event_id: int) -> dict[str, Any]:
+            event = Event(safe_time or 0.0, safe_kind, safe_event_message, safe_data, safe_importance).to_dict()
+            event["id"] = event_id
+            event["run_id"] = self.run_id
+            event["world_generation_id"] = self.world_generation_id
+            event["authorization_epoch_id"] = epoch
+            if authorize_family is not None and hasattr(self, "agent"):
+                evidence = sign_event(
+                    self.agent,
+                    authorize_family,
+                    event,
+                    "validated_action_event",
+                    source_ref=f"event:{event_id}",
+                )
+                if evidence is not None:
+                    event["data"]["_ari_integrity"] = evidence
+            return event
+
+        event = self.database.add_finalized_event(finalize)
         self.events.append(event)
         if hasattr(self, "agent"):
-            self.agent.recent_events.append(event)
-            self.agent.recent_events = self.agent.recent_events[-50:]
+            recent = self.agent.recent_events if type(self.agent.recent_events) is list else []
+            recent.append(event)
+            self.agent.recent_events = recent[-50:]
         return event
 
     def serialize(self) -> dict[str, Any]:
         state = {
             "run_id": self.run_id,
             "world_generation_id": self.world_generation_id,
+            "authorization_epoch_id": current_epoch_id(self.settings.runtime_dir),
             "world": self.world.to_dict(),
             "agent": self.agent.to_dict(),
             "controller": self.controller.execution.to_dict() if self.controller.execution else None,
@@ -528,14 +620,19 @@ class SimulationEngine:
             "last_decision": self.last_decision,
             "memory_writes": self.memory_writes,
             "pending_memory": self.pending_memory,
+            "current_decision_event_id": self.current_decision_event_id,
         }
         return json_safe_dict(state, max_depth=12, max_items=10000, max_text=4000, max_nodes=200000, max_source_items=250000)
 
     def _restore(self, state: Any) -> None:
         from app.simulation.body import ActionExecution
 
-        if not isinstance(state, dict):
+        if type(state) is not dict:
             raise ValueError("invalid_state_envelope")
+        stored_epoch = state.get("authorization_epoch_id")
+        live_epoch = current_epoch_id(self.settings.runtime_dir)
+        if stored_epoch is not None and (type(stored_epoch) is not str or stored_epoch != live_epoch):
+            raise ValueError("authorization_epoch_mismatch")
         raw_world = state.get("world")
         if not isinstance(raw_world, dict):
             raise ValueError("invalid_world_state")
@@ -543,7 +640,13 @@ class SimulationEngine:
         self.world_generation_id = state.get("world_generation_id") if isinstance(state.get("world_generation_id"), str) and state.get("world_generation_id") else uuid.uuid4().hex
         self.world = WorldState.from_dict(raw_world)
         self.agent = AgentState.from_dict(state.get("agent"))
-        attach_key(self.agent, self._ari_integrity_key)
+        attach_key(
+            self.agent,
+            self._ari_integrity_key,
+            epoch_id=live_epoch,
+            run_id=self.run_id,
+            world_generation_id=self.world_generation_id,
+        )
         seal_deterministic_starters(self.agent, self._ari_integrity_key)
         self.controller = ActionController()
         raw_controller = state.get("controller")
@@ -563,22 +666,25 @@ class SimulationEngine:
         self.last_decision = state.get("last_decision") if isinstance(state.get("last_decision"), dict) else None
         raw_writes = state.get("memory_writes")
         self.memory_writes = deque(raw_writes[:60], maxlen=60) if isinstance(raw_writes, (list, tuple)) else deque(maxlen=60)
-        self.pending_memory = state.get("pending_memory") if isinstance(state.get("pending_memory"), dict) else None
+        self.pending_memory = state.get("pending_memory") if type(state.get("pending_memory")) is dict else None
+        raw_decision_event_id = state.get("current_decision_event_id")
+        self.current_decision_event_id = raw_decision_event_id if type(raw_decision_event_id) is int and raw_decision_event_id > 0 else None
         self._decision_pending = not bool(self.controller.execution)
         self._last_persist_time = finite_number(getattr(self.world, "sim_time", None), 0.0) or 0.0
         self.database.set_metadata("run_id", self.run_id)
         self.database.set_metadata("world_generation_id", self.world_generation_id)
+        self.database.set_metadata("authorization_epoch_id", live_epoch)
 
     def _persist_current(self) -> None:
         self.database.set_metadata("current_state", self.serialize())
-        self._last_persist_time = self.world.sim_time
+        self._last_persist_time = finite_number(getattr(self.world, "sim_time", None), 0.0) or 0.0
 
     def save_snapshot(self, name: str) -> dict[str, Any]:
         state = self.serialize()
         self.snapshots.save(name, state)
         self._record("snapshot", f"Snapshot '{name}' saved.", 0.4, {"name": name})
         self._persist_current()
-        return {"ok": True, "name": name, "sim_time": self.world.sim_time}
+        return {"ok": True, "name": name, "sim_time": finite(getattr(self.world, "sim_time", None), 0.0) or 0.0}
 
     def load_snapshot(self, name: str) -> dict[str, Any]:
         state = self.snapshots.load(name)
@@ -587,12 +693,12 @@ class SimulationEngine:
         self._restore(state)
         self.database.set_metadata("last_snapshot_load_audit", {
             "name": name,
-            "sim_time": self.world.sim_time,
+            "sim_time": finite_number(getattr(self.world, "sim_time", None), 0.0) or 0.0,
             "run_id": self.run_id,
             "world_generation_id": self.world_generation_id,
         })
         self._persist_current()
-        return {"ok": True, "name": name, "sim_time": self.world.sim_time}
+        return {"ok": True, "name": name, "sim_time": finite(getattr(self.world, "sim_time", None), 0.0) or 0.0}
 
     def fork_snapshot(self, name: str, new_name: str) -> dict[str, Any]:
         state = self.snapshots.load(name)

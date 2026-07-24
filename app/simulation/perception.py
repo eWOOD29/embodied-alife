@@ -9,6 +9,7 @@ from app.serialization import finite_number
 from app.simulation.actions import ari_record_origin_is_safe
 from app.simulation.integrity import seal_knowledge, verify_knowledge, verify_record
 from app.simulation.agent import AgentState
+from app.simulation.belief_store import BeliefStore
 from app.simulation.needs import drive_labels
 from app.simulation.world import BLOCKING_TERRAIN, Terrain, WorldState
 
@@ -41,7 +42,7 @@ def _safe_number(value: Any, default: float = 0.0, *, minimum: float | None = No
 
 
 def _bounded_pairs(value: Any, *, count_limit: int, key_limit: int, value_limit: int) -> dict[str, Any]:
-    if not isinstance(value, dict):
+    if type(value) is not dict:
         return {}
     result: dict[str, Any] = {}
     for index, (raw_key, raw_value) in enumerate(value.items()):
@@ -64,7 +65,7 @@ def _known_tile_summaries(agent: AgentState, ax: int | None, ay: int | None) -> 
     if ax is None or ay is None:
         return []
     records: list[tuple[int, int, int, str]] = []
-    known_terrain = agent.known_terrain if isinstance(agent.known_terrain, dict) else {}
+    known_terrain = agent.known_terrain if type(agent.known_terrain) is dict else {}
     for index, (raw_key, raw_terrain) in enumerate(known_terrain.items()):
         if index >= 4096 or not isinstance(raw_key, str) or not verify_knowledge(agent, "terrain", raw_key, raw_terrain):
             continue
@@ -84,10 +85,10 @@ def _known_tile_summaries(agent: AgentState, ax: int | None, ay: int | None) -> 
 def _belief_summary(agent: AgentState) -> dict[str, Any]:
     counts: dict[str, int] = {}
     records: list[tuple[float, str, Any]] = []
-    beliefs = agent.beliefs if isinstance(agent.beliefs, dict) else {}
+    beliefs = agent.beliefs if type(agent.beliefs) in {dict, BeliefStore} else {}
     verified_total = 0
     for index, (key, belief) in enumerate(beliefs.items()):
-        if index >= 4096 or not isinstance(belief, dict) or not verify_record("belief", belief, agent):
+        if index >= 4096 or type(belief) is not dict and type(belief).__name__ != "BeliefValue" or not verify_record("belief", belief, agent):
             continue
         verified_total += 1
         status = _truncate(belief.get("status", "hypothesis"), 32) or "hypothesis"
@@ -112,9 +113,9 @@ def _known_location_summaries(agent: AgentState, agent_x: float | None, agent_y:
     if agent_x is None or agent_y is None:
         return []
     result: list[dict[str, Any]] = []
-    known_locations = agent.known_locations if isinstance(agent.known_locations, dict) else {}
+    known_locations = agent.known_locations if type(agent.known_locations) is dict else {}
     for index, (label, raw) in enumerate(known_locations.items()):
-        if index >= 4096 or not isinstance(raw, dict):
+        if index >= 4096 or type(raw) is not dict:
             continue
         identity = _truncate(label, 160)
         if not identity or not verify_knowledge(agent, "location", identity, raw):
@@ -134,7 +135,7 @@ def _known_location_summaries(agent: AgentState, agent_x: float | None, agent_y:
 
 
 def _safe_event_summary(event: Any) -> dict[str, Any]:
-    if not isinstance(event, dict):
+    if type(event) is not dict:
         return {"message": _truncate(event, 200)}
     return {
         "sim_time": _safe_number(event.get("sim_time"), 0.0),
@@ -193,8 +194,8 @@ def build_perception(world: WorldState, agent: AgentState, radius: int = 10) -> 
     ay = int(round(agent_y)) if agent_y is not None else None
 
     explored_store = agent.explored if isinstance(agent.explored, set) else None
-    terrain_store = agent.known_terrain if isinstance(agent.known_terrain, dict) else None
-    location_store = agent.known_locations if isinstance(agent.known_locations, dict) else None
+    terrain_store = agent.known_terrain if type(agent.known_terrain) is dict else None
+    location_store = agent.known_locations if type(agent.known_locations) is dict else None
 
     visible_tiles: list[dict[str, Any]] = []
     terrain_counts: dict[str, int] = {}
@@ -227,7 +228,7 @@ def build_perception(world: WorldState, agent: AgentState, radius: int = 10) -> 
                     seal_knowledge(agent, "location", location_key, value, "validated_perception", source_ref=f"perception:{getattr(world, 'sim_time', 0)}:{location_key}")
 
     objects: list[dict[str, Any]] = []
-    resources = world.resources if isinstance(getattr(world, "resources", None), dict) else {}
+    resources = world.resources if type(getattr(world, "resources", None)) is dict else {}
     if agent_x is not None and agent_y is not None and ax is not None and ay is not None:
         for index, resource in enumerate(resources.values()):
             if index >= 4096:
@@ -253,7 +254,7 @@ def build_perception(world: WorldState, agent: AgentState, radius: int = 10) -> 
                 })
 
     entities: list[dict[str, Any]] = []
-    npcs = world.npcs if isinstance(getattr(world, "npcs", None), dict) else {}
+    npcs = world.npcs if type(getattr(world, "npcs", None)) is dict else {}
     if agent_x is not None and agent_y is not None and ax is not None and ay is not None:
         for index, npc in enumerate(npcs.values()):
             if index >= 4096:
@@ -293,7 +294,7 @@ def build_perception(world: WorldState, agent: AgentState, radius: int = 10) -> 
         affordances.extend(["look", "move", "move_to", "inspect", "flee"])
         if any(obj["distance"] <= INTERACTION_RADIUS and (obj["portable"] or obj["kind"] == "berry_bush") for obj in objects):
             affordances.append("pick_up")
-        inventory = agent.inventory if isinstance(agent.inventory, dict) else {}
+        inventory = agent.inventory if type(agent.inventory) is dict else {}
         if any(obj["distance"] <= INTERACTION_RADIUS and obj["appears_edible"] for obj in objects) or any(
             isinstance(inventory.get(key), int) and not isinstance(inventory.get(key), bool) and inventory.get(key, 0) > 0
             for key in ("berry", "berry_bush", "edible_plant")
@@ -326,30 +327,30 @@ def build_perception(world: WorldState, agent: AgentState, radius: int = 10) -> 
     )
 
     key_items = [
-        item for item in (agent.key_items.values() if isinstance(agent.key_items, dict) else [])
+        item for item in (agent.key_items.values() if type(agent.key_items) is dict else [])
         if verify_record("key_item", item, agent)
     ]
     safe_tasks = [
-        task for task in (agent.tasks.values() if isinstance(agent.tasks, dict) else [])
+        task for task in (agent.tasks.values() if type(agent.tasks) is dict else [])
         if ari_record_origin_is_safe("task", task, agent)
     ]
     safe_notes = [
-        note for note in (agent.notes.values() if isinstance(agent.notes, dict) else [])
+        note for note in (agent.notes.values() if type(agent.notes) is dict else [])
         if ari_record_origin_is_safe("note", note, agent)
     ]
     safe_markers = [
-        marker for marker in (agent.map_markers.values() if isinstance(agent.map_markers, dict) else [])
+        marker for marker in (agent.map_markers.values() if type(agent.map_markers) is dict else [])
         if ari_record_origin_is_safe("marker", marker, agent)
     ]
     safe_episodes = [
-        episode for episode in (agent.short_term_episodes.values() if isinstance(agent.short_term_episodes, dict) else [])
+        episode for episode in (agent.short_term_episodes.values() if type(agent.short_term_episodes) is dict else [])
         if verify_record("episode", episode, agent)
     ]
 
     body = {
         "position": {"subjective_origin": "self", "known": position_known},
         "facing": _truncate(getattr(agent, "facing", ""), 32),
-        "movement": "sleeping" if getattr(agent, "sleeping", False) is True else ("active" if isinstance(getattr(agent, "current_action", None), dict) else "stationary"),
+        "movement": "sleeping" if getattr(agent, "sleeping", False) is True else ("active" if type(getattr(agent, "current_action", None)) is dict else "stationary"),
         "health_reserve": health_reserve,
         "energy_reserve": energy_reserve,
         "hunger_deficit": hunger_deficit,

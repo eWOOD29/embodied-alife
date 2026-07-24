@@ -185,6 +185,9 @@ class AgentState:
     decision_source: str = "fallback"
     ari_knowledge_proofs: dict[str, dict[str, Any]] = field(default_factory=dict)
     _ari_integrity_key: bytes | None = field(default=None, repr=False, compare=False)
+    _ari_authority_epoch: str | None = field(default=None, repr=False, compare=False)
+    _ari_authority_run_id: str | None = field(default=None, repr=False, compare=False)
+    _ari_authority_world_generation_id: str | None = field(default=None, repr=False, compare=False)
 
     def __setattr__(self, name: str, value: Any) -> None:
         if name == "beliefs" and not isinstance(value, BeliefStore):

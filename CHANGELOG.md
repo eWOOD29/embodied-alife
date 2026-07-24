@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.4.0.post6] — 2026-07-24
+
+### Fixed
+
+- Replaced bounded generic proof canonicalization with versioned, domain-separated, family-specific authorization envelopes that bind every Ari-facing semantic, identity, link, ordering, origin, experiment, run, and world field without prefix authentication.
+- Added a persisted experiment authorization epoch that survives restart and same-experiment snapshots, rotates on Reset, and makes legacy or cross-experiment proofs fail closed without deleting observer records.
+- Finalized action-result events with their authoritative database ID, run ID, world-generation ID, and epoch before signing, so copied or altered event envelopes cannot inherit authority.
+- Enforced exact built-in verification boundaries that reject hostile mappings, iterators, cycles, unsupported values, malformed proofs, and non-finite event payloads without invoking arbitrary object methods.
+- Hardened active world time, resource, NPC, shelter, need, movement, action-validation, action-execution, perception, affordance, observer, persistence, REST, WebSocket, prompt, and fallback paths against malformed directly mutated state.
+- Added exact regressions for the Post5 after-64, after-2,000-character, linked-tail, Reset replay, cross-world replay, event-copy, hostile-verification, and malformed-active-state exploits while preserving positive task, note, marker, and view-result continuity.
+
+### Candidate status
+
+- This source is an unmerged pre-publication candidate. No v0.4.0.post6 tag, Release, updater asset, Post5 containment action, or local Windows validation is included or authorized by this changelog entry.
+
 ## [0.4.0.post5] — 2026-07-24
 
 ### Fixed
