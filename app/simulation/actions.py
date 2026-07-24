@@ -10,6 +10,7 @@ from app.serialization import finite_number, json_safe_dict
 from app.simulation.agent import AgentState
 from app.simulation.affordances import INTERACTION_RADIUS
 from app.simulation.body import ActionExecution, astar, move_along_path
+from app.simulation.integrity import verify_knowledge, verify_record
 from app.simulation.world import Shelter, Terrain, WorldState
 
 
@@ -69,6 +70,7 @@ ARI_MAP_CELL_LIMIT = 64
 ARI_MAP_MARKER_LIMIT = 32
 ARI_TASK_LIMIT = 32
 ARI_NOTE_LIMIT = 24
+ARI_SOURCE_SCAN_LIMIT = 4096
 ARI_TASK_TITLE_LIMIT = 160
 ARI_TASK_DESCRIPTION_LIMIT = 480
 ARI_NOTE_TITLE_LIMIT = 160
@@ -125,39 +127,27 @@ def _origin(marker: Any) -> tuple[str, str]:
 
 
 def ari_record_origin_is_safe(kind: str, record: Any, agent: AgentState, seen: set[tuple[str, str]] | None = None) -> bool:
-    source_type, source_id = _origin(record)
-    if source_type in ARI_OBSERVER_OR_INTERNAL_ORIGINS:
-        return False
-    if source_type in ARI_DIRECT_SAFE_ORIGINS:
-        return True
-    if kind in {"task", "note"} and source_type == kind:
-        return True
-    if source_type == "system_initialization":
-        return kind == "task" and _bounded_text(getattr(record, "created_by", ""), 80).lower() in ARI_SYSTEM_TASK_CREATORS
-    seen = set() if seen is None else seen
-    identity = (kind, _bounded_text(getattr(record, f"{kind}_id", ""), 160))
-    if identity in seen:
-        return False
-    seen.add(identity)
-    if source_type == "task" and source_id and isinstance(agent.tasks, dict):
-        linked = agent.tasks.get(source_id)
-        return linked is not None and ari_record_origin_is_safe("task", linked, agent, seen)
-    if source_type == "note" and source_id and isinstance(agent.notes, dict):
-        linked = agent.notes.get(source_id)
-        return linked is not None and ari_record_origin_is_safe("note", linked, agent, seen)
-    return False
+    family = "marker" if kind in {"map_marker", "marker"} else kind
+    return verify_record(family, record, agent)
 
 
-def _safe_link_ids(values: Any, known_ids: set[str]) -> list[str]:
-    if not isinstance(values, (list, tuple, set)):
+def _safe_link_ids(values: Any, family: str, records: Any, agent: AgentState) -> list[str]:
+    if not isinstance(records, dict) or not isinstance(values, (list, tuple, set)):
         return []
+    if isinstance(values, set):
+        if len(values) > ARI_MARKER_LINK_LIMIT * 4:
+            return []
+        scalar_values = [value for value in values if isinstance(value, (str, int)) and not isinstance(value, bool)]
+        iterable = sorted(scalar_values, key=lambda value: (type(value).__name__, value))
+    else:
+        iterable = values
     selected: list[str] = []
-    iterable = sorted(values, key=lambda item: str(item)) if isinstance(values, set) else values
     for raw in iterable:
         if not isinstance(raw, (str, int)) or isinstance(raw, bool):
             continue
         item = _bounded_text(raw, 96)
-        if item and item in known_ids and item not in selected:
+        linked = records.get(item)
+        if item and linked is not None and verify_record(family, linked, agent) and item not in selected:
             selected.append(item)
         if len(selected) >= ARI_MARKER_LINK_LIMIT:
             break
@@ -169,9 +159,9 @@ def _ari_location_projection(location: Any, agent: AgentState) -> dict[str, Any]
         return None
     world_x = _finite_number(location.get("x"))
     world_y = _finite_number(location.get("y"))
-    agent_x = _finite_number(agent.x, 0.0) or 0.0
-    agent_y = _finite_number(agent.y, 0.0) or 0.0
-    if world_x is not None and world_y is not None:
+    agent_x = _finite_number(getattr(agent, "x", None))
+    agent_y = _finite_number(getattr(agent, "y", None))
+    if world_x is not None and world_y is not None and agent_x is not None and agent_y is not None:
         dx, dy = world_x - agent_x, world_y - agent_y
         return {
             "direction": _relative_direction(dx, dy),
@@ -186,9 +176,10 @@ def _ari_location_projection(location: Any, agent: AgentState) -> dict[str, Any]
         text = _boundary_text(location.get(source_key), 120)
         if text:
             projected[output_key] = text
-    distance = _finite_number(location.get("distance"))
-    if distance is not None:
-        projected["distance"] = round(max(0.0, min(distance, 10000.0)), 1)
+    if agent_x is not None and agent_y is not None:
+        distance = _finite_number(location.get("distance"))
+        if distance is not None and distance >= 0:
+            projected["distance"] = round(min(distance, 10000.0), 1)
     uncertainty = _finite_number(location.get("uncertainty"))
     if uncertainty is not None:
         projected["uncertainty"] = round(max(0.0, min(1.0, uncertainty)), 3)
@@ -215,8 +206,8 @@ def _ari_marker_projection(marker: Any, agent: AgentState) -> dict[str, Any] | N
         item["believed_location"] = location
     tasks = agent.tasks if isinstance(agent.tasks, dict) else {}
     notes = agent.notes if isinstance(agent.notes, dict) else {}
-    task_links = _safe_link_ids(getattr(marker, "linked_task_ids", []), set(tasks))
-    note_links = _safe_link_ids(getattr(marker, "linked_note_ids", []), set(notes))
+    task_links = _safe_link_ids(getattr(marker, "linked_task_ids", []), "task", tasks, agent)
+    note_links = _safe_link_ids(getattr(marker, "linked_note_ids", []), "note", notes, agent)
     if task_links:
         item["linked_task_ids"] = task_links
     if note_links:
@@ -257,10 +248,11 @@ def _ari_task_projection(task: Any, agent: AgentState) -> dict[str, Any] | None:
     markers = agent.map_markers if isinstance(agent.map_markers, dict) else {}
     notes = agent.notes if isinstance(agent.notes, dict) else {}
     parent = _bounded_text(getattr(task, "parent_task_id", ""), 96)
-    if parent and parent in tasks:
+    parent_record = tasks.get(parent) if parent else None
+    if parent_record is not None and verify_record("task", parent_record, agent):
         item["parent_task_id"] = parent
-    marker_links = _safe_link_ids(getattr(task, "linked_marker_ids", []), set(markers))
-    note_links = _safe_link_ids(getattr(task, "linked_note_ids", []), set(notes))
+    marker_links = _safe_link_ids(getattr(task, "linked_marker_ids", []), "marker", markers, agent)
+    note_links = _safe_link_ids(getattr(task, "linked_note_ids", []), "note", notes, agent)
     if marker_links:
         item["linked_marker_ids"] = marker_links
     if note_links:
@@ -284,7 +276,11 @@ def _ari_note_projection(note: Any, agent: AgentState) -> dict[str, Any] | None:
     tags = []
     raw_tags = getattr(note, "tags", [])
     if isinstance(raw_tags, (list, tuple, set)):
-        iterable = sorted(raw_tags, key=lambda value: str(value)) if isinstance(raw_tags, set) else raw_tags
+        if isinstance(raw_tags, set):
+            scalar_tags = [value for value in raw_tags if isinstance(value, (str, int, float, bool))]
+            iterable = sorted(scalar_tags, key=lambda value: (type(value).__name__, value))[:ARI_TAG_LIMIT]
+        else:
+            iterable = raw_tags
         for raw in iterable:
             tag = _boundary_text(raw, ARI_TAG_TEXT_LIMIT)
             if tag and tag not in tags:
@@ -295,8 +291,8 @@ def _ari_note_projection(note: Any, agent: AgentState) -> dict[str, Any] | None:
         item["tags"] = tags
     tasks = agent.tasks if isinstance(agent.tasks, dict) else {}
     markers = agent.map_markers if isinstance(agent.map_markers, dict) else {}
-    task_links = _safe_link_ids(getattr(note, "linked_task_ids", []), set(tasks))
-    marker_links = _safe_link_ids(getattr(note, "linked_marker_ids", []), set(markers))
+    task_links = _safe_link_ids(getattr(note, "linked_task_ids", []), "task", tasks, agent)
+    marker_links = _safe_link_ids(getattr(note, "linked_marker_ids", []), "marker", markers, agent)
     if task_links:
         item["linked_task_ids"] = task_links
     if marker_links:
@@ -313,10 +309,15 @@ def project_view_result_for_recent_outcome(action: str, data: Any) -> dict[str, 
         for raw in data.get("known_cells", []) if isinstance(data.get("known_cells"), list) else []:
             if not isinstance(raw, dict):
                 continue
+            offset_east = _finite_number(raw.get("offset_east"))
+            offset_south = _finite_number(raw.get("offset_south"))
+            distance = _finite_number(raw.get("distance"))
+            if offset_east is None or offset_south is None or distance is None or distance < 0:
+                continue
             cell = {
-                "offset_east": int(max(-10000, min(10000, _finite_number(raw.get("offset_east"), 0.0) or 0.0))),
-                "offset_south": int(max(-10000, min(10000, _finite_number(raw.get("offset_south"), 0.0) or 0.0))),
-                "distance": round(max(0.0, min(10000.0, _finite_number(raw.get("distance"), 0.0) or 0.0)), 1),
+                "offset_east": int(max(-10000, min(10000, offset_east))),
+                "offset_south": int(max(-10000, min(10000, offset_south))),
+                "distance": round(min(10000.0, distance), 1),
                 "direction": _boundary_text(raw.get("direction"), 32),
                 "terrain": _boundary_text(raw.get("terrain"), 64),
             }
@@ -384,8 +385,12 @@ class ActionController:
         if agent.sleeping:
             return ActionResult(False, decision.action, "already_sleeping", "The body is already asleep.")
         action = decision.action
-        agent_x = _finite_number(agent.x, 0.0) or 0.0
-        agent_y = _finite_number(agent.y, 0.0) or 0.0
+        agent_x = _finite_number(getattr(agent, "x", None))
+        agent_y = _finite_number(getattr(agent, "y", None))
+        if action not in VIEW_ACTIONS | {"wait", "rest", "speak"} and (agent_x is None or agent_y is None):
+            return ActionResult(False, action, "position_unknown", "The body's position is invalid; location-dependent action feasibility is unknown.")
+        safe_agent_x = agent_x if agent_x is not None else 0.0
+        safe_agent_y = agent_y if agent_y is not None else 0.0
         path: list[tuple[int, int]] = []
         metadata: dict[str, Any] = {"interrupt_if": list(decision.interrupt_if)}
         duration = decision.duration_seconds
@@ -394,8 +399,8 @@ class ActionController:
             goal = self._resolve_goal(decision, world, agent)
             if goal is None:
                 return ActionResult(False, action, "unknown_target", "No reachable target or direction was provided.")
-            path = astar(world, (int(round(agent_x)), int(round(agent_y))), goal)
-            if not path and goal != (int(round(agent_x)), int(round(agent_y))):
+            path = astar(world, (int(round(safe_agent_x)), int(round(safe_agent_y))), goal)
+            if not path and goal != (int(round(safe_agent_x)), int(round(safe_agent_y))):
                 return ActionResult(False, action, "target_unreachable", f"No legal path to {goal}.")
             duration = max(duration, max(0.5, len(path) / max(0.25, agent.movement_speed)))
             metadata["goal"] = list(goal)
@@ -403,7 +408,7 @@ class ActionController:
             resource = world.resources.get(decision.target_id or "")
             if not resource or resource.quantity <= 0:
                 return ActionResult(False, action, "target_missing", "The requested resource is not present.")
-            if math.hypot(resource.x - agent_x, resource.y - agent_y) > INTERACTION_RADIUS:
+            if math.hypot(resource.x - safe_agent_x, resource.y - safe_agent_y) > INTERACTION_RADIUS:
                 return ActionResult(False, action, "out_of_reach", "The resource is too far away.")
             if not resource.portable and resource.kind != "berry_bush":
                 return ActionResult(False, action, "not_portable", "That object cannot be picked up.")
@@ -416,11 +421,11 @@ class ActionController:
             if not self._near_water(world, agent):
                 return ActionResult(False, action, "no_water", "No reachable water is close enough to drink.")
         elif action == "build":
-            if world.tile(int(round(agent_x)), int(round(agent_y))) != Terrain.BUILD_AREA:
+            if world.tile(int(round(safe_agent_x)), int(round(safe_agent_y))) != Terrain.BUILD_AREA:
                 return ActionResult(False, action, "illegal_location", "A basic shelter can only be built on stable clearing terrain.")
             if agent.inventory.get("branch", 0) < 3 or agent.inventory.get("stone", 0) < 2:
                 return ActionResult(False, action, "missing_materials", "A shelter needs 3 branches and 2 stones.")
-            if world.nearby_shelter(agent_x, agent_y, 2.0):
+            if world.nearby_shelter(safe_agent_x, safe_agent_y, 2.0):
                 return ActionResult(False, action, "already_built", "A shelter already occupies this location.")
             duration = max(12.0, duration)
         elif action == "drop":
@@ -483,7 +488,7 @@ class ActionController:
             return ActionResult(True, action, "completed", "The body reached the destination.", {"position": [round(_finite_number(agent.x, 0.0) or 0.0, 2), round(_finite_number(agent.y, 0.0) or 0.0, 2)]})
         if action == "pick_up":
             resource = world.resources.get(target_id or "")
-            if not resource or resource.quantity <= 0 or math.hypot(resource.x - agent_x, resource.y - agent_y) > INTERACTION_RADIUS:
+            if not resource or resource.quantity <= 0 or math.hypot(resource.x - safe_agent_x, resource.y - safe_agent_y) > INTERACTION_RADIUS:
                 return ActionResult(False, action, "target_changed", "The resource is no longer available within reach.")
             item_kind = "berry" if resource.kind == "berry_bush" else resource.kind
             if not agent.add_item(item_kind, 1):
@@ -520,13 +525,13 @@ class ActionController:
             agent.energy = min(100.0, agent.energy + 5.0)
             return ActionResult(True, action, "rested", "Ari rested briefly.")
         if action == "build":
-            if world.tile(int(round(agent_x)), int(round(agent_y))) != Terrain.BUILD_AREA:
+            if world.tile(int(round(safe_agent_x)), int(round(safe_agent_y))) != Terrain.BUILD_AREA:
                 return ActionResult(False, action, "location_changed", "The build location is no longer legal.")
             if agent.inventory.get("branch", 0) < 3 or agent.inventory.get("stone", 0) < 2:
                 return ActionResult(False, action, "materials_changed", "Required materials were no longer available.")
             agent.remove_item("branch", 3); agent.remove_item("stone", 2)
             shelter_id = f"shelter_{len(world.shelters) + 1:02d}"
-            shelter = Shelter(shelter_id, int(round(agent_x)), int(round(agent_y)), quality=0.65)
+            shelter = Shelter(shelter_id, int(round(safe_agent_x)), int(round(safe_agent_y)), quality=0.65)
             world.shelters[shelter_id] = shelter
             agent.known_locations[shelter_id] = {"x": shelter.x, "y": shelter.y, "certainty": 1.0, "last_seen": world.sim_time}
             return ActionResult(True, action, "built", "A basic shelter was built from branches and stones.", shelter.to_dict())
@@ -538,83 +543,130 @@ class ActionController:
             from app.simulation.world import Resource
             rid = f"dropped_{target_id}_{int(world.sim_time * 10)}"
             is_edible = target_id in {"berry", "edible_plant"}
-            world.resources[rid] = Resource(rid, target_id, int(round(agent_x)), int(round(agent_y)), edible=is_edible,
+            world.resources[rid] = Resource(rid, target_id, int(round(safe_agent_x)), int(round(safe_agent_y)), edible=is_edible,
                 nutrition=22.0 if target_id == "berry" else (12.0 if is_edible else 0.0),
                 energy=5.0 if target_id == "berry" else (2.0 if is_edible else 0.0))
             return ActionResult(True, action, "dropped", f"Dropped 1 {target_id}.")
         if action == "inspect":
             return ActionResult(True, action, "inspected", f"Inspected {target_id or 'the surroundings'}.")
         if action == "view_map":
-            agent_x = _finite_number(agent.x, 0.0) or 0.0
-            agent_y = _finite_number(agent.y, 0.0) or 0.0
-            ax, ay = int(round(agent_x)), int(round(agent_y))
+            agent_x = _finite_number(getattr(agent, "x", None))
+            agent_y = _finite_number(getattr(agent, "y", None))
+            position_known = agent_x is not None and agent_y is not None
+            ax = int(round(agent_x)) if position_known else 0
+            ay = int(round(agent_y)) if position_known else 0
             cells: list[dict[str, Any]] = []
+            total_cells = 0
+            cell_scan_truncated = False
             known_terrain = agent.known_terrain if isinstance(agent.known_terrain, dict) else {}
-            for key, terrain in known_terrain.items():
+            for index, (key, terrain) in enumerate(known_terrain.items()):
+                if index >= ARI_SOURCE_SCAN_LIMIT:
+                    cell_scan_truncated = True
+                    break
+                if not position_known or not isinstance(key, str) or not verify_knowledge(agent, "terrain", key, terrain):
+                    continue
                 try:
                     world_x, world_y = (int(part) for part in key.split(",", 1))
-                    world_x = max(-1_000_000, min(1_000_000, world_x))
-                    world_y = max(-1_000_000, min(1_000_000, world_y))
+                    if not (-1_000_000 <= world_x <= 1_000_000 and -1_000_000 <= world_y <= 1_000_000):
+                        continue
                 except (AttributeError, TypeError, ValueError, OverflowError):
                     continue
+                total_cells += 1
                 dx, dy = world_x - ax, world_y - ay
-                cells.append({
-                    "offset_east": dx,
-                    "offset_south": dy,
-                    "distance": round(math.hypot(dx, dy), 1),
-                    "direction": _relative_direction(dx, dy),
-                    "terrain": _bounded_text(terrain, 64),
-                })
+                if len(cells) < ARI_MAP_CELL_LIMIT:
+                    cells.append({
+                        "offset_east": dx,
+                        "offset_south": dy,
+                        "distance": round(math.hypot(dx, dy), 1),
+                        "direction": _relative_direction(dx, dy),
+                        "terrain": _bounded_text(terrain, 64),
+                    })
             cells.sort(key=lambda item: (item["distance"], item["offset_south"], item["offset_east"], item["terrain"]))
-            total_cells = len(cells)
             cells = cells[:ARI_MAP_CELL_LIMIT]
+
             markers: list[dict[str, Any]] = []
+            total_markers = 0
+            marker_scan_truncated = False
             marker_values = agent.map_markers.values() if isinstance(agent.map_markers, dict) else []
-            for marker in marker_values:
+            for index, marker in enumerate(marker_values):
+                if index >= ARI_SOURCE_SCAN_LIMIT:
+                    marker_scan_truncated = True
+                    break
                 if _safe_status(getattr(marker, "status", "active"), {"active", "stale", "archived"}, "active") == "archived":
                     continue
                 projected = _ari_marker_projection(marker, agent)
                 if projected is not None:
-                    markers.append(projected)
+                    total_markers += 1
+                    if len(markers) < ARI_MAP_MARKER_LIMIT:
+                        markers.append(projected)
             markers.sort(key=lambda item: (item.get("status", ""), item.get("label", ""), item.get("marker_id", "")))
-            total_markers = len(markers)
-            markers = markers[:ARI_MAP_MARKER_LIMIT]
             return ActionResult(True, action, "viewed", "Ari reviewed the field map.", {
                 "map_state": "blank" if not markers and not cells else "partially_known",
-                "subjective_origin": "Ari's current position",
+                "subjective_origin": "Ari's current position" if position_known else "unknown",
+                "position_known": position_known,
                 "known_cells": cells,
                 "markers": markers,
                 "total_known_cells": total_cells,
                 "visible_known_cells": len(cells),
                 "total_markers": total_markers,
                 "visible_markers": len(markers),
+                "source_scan_truncated": cell_scan_truncated or marker_scan_truncated,
             })
         if action == "view_task_journal":
-            task_values = list(agent.tasks.values()) if isinstance(agent.tasks, dict) else []
-            tasks = [projected for task in task_values if (projected := _ari_task_projection(task, agent)) is not None]
-            tasks.sort(key=lambda item: (item["priority"], item["created_at"], item["task_id"]))
+            tasks: list[dict[str, Any]] = []
+            total_tasks = 0
             status_counts: dict[str, int] = {}
-            for item in tasks:
-                status_counts[item["status"]] = status_counts.get(item["status"], 0) + 1
+            source_truncated = False
+            task_values = agent.tasks.values() if isinstance(agent.tasks, dict) else []
+            seen_ids: set[str] = set()
+            for index, task in enumerate(task_values):
+                if index >= ARI_SOURCE_SCAN_LIMIT:
+                    source_truncated = True
+                    break
+                projected = _ari_task_projection(task, agent)
+                if projected is None or projected["task_id"] in seen_ids:
+                    continue
+                seen_ids.add(projected["task_id"])
+                total_tasks += 1
+                status_counts[projected["status"]] = status_counts.get(projected["status"], 0) + 1
+                tasks.append(projected)
+            tasks.sort(key=lambda item: (item["priority"], item["created_at"], item["task_id"]))
             visible = tasks[:ARI_TASK_LIMIT]
             return ActionResult(True, action, "viewed", "Ari reviewed the task journal.", {
                 "tasks": visible,
-                "total_tasks": len(tasks),
+                "total_tasks": total_tasks,
                 "visible_tasks": len(visible),
                 "status_counts": dict(sorted(status_counts.items())),
+                "source_scan_truncated": source_truncated,
             })
         if action == "view_notebook":
-            note_values = list(agent.notes.values()) if isinstance(agent.notes, dict) else []
-            notes = [projected for note in note_values if (projected := _ari_note_projection(note, agent)) is not None]
-            active = [item for item in notes if item["status"] == "active"]
-            active.sort(key=lambda item: (-item["updated_at"], item["note_id"]))
-            visible = active[:ARI_NOTE_LIMIT]
-            return ActionResult(True, action, "viewed", "The field notebook is empty." if not active else "Ari reviewed the field notebook.", {
+            notes: list[dict[str, Any]] = []
+            total_notes = 0
+            total_active = 0
+            source_truncated = False
+            note_values = agent.notes.values() if isinstance(agent.notes, dict) else []
+            seen_ids: set[str] = set()
+            for index, note in enumerate(note_values):
+                if index >= ARI_SOURCE_SCAN_LIMIT:
+                    source_truncated = True
+                    break
+                projected = _ari_note_projection(note, agent)
+                if projected is None or projected["note_id"] in seen_ids:
+                    continue
+                seen_ids.add(projected["note_id"])
+                total_notes += 1
+                if projected["status"] == "active":
+                    total_active += 1
+                    notes.append(projected)
+            notes.sort(key=lambda item: (-item["updated_at"], item["note_id"]))
+            visible = notes[:ARI_NOTE_LIMIT]
+            return ActionResult(True, action, "viewed", "The field notebook is empty." if not notes else "Ari reviewed the field notebook.", {
                 "notes": visible,
-                "empty": not active,
-                "total_notes": len(notes),
-                "total_active_notes": len(active),
+                "empty": not notes,
+                "total_notes": total_notes,
+                "total_active_notes": total_active,
                 "visible_notes": len(visible),
+                "source_scan_truncated": source_truncated,
             })
         if action == "look":
             return ActionResult(True, action, "observed", "Ari deliberately surveyed the nearby area.")
