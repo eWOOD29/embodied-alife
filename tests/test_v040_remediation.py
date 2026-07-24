@@ -17,8 +17,20 @@ from app.simulation.cognition import (
     Provenance,
     TaskRecord,
 )
+from app.simulation.integrity import attach_key, seal_knowledge, seal_record
 from app.simulation.perception import BELIEF_SUMMARY_LIMIT, KNOWN_TILE_SUMMARY_LIMIT, build_perception
 from app.simulation.world import WorldState
+
+
+KEY = b"v040-remediation-test-key".ljust(32, b"!")
+
+
+def _prepare(agent: AgentState) -> None:
+    attach_key(agent, KEY)
+
+
+def _seal(family: str, record, *, path: str = "validated_model_response", source: str = "inference", reference: str = "v040-test") -> None:
+    assert seal_record(family, record, KEY, path, source_type=source, source_ref=reference)
 
 
 def _decision(action: str) -> ActionDecision:
@@ -33,6 +45,7 @@ def _complete(controller: ActionController, world: WorldState, agent: AgentState
 
 
 def _serialized_prompt(world: WorldState, agent: AgentState) -> str:
+    _prepare(agent)
     perception = build_perception(world, agent)
     return decision_messages({
         "perception": perception,
@@ -62,6 +75,7 @@ def test_view_map_and_normal_prompt_hide_absolute_and_hidden_sentinels() -> None
         "41,7": "ABSOLUTE_TERRAIN_SENTINEL",
         "3,39": "known meadow",
     }
+    _prepare(agent)
     agent.known_locations["HIDDEN_LOCATION_SENTINEL"] = {
         "x": 41,
         "y": 7,
@@ -77,6 +91,8 @@ def test_view_map_and_normal_prompt_hide_absolute_and_hidden_sentinels() -> None
         "marker", "subjective marker", "unknown", {"x": 41, "y": 7}, 0.4, "active", "Ari inference", 0, 0,
         provenance=Provenance("inference"),
     )
+    assert seal_knowledge(agent, "terrain", "3,39", "known meadow", "validated_perception", source_ref="safe-terrain")
+    _seal("marker", agent.map_markers["marker"], source="inference", reference="safe-marker")
     result = _complete(ActionController(), world, agent, "view_map")
     assert "observer_truth_included" not in result.data
     assert "known_terrain" not in result.data
@@ -101,6 +117,8 @@ def test_belief_summary_and_all_store_prompt_growth_are_bounded() -> None:
     world = WorldState.generate(988, 48)
     small = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
     large = AgentState.from_dict(small.to_dict())
+    _prepare(small)
+    _prepare(large)
     for index in range(400):
         unique = f"BELIEF_FULL_SENTINEL_{index}_" + ("b" * 800)
         large.beliefs[f"belief-{index:04d}"] = BeliefRecord(
@@ -121,8 +139,17 @@ def test_belief_summary_and_all_store_prompt_growth_are_bounded() -> None:
         )
         large.short_term_episodes[f"episode-{index}"] = EpisodeRecord(
             f"episode-{index}", index, index, f"EPISODE_SUMMARY_SENTINEL_{index}_" + ("e" * 900),
-            "test", 0.5, "recent", provenance=Provenance("test"),
+            "test", 0.5, "recent", provenance=Provenance("inference"),
         )
+        large.beliefs[f"belief-{index:04d}"].provenance.source_type = "inference"
+        large.notes[f"note-{index}"].provenance.source_type = "agent"
+        large.tasks[f"task-{index}"].provenance.source_type = "inference"
+        large.map_markers[f"marker-{index}"].provenance.source_type = "inference"
+        _seal("belief", large.beliefs[f"belief-{index:04d}"], source="inference", reference=f"belief:{index}")
+        _seal("note", large.notes[f"note-{index}"], source="agent", reference=f"note:{index}")
+        _seal("task", large.tasks[f"task-{index}"], source="inference", reference=f"task:{index}")
+        _seal("marker", large.map_markers[f"marker-{index}"], source="inference", reference=f"marker:{index}")
+        _seal("episode", large.short_term_episodes[f"episode-{index}"], source="inference", reference=f"episode:{index}")
     small_prompt = _serialized_prompt(world, small)
     large_prompt = _serialized_prompt(world, large)
     perception = build_perception(world, large)
@@ -142,11 +169,16 @@ def test_belief_summary_and_all_store_prompt_growth_are_bounded() -> None:
 def test_first_decision_awakening_and_normal_context_are_separately_bounded() -> None:
     world = WorldState.generate(989, 48)
     agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+    _prepare(agent)
     full_claims = []
     for index in range(300):
         claim = f"FIRST_CONTEXT_SENTINEL_{index}_" + ("x" * 1000)
         full_claims.append(claim)
         agent.beliefs[f"b-{index}"] = claim
+        belief = agent.beliefs[f"b-{index}"]
+        belief.source_type = "inference"
+        belief.provenance.source_type = "inference"
+        _seal("belief", belief, source="inference", reference=f"first:{index}")
     first = _serialized_prompt(world, agent)
     assert "I wake beneath an unfamiliar sky" in first
     assert all(claim not in first for claim in full_claims)
@@ -247,6 +279,7 @@ def test_realistic_legacy_and_malformed_state_normalizes_without_truth_promotion
 def test_exact_marker_branch_uses_allowlist_and_preserves_observer_cognition() -> None:
     world = WorldState.generate(991, 48)
     agent = AgentState(x=17.0, y=23.0)
+    _prepare(agent)
     forbidden_values = {
         "CAVE_TRUTH_SENTINEL", "RECIPE_SENTINEL", "HIDDEN_ENTITY_SENTINEL", "HIDDEN_RESOURCE_SENTINEL",
         "OBSERVER_ID_SENTINEL", "OBSERVER_CAMEL_SENTINEL", "INTERNAL_METADATA_SENTINEL", "TRUTH_SENTINEL",
@@ -310,6 +343,7 @@ def test_exact_marker_branch_uses_allowlist_and_preserves_observer_cognition() -
 
 def _large_prompt_case(world: WorldState, size: int, *, awakening: bool) -> tuple[AgentState, str, dict]:
     agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+    _prepare(agent)
     agent.awakening.presented = not awakening
     agent.key_items = {}
     agent.tasks = {}
@@ -333,6 +367,19 @@ def _large_prompt_case(world: WorldState, size: int, *, awakening: bool) -> tupl
         agent.short_term_episodes[f"episode-{index}"] = EpisodeRecord(f"episode-{index}", index, index, sentinel + ("z" * 900), "test", 0.5, "recent", provenance=Provenance("test"))
         memories.append({"memory_id": f"memory-{index}", "title": sentinel + ("r" * 600), "content": sentinel + ("c" * 5000), "tags": [sentinel + ("g" * 500)] * 50})
         active_plan.append(sentinel + ("a" * 3000))
+        agent.key_items[key_id].provenance.source_type = "agent"
+        agent.tasks[task_id].provenance.source_type = "inference"
+        agent.beliefs[f"belief-{index}"].source_type = "inference"
+        agent.beliefs[f"belief-{index}"].provenance.source_type = "inference"
+        agent.notes[f"note-{index}"].provenance.source_type = "agent"
+        agent.map_markers[f"marker-{index}"].provenance.source_type = "inference"
+        agent.short_term_episodes[f"episode-{index}"].provenance.source_type = "inference"
+        _seal("key_item", agent.key_items[key_id], source="agent", reference=f"key:{index}")
+        _seal("task", agent.tasks[task_id], source="inference", reference=f"task:{index}")
+        _seal("belief", agent.beliefs[f"belief-{index}"], source="inference", reference=f"belief:{index}")
+        _seal("note", agent.notes[f"note-{index}"], source="agent", reference=f"note:{index}")
+        _seal("marker", agent.map_markers[f"marker-{index}"], source="inference", reference=f"marker:{index}")
+        _seal("episode", agent.short_term_episodes[f"episode-{index}"], source="inference", reference=f"episode:{index}")
     perception = build_perception(world, agent)
     prompt = decision_messages({
         "perception": perception,
@@ -380,6 +427,7 @@ def test_first_decision_uses_the_same_final_bounds() -> None:
 def test_malformed_numeric_values_remain_controlled_after_loading_and_direct_mutation() -> None:
     world = WorldState.generate(994, 48)
     agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+    _prepare(agent)
     agent.beliefs["bad"] = BeliefRecord("bad", "claim", 0.5, "basis", "hypothesis", 0, None, provenance=Provenance("test"))
     bad_belief = agent.beliefs["bad"]
     bad_belief.first_formed_at = {"bad": 1}

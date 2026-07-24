@@ -7,7 +7,7 @@ from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from typing import Any
 
-from app.serialization import json_safe_dict
+from app.serialization import finite_number, json_safe_dict
 
 
 class Terrain(StrEnum):
@@ -322,21 +322,94 @@ class WorldState:
         return json_safe_dict(self, max_depth=12, max_items=10000, max_text=4000, max_nodes=200000)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "WorldState":
+    def from_dict(cls, data: Any) -> "WorldState":
+        if not isinstance(data, dict):
+            raise ValueError("invalid_world_state")
+
+        def integer(value: Any, *, minimum: int, maximum: int) -> int:
+            number = finite_number(value)
+            if number is None:
+                raise ValueError("invalid_world_number")
+            parsed = int(number)
+            if parsed < minimum or parsed > maximum:
+                raise ValueError("invalid_world_number")
+            return parsed
+
+        def number(value: Any, default: float = 0.0) -> float:
+            parsed = finite_number(value, default)
+            return default if parsed is None else parsed
+
+        seed = integer(data.get("seed"), minimum=-2_147_483_648, maximum=2_147_483_647)
+        size = integer(data.get("size"), minimum=32, maximum=256)
+        raw_tiles = data.get("tiles")
+        if not isinstance(raw_tiles, list) or len(raw_tiles) != size:
+            raise ValueError("invalid_world_tiles")
+        tiles: list[list[str]] = []
+        allowed_terrain = {terrain.value for terrain in Terrain}
+        for raw_row in raw_tiles:
+            if not isinstance(raw_row, list) or len(raw_row) != size:
+                raise ValueError("invalid_world_tiles")
+            row: list[str] = []
+            for raw_tile in raw_row:
+                if not isinstance(raw_tile, str) or raw_tile not in allowed_terrain:
+                    raise ValueError("invalid_world_tile")
+                row.append(raw_tile)
+            tiles.append(row)
+
+        def pair(value: Any) -> tuple[int, int]:
+            if not isinstance(value, (list, tuple)) or len(value) != 2:
+                raise ValueError("invalid_world_coordinate")
+            x = integer(value[0], minimum=0, maximum=size - 1)
+            y = integer(value[1], minimum=0, maximum=size - 1)
+            return x, y
+
+        def records(value: Any, record_type: Any) -> dict[str, Any]:
+            if not isinstance(value, dict):
+                return {}
+            result: dict[str, Any] = {}
+            for index, (raw_key, raw_value) in enumerate(value.items()):
+                if index >= 10000:
+                    break
+                if not isinstance(raw_key, str) or not isinstance(raw_value, dict):
+                    continue
+                allowed = {field_info.name for field_info in __import__("dataclasses").fields(record_type)}
+                payload = {key: item for key, item in raw_value.items() if key in allowed}
+                payload["id"] = raw_key[:160]
+                try:
+                    record = record_type(**payload)
+                except (TypeError, ValueError, OverflowError):
+                    continue
+                if record.id and record.id not in result:
+                    result[record.id] = record
+            return result
+
+        truth_notes: dict[str, str] = {}
+        raw_truth = data.get("truth_notes")
+        if isinstance(raw_truth, dict):
+            for index, (key, value) in enumerate(raw_truth.items()):
+                if index >= 1000:
+                    break
+                if isinstance(key, str) and isinstance(value, str):
+                    truth_notes[key[:160]] = value[:4000]
+
+        weather = data.get("weather") if isinstance(data.get("weather"), str) else "clear"
+        if weather not in {"clear", "cloudy", "rain", "storm"}:
+            weather = "clear"
         return cls(
-            seed=data["seed"],
-            size=data["size"],
-            tiles=data["tiles"],
-            resources={k: Resource(**v) for k, v in data["resources"].items()},
-            shelters={k: Shelter(**v) for k, v in data.get("shelters", {}).items()},
-            npcs={k: NPC(**v) for k, v in data["npcs"].items()},
-            spawn=tuple(data["spawn"]),
-            cave_position=tuple(data["cave_position"]),
-            build_area=tuple(data["build_area"]),
-            sim_time=data.get("sim_time", 0.0),
-            day=data.get("day", 1),
-            weather=data.get("weather", "clear"),
-            ambient_temperature_c=data.get("ambient_temperature_c", 18.0),
-            resource_regen_clock=data.get("resource_regen_clock", 0.0),
-            truth_notes=data.get("truth_notes", {}),
+            seed=seed,
+            size=size,
+            tiles=tiles,
+            resources=records(data.get("resources"), Resource),
+            shelters=records(data.get("shelters"), Shelter),
+            npcs=records(data.get("npcs"), NPC),
+            spawn=pair(data.get("spawn")),
+            cave_position=pair(data.get("cave_position")),
+            build_area=pair(data.get("build_area")),
+            sim_time=number(data.get("sim_time"), 0.0),
+            day=max(1, integer(data.get("day", 1), minimum=1, maximum=10_000_000)),
+            weather=weather,
+            ambient_temperature_c=number(data.get("ambient_temperature_c"), 18.0),
+            resource_regen_clock=max(0.0, number(data.get("resource_regen_clock"), 0.0)),
+            truth_notes=truth_notes,
         )
+

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "appId": "embodied-alife",
   "displayName": "Embodied Artificial Life",
-  "projectDirectory": "C:\\Users\\ethan\\workspace\\local-apps\\embodied-alife",
+  "projectDirectory": ".",
   "command": ".venv\\Scripts\\python.exe",
   "arguments": [
     "-m",

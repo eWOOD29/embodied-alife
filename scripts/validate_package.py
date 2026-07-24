@@ -3,7 +3,12 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 from pathlib import Path
+
+sys.dont_write_bytecode = True
+
+from scripts.privacy_scan import scan_tree, validate_appdock
 
 ROOT = Path(__file__).resolve().parents[1]
 REQUIRED = [
@@ -30,6 +35,7 @@ REQUIRED = [
     "scripts/disable-tailscale-access.ps1",
     "scripts/apply_update.py",
     "scripts/build_release.py",
+    "scripts/privacy_scan.py",
     "install-windows.ps1",
     ".github/workflows/release.yml",
     "tests/test_updater.py",
@@ -58,9 +64,13 @@ def main() -> None:
     if missing or empty:
         raise SystemExit(f"missing={missing}, empty={empty}")
 
-    manifest = json.loads((ROOT / "appdock.json").read_text(encoding="utf-8"))
-    if manifest.get("arguments") != ["-m", "app.serve"]:
-        raise SystemExit("appdock.json must launch app.serve so .env HOST and PORT are honored")
+    try:
+        manifest = json.loads((ROOT / "appdock.json").read_text(encoding="utf-8"))
+    except (OSError, TypeError, ValueError, OverflowError) as exc:
+        raise SystemExit("appdock.json must be valid JSON") from exc
+    appdock_findings = validate_appdock(manifest)
+    if appdock_findings:
+        raise SystemExit(f"appdock_privacy_or_portability={appdock_findings}")
 
     env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
     if "HOST=0.0.0.0" not in env_example:
@@ -98,14 +108,17 @@ def main() -> None:
     for path in ROOT.rglob("*"):
         if not path.is_file() or any(part in scan_excluded_parts for part in path.parts):
             continue
-        if path.suffix.lower() in {".png", ".jpg", ".zip", ".db"}:
+        if path.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp", ".zip", ".db", ".sqlite", ".sqlite3"}:
             continue
         text = path.read_text(encoding="utf-8", errors="ignore")
         if API_KEY_PATTERN.search(text) and path.name != "validate_package.py":
             secrets.append(str(path.relative_to(ROOT)))
 
-    if forbidden or generated or secrets:
-        raise SystemExit(f"forbidden={forbidden}, generated={generated}, possible_secrets={secrets}")
+    privacy_findings = scan_tree(ROOT, include_runtime=False)
+    if forbidden or generated or secrets or privacy_findings:
+        raise SystemExit(
+            f"forbidden={forbidden}, generated={generated}, possible_secrets={secrets}, privacy_findings={privacy_findings}"
+        )
 
     mode = "installed" if installed else "source"
     print(f"package validation passed ({mode} mode): {len(REQUIRED)} required files present")

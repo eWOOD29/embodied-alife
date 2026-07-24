@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from app.diagnostics import build_diagnostic_bundle
-from app.serialization import json_safe
+from app.serialization import finite_number, json_safe, json_safe_dict
 from app.updater.manager import UpdateError
 from app.version import __version__
 
@@ -54,20 +54,23 @@ def _updater(request: Request):
 
 def _health_payload(request: Request) -> dict:
     engine = _engine(request)
+    brain_status = getattr(getattr(engine, "brain", None), "status", {})
+    brain_status = brain_status if isinstance(brain_status, dict) else {}
+    updater_status = getattr(_updater(request), "status", None)
     return {
         "status": "ok",
         "app": "embodied-alife",
         "version": __version__,
         "run_id": getattr(engine, "run_id", None),
         "world_generation_id": getattr(engine, "world_generation_id", None),
-        "paused": engine.paused,
-        "alive": engine.agent.alive,
-        "seed": engine.world.seed,
-        "sim_time": round(engine.world.sim_time, 2),
-        "model_mode": engine.brain.status.get("mode"),
-        "model_available": engine.brain.status.get("available"),
-        "generation_healthy": engine.brain.status.get("generation_healthy"),
-        "update_state": _updater(request).status.state,
+        "paused": getattr(engine, "paused", False) is True,
+        "alive": getattr(getattr(engine, "agent", None), "alive", False) is True,
+        "seed": finite_number(getattr(getattr(engine, "world", None), "seed", None), 0.0),
+        "sim_time": round(finite_number(getattr(engine.world, "sim_time", None), 0.0) or 0.0, 2),
+        "model_mode": brain_status.get("mode") if isinstance(brain_status.get("mode"), str) else "unknown",
+        "model_available": brain_status.get("available") is True,
+        "generation_healthy": brain_status.get("generation_healthy") is True,
+        "update_state": getattr(updater_status, "state", "unknown") if isinstance(getattr(updater_status, "state", "unknown"), str) else "unknown",
     }
 
 
@@ -113,7 +116,20 @@ def snapshots(request: Request) -> list[dict]:
 
 @router.get("/api/memories")
 def memories(request: Request) -> list[dict]:
-    return json_safe([record.to_dict() for record in _engine(request).vault.list_records()], max_depth=8, max_items=1000, max_text=4000, max_nodes=50000)
+    engine = _engine(request)
+    try:
+        records = engine.vault.list_records(limit=1000, scan_limit=4096)
+    except Exception:
+        records = []
+    result: list[dict] = []
+    for record in records:
+        try:
+            projected = json_safe_dict(record.to_dict(), max_depth=8, max_items=512, max_text=4000, max_nodes=5000, max_source_items=10000)
+        except Exception:
+            projected = {}
+        if projected:
+            result.append(projected)
+    return result
 
 
 @router.get("/api/llm/settings")

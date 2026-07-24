@@ -23,7 +23,7 @@ async def simulation_socket(websocket: WebSocket) -> None:
                 state = await asyncio.wait_for(queue.get(), timeout=0.5)
             except TimeoutError:
                 continue
-            await websocket.send_json(json_safe(state, max_depth=12, max_items=10000, max_text=4000, max_nodes=250000))
+            await websocket.send_json(json_safe(state, max_depth=12, max_items=10000, max_text=4000, max_nodes=250000, max_source_items=300000))
     except (WebSocketDisconnect, RuntimeError):
         pass
     finally:

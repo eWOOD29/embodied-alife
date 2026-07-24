@@ -15,10 +15,23 @@ from app.memory.consolidation import consolidate_sleep
 from app.memory.retrieval import retrieve_memories
 from app.memory.vault import MemoryValidationError, MemoryVault
 from app.serialization import finite_number, json_safe, json_safe_dict
+from app.simulation.integrity import (
+    agent_key,
+    attach_key,
+    load_or_create_key,
+    safe_message,
+    seal_deterministic_starters,
+    seal_memory_record,
+    seal_record,
+    sign_payload,
+    state_contains_proofs,
+    verify_memory_record,
+)
 from app.simulation.actions import ActionController, ActionResult
 from app.simulation.agent import AgentState
 from app.simulation.events import Event
 from app.simulation.needs import update_needs
+from app.simulation.observer import build_observer_state
 from app.simulation.npcs import resolve_npc_interactions
 from app.simulation.perception import build_perception
 from app.simulation.world import WorldState
@@ -63,11 +76,27 @@ class SimulationEngine:
 
         self._migrate_memory_integrity()
         existing = self.database.get_metadata("current_state") if load_existing else None
+        self._ari_integrity_key = load_or_create_key(
+            settings.runtime_dir,
+            allow_create=not state_contains_proofs(existing),
+        )
+        restored = False
         if existing:
-            self._restore(existing)
+            try:
+                self._restore(existing)
+                restored = True
+            except (KeyError, TypeError, ValueError, OverflowError):
+                self.database.set_metadata(
+                    "quarantined_malformed_current_state",
+                    json_safe(existing, max_depth=12, max_items=10000, max_text=4000, max_nodes=200000, max_source_items=250000),
+                )
+                self.database.set_metadata("malformed_current_state_recovery", {"action": "started_new_world", "seed": settings.world_seed})
+        if restored:
             self._record("system", "Restored the latest local runtime state.", 0.4)
         else:
             self._new_world(settings.world_seed)
+            if existing:
+                self._record("system", "Malformed persisted state was quarantined; a new world was started without deleting the recovery copy.", 0.8)
 
     def _migrate_memory_integrity(self) -> None:
         if self.database.get_metadata("memory_integrity_version") == MEMORY_INTEGRITY_VERSION:
@@ -87,10 +116,26 @@ class SimulationEngine:
         self.database.set_metadata("world_generation_id", self.world_generation_id)
         self.world = WorldState.generate(seed, self.settings.world_size)
         self.agent = AgentState(x=float(self.world.spawn[0]), y=float(self.world.spawn[1]))
+        attach_key(self.agent, self._ari_integrity_key)
+        seal_deterministic_starters(self.agent, self._ari_integrity_key)
         self.agent.beliefs = {
             "self": "I have a physical body in an unfamiliar place.",
             "world": "The environment appears real and partially observable; my interpretations may be wrong.",
         }
+        for belief_id, belief in self.agent.beliefs.items():
+            if isinstance(belief, dict):
+                belief["source_type"] = "system_initialization"
+                provenance = belief.get("provenance")
+                if isinstance(provenance, dict):
+                    provenance["source_type"] = "system_initialization"
+            seal_record(
+                "belief",
+                belief,
+                self._ari_integrity_key,
+                "deterministic_starter",
+                source_type="system_initialization",
+                source_ref=f"initial-belief:{belief_id}",
+            )
         self.controller = ActionController()
         self.events.clear()
         self.memory_writes.clear()
@@ -225,26 +270,40 @@ class SimulationEngine:
         return None
 
     async def make_decision(self) -> None:
-        if not self.agent.alive or self.controller.execution or self.agent.sleeping:
+        if self.agent.alive is not True or self.controller.execution or self.agent.sleeping is True:
             return
+        recent_events = self.agent.recent_events if isinstance(self.agent.recent_events, list) else []
         due_consolidation = next(
-            (event for event in self.agent.recent_events[-4:] if event.get("kind") == "consolidation_due"),
+            (event for event in recent_events[-4:] if isinstance(event, dict) and event.get("kind") == "consolidation_due"),
             None,
         )
         if due_consolidation:
             await self._consolidate("wake")
-            self.agent.recent_events = [event for event in self.agent.recent_events if event.get("kind") != "consolidation_due"]
+            self.agent.recent_events = [event for event in recent_events if not isinstance(event, dict) or event.get("kind") != "consolidation_due"]
 
         perception = build_perception(self.world, self.agent)
-        query_parts = [self.agent.current_intention]
-        query_parts.extend(obj["kind"] for obj in perception["visible_objects"][:8])
-        query_parts.extend(entity["classification"] for entity in perception["visible_entities"][:5])
-        tags = {item for item in self.agent.inventory}
+        query_parts: list[str] = []
+        intention = self.agent.current_intention if isinstance(self.agent.current_intention, str) else ""
+        if intention.strip():
+            query_parts.append(intention.strip()[:400])
+        for obj in (perception.get("visible_objects") if isinstance(perception.get("visible_objects"), list) else [])[:8]:
+            if isinstance(obj, dict) and isinstance(obj.get("kind"), str) and obj.get("kind"):
+                query_parts.append(obj["kind"][:80])
+        for entity in (perception.get("visible_entities") if isinstance(perception.get("visible_entities"), list) else [])[:5]:
+            if isinstance(entity, dict) and isinstance(entity.get("classification"), str) and entity.get("classification"):
+                query_parts.append(entity["classification"][:80])
+        inventory = self.agent.inventory if isinstance(self.agent.inventory, dict) else {}
+        tags = {key[:80] for index, key in enumerate(inventory) if index < 64 and isinstance(key, str) and key}
+        verified_memory_records = [
+            record
+            for record in self.vault.list_records(limit=4096, scan_limit=4096)
+            if verify_memory_record(self.settings.runtime_dir, record, self._ari_integrity_key)
+        ]
         memories = retrieve_memories(
-            self.vault.list_records(),
-            " ".join(query_parts),
+            verified_memory_records,
+            " ".join(query_parts)[:2000],
             tags=tags,
-            sim_time=self.world.sim_time,
+            sim_time=finite_number(getattr(self.world, "sim_time", None), 0.0) or 0.0,
             limit=6,
         )
         self.agent.retrieved_memories = memories
@@ -265,6 +324,20 @@ class SimulationEngine:
             safe_value = value.strip()[:500]
             if safe_key and safe_value:
                 self.agent.beliefs[safe_key] = safe_value
+                belief = self.agent.beliefs.get(safe_key)
+                if isinstance(belief, dict):
+                    belief["source_type"] = "model_belief_update"
+                    provenance = belief.get("provenance")
+                    if isinstance(provenance, dict):
+                        provenance["source_type"] = "model_belief_update"
+                seal_record(
+                    "belief",
+                    belief,
+                    self._ari_integrity_key,
+                    "validated_model_response",
+                    source_type="model_belief_update",
+                    source_ref=f"model-response:{model_response_id}:{safe_key}",
+                )
         self.last_decision = decision.model_dump()
         decision_event = self._record(
             "decision",
@@ -353,6 +426,14 @@ class SimulationEngine:
             return
         try:
             record = self.vault.write(request, self.world.sim_time)
+            if not seal_memory_record(
+                self.settings.runtime_dir,
+                record,
+                self._ari_integrity_key,
+                "validated_action_event",
+                source_ref=f"action-result:{action_event['id']}:{record.id}",
+            ):
+                raise MemoryValidationError("memory_integrity_proof_failed")
             self.database.add_memory(record)
             payload = record.to_dict()
             payload["provenance"] = {
@@ -403,6 +484,16 @@ class SimulationEngine:
 
     def _handle_action_result(self, result: ActionResult) -> None:
         payload = result.to_dict()
+        if result.reason != "started":
+            evidence = sign_payload(
+                self.agent,
+                "recent_outcome",
+                payload,
+                "validated_action_event",
+                source_ref=uuid.uuid4().hex,
+            )
+            if evidence is not None:
+                payload["_ari_integrity"] = evidence
         self.last_action_result = payload
         event = self._record(
             "action_result",
@@ -413,7 +504,7 @@ class SimulationEngine:
         self._resolve_pending_memory(result, event)
 
     def _record(self, kind: str, message: str, importance: float = 0.3, data: dict[str, Any] | None = None) -> dict[str, Any]:
-        event = Event(self.world.sim_time if hasattr(self, "world") else 0.0, kind, str(message)[:4000], json_safe_dict(data or {}, max_depth=10, max_items=1000, max_text=4000, max_nodes=50000), finite_number(importance, 0.3) or 0.3).to_dict()
+        event = Event(self.world.sim_time if hasattr(self, "world") else 0.0, kind, safe_message(message, 4000), json_safe_dict(data or {}, max_depth=10, max_items=1000, max_text=4000, max_nodes=50000), finite_number(importance, 0.3) or 0.3).to_dict()
         event["id"] = self.database.add_event(event)
         event["run_id"] = self.run_id
         event["world_generation_id"] = self.world_generation_id
@@ -432,34 +523,49 @@ class SimulationEngine:
             "controller": self.controller.execution.to_dict() if self.controller.execution else None,
             "paused": self.paused,
             "speed": self.speed,
-            "events": list(self.events),
+            "events": self.events,
             "last_action_result": self.last_action_result,
             "last_decision": self.last_decision,
-            "memory_writes": list(self.memory_writes),
+            "memory_writes": self.memory_writes,
             "pending_memory": self.pending_memory,
         }
-        return json_safe_dict(state, max_depth=12, max_items=10000, max_text=4000, max_nodes=200000)
+        return json_safe_dict(state, max_depth=12, max_items=10000, max_text=4000, max_nodes=200000, max_source_items=250000)
 
-    def _restore(self, state: dict[str, Any]) -> None:
+    def _restore(self, state: Any) -> None:
         from app.simulation.body import ActionExecution
 
-        self.run_id = state.get("run_id") or uuid.uuid4().hex
-        self.world_generation_id = state.get("world_generation_id") or uuid.uuid4().hex
-        self.world = WorldState.from_dict(state["world"])
-        self.agent = AgentState.from_dict(state["agent"])
+        if not isinstance(state, dict):
+            raise ValueError("invalid_state_envelope")
+        raw_world = state.get("world")
+        if not isinstance(raw_world, dict):
+            raise ValueError("invalid_world_state")
+        self.run_id = state.get("run_id") if isinstance(state.get("run_id"), str) and state.get("run_id") else uuid.uuid4().hex
+        self.world_generation_id = state.get("world_generation_id") if isinstance(state.get("world_generation_id"), str) and state.get("world_generation_id") else uuid.uuid4().hex
+        self.world = WorldState.from_dict(raw_world)
+        self.agent = AgentState.from_dict(state.get("agent"))
+        attach_key(self.agent, self._ari_integrity_key)
+        seal_deterministic_starters(self.agent, self._ari_integrity_key)
         self.controller = ActionController()
-        if state.get("controller"):
-            self.controller.execution = ActionExecution.from_dict(state["controller"])
-            self.agent.current_action = self.controller.execution.to_dict()
-        self.paused = state.get("paused", True)
-        self.speed = state.get("speed", 1)
-        self.events = deque(state.get("events", []), maxlen=600)
-        self.last_action_result = state.get("last_action_result")
-        self.last_decision = state.get("last_decision")
-        self.memory_writes = deque(state.get("memory_writes", []), maxlen=60)
-        self.pending_memory = state.get("pending_memory")
+        raw_controller = state.get("controller")
+        if isinstance(raw_controller, dict):
+            try:
+                self.controller.execution = ActionExecution.from_dict(raw_controller)
+                self.agent.current_action = self.controller.execution.to_dict()
+            except (KeyError, TypeError, ValueError, OverflowError):
+                self.controller.execution = None
+                self.agent.current_action = None
+        self.paused = state.get("paused") is True
+        raw_speed = state.get("speed")
+        self.speed = raw_speed if isinstance(raw_speed, int) and not isinstance(raw_speed, bool) and raw_speed in {1, 10, 100} else 1
+        raw_events = state.get("events")
+        self.events = deque(raw_events[:600], maxlen=600) if isinstance(raw_events, (list, tuple)) else deque(maxlen=600)
+        self.last_action_result = state.get("last_action_result") if isinstance(state.get("last_action_result"), dict) else None
+        self.last_decision = state.get("last_decision") if isinstance(state.get("last_decision"), dict) else None
+        raw_writes = state.get("memory_writes")
+        self.memory_writes = deque(raw_writes[:60], maxlen=60) if isinstance(raw_writes, (list, tuple)) else deque(maxlen=60)
+        self.pending_memory = state.get("pending_memory") if isinstance(state.get("pending_memory"), dict) else None
         self._decision_pending = not bool(self.controller.execution)
-        self._last_persist_time = self.world.sim_time
+        self._last_persist_time = finite_number(getattr(self.world, "sim_time", None), 0.0) or 0.0
         self.database.set_metadata("run_id", self.run_id)
         self.database.set_metadata("world_generation_id", self.world_generation_id)
 
@@ -523,42 +629,7 @@ class SimulationEngine:
         return {"ok": True, "speed": speed}
 
     def observer_state(self, *, include_map: bool = False) -> dict[str, Any]:
-        perception = build_perception(self.world, self.agent)
-        state = {
-            "version": self._state_version,
-            "run_id": self.run_id,
-            "world_generation_id": self.world_generation_id,
-            "paused": self.paused,
-            "speed": self.speed,
-            "world": {
-                "seed": self.world.seed,
-                "size": self.world.size,
-                "sim_time": round(self.world.sim_time, 2),
-                "day": self.world.day,
-                "hour": round(self.world.hour(), 2),
-                "daylight": round(self.world.daylight(), 3),
-                "weather": self.world.weather,
-                "ambient_temperature_c": self.world.ambient_temperature_c,
-                "resources": [r.to_dict() for r in self.world.resources.values() if r.quantity > 0],
-                "shelters": [s.to_dict() for s in self.world.shelters.values()],
-                "npcs": [npc.to_dict() for npc in self.world.npcs.values()],
-                "truth": self.world.truth_notes,
-            },
-            "agent": self.agent.to_dict(),
-            "agent_perception": perception,
-            "agent_beliefs": dict(self.agent.beliefs),
-            "last_decision": self.last_decision,
-            "last_action_result": self.last_action_result,
-            "pending_memory": self.pending_memory,
-            "events": list(self.events)[-120:],
-            "memory_writes": list(self.memory_writes),
-            "memories": [record.to_dict() for record in self.vault.list_records()[-60:]],
-            "model_status": dict(self.brain.status),
-            "snapshots": self.snapshots.list(),
-        }
-        if include_map:
-            state["world"]["tiles"] = self.world.tiles
-        return json_safe_dict(state, max_depth=12, max_items=10000, max_text=4000, max_nodes=250000)
+        return build_observer_state(self, include_map=include_map)
 
     async def subscribe(self) -> asyncio.Queue:
         queue: asyncio.Queue = asyncio.Queue(maxsize=2)

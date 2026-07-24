@@ -12,6 +12,30 @@ from app.serialization import finite_number, json_safe, strict_json_dumps
 T = TypeVar("T")
 
 
+def _safe_text(value: Any, default: str = "", limit: int = 4000) -> str:
+    if isinstance(value, str):
+        text = value.replace("\x00", "")
+    elif isinstance(value, int) and not isinstance(value, bool):
+        text = str(value)
+    elif isinstance(value, float):
+        number = finite_number(value)
+        text = "" if number is None else str(number)
+    elif isinstance(value, bool):
+        text = "true" if value else "false"
+    else:
+        text = default
+    return text[:limit]
+
+
+def _safe_json_loads(value: Any, default: Any) -> Any:
+    if not isinstance(value, str):
+        return default
+    try:
+        return json.loads(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+
+
 class Database:
     def __init__(self, path: Path) -> None:
         self.path = path
@@ -101,7 +125,7 @@ class Database:
 
     def get_metadata(self, key: str) -> Any | None:
         row = self._retry(lambda: self._conn.execute("SELECT value FROM metadata WHERE key=?", (key,)).fetchone())
-        return json.loads(row["value"]) if row else None
+        return _safe_json_loads(row["value"], None) if row else None
 
     def clear_memories(self) -> None:
         def op() -> None:
@@ -134,8 +158,8 @@ class Database:
                     "INSERT INTO events(sim_time, kind, message, importance, data_json) VALUES(?,?,?,?,?)",
                     (
                         finite_number(event.get("sim_time"), 0.0) or 0.0,
-                        str(event.get("kind") or "unknown")[:120],
-                        str(event.get("message") or "")[:4000],
+                        _safe_text(event.get("kind"), "unknown", 120) or "unknown",
+                        _safe_text(event.get("message"), "", 4000),
                         finite_number(event.get("importance"), 0.3, minimum=0.0, maximum=1.0) or 0.3,
                         strict_json_dumps(event.get("data", {}), max_depth=10, max_items=1000, max_text=4000, max_nodes=50000),
                     ),
@@ -155,7 +179,7 @@ class Database:
                 "kind": row["kind"],
                 "message": row["message"],
                 "importance": row["importance"],
-                "data": json.loads(row["data_json"]),
+                "data": _safe_json_loads(row["data_json"], {}),
                 "created_at": row["created_at"],
             }
             for row in reversed(rows)
@@ -180,12 +204,14 @@ class Database:
 
     def load_snapshot(self, name: str) -> dict[str, Any] | None:
         row = self._retry(lambda: self._conn.execute("SELECT state_json FROM snapshots WHERE name=?", (name,)).fetchone())
-        return json.loads(row["state_json"]) if row else None
+        return _safe_json_loads(row["state_json"], None) if row else None
 
-    def list_snapshots(self) -> list[dict[str, Any]]:
+    def list_snapshots(self, limit: int = 1000) -> list[dict[str, Any]]:
+        bounded_limit = max(1, min(10000, int(limit)))
         rows = self._retry(
             lambda: self._conn.execute(
-                "SELECT name, sim_time, seed, created_at FROM snapshots ORDER BY created_at DESC"
+                "SELECT name, sim_time, seed, created_at FROM snapshots ORDER BY created_at DESC LIMIT ?",
+                (bounded_limit,),
             ).fetchall()
         )
         return [dict(row) for row in rows]
@@ -235,9 +261,9 @@ class Database:
                 "latency_ms": row["latency_ms"],
                 "prompt_tokens": row["prompt_tokens"],
                 "completion_tokens": row["completion_tokens"],
-                "response": json.loads(row["response_json"]),
+                "response": _safe_json_loads(row["response_json"], {}),
                 "error": row["error"],
-                "provider": json.loads(row["metadata_json"] or "{}"),
+                "provider": _safe_json_loads(row["metadata_json"], {}),
                 "created_at": row["created_at"],
             }
             for row in reversed(rows)
