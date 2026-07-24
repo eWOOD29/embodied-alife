@@ -15,7 +15,7 @@ permissions:
   contents: read
 
 jobs:
-  diagnose:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -25,24 +25,182 @@ jobs:
         with:
           python-version: "3.11"
       - name: Check out exact candidate
-        run: git worktree add "$RUNNER_TEMP/post5-candidate" e112ed6407d6f28fcba79991685165a96c18edb8
-      - name: Install
+        run: git worktree add "$RUNNER_TEMP/post5-candidate" a316028d1ea309a2b05eec6adf592d2e32777236
+      - name: Install exact candidate
         run: python -m pip install -e "$RUNNER_TEMP/post5-candidate[dev]"
-      - name: Capture tests
+      - name: Validate exact candidate and local archive
         shell: bash
         run: |
           set +e
-          mkdir -p post5-audit-evidence
-          cd "$RUNNER_TEMP/post5-candidate"
-          python -m pytest -q > "$GITHUB_WORKSPACE/post5-audit-evidence/full.txt" 2>&1
-          code=$?
-          printf 'candidate=%s\npytest=%s\n' "$(git rev-parse HEAD)" "$code" > "$GITHUB_WORKSPACE/post5-audit-evidence/status.txt"
+          E="$GITHUB_WORKSPACE/post5-audit-evidence"
+          C="$RUNNER_TEMP/post5-candidate"
+          X="$RUNNER_TEMP/post5-extracted"
+          mkdir -p "$E" "$X"
+          cd "$C"
+
+          python -m pytest -q \
+            tests/test_v040_post5_remediation.py \
+            tests/test_v040_post4_remediation.py \
+            tests/test_v040_cognitive_foundations.py \
+            tests/test_v040_remediation.py \
+            tests/test_v040_post5_version.py > "$E/focused.txt" 2>&1
+          focused=$?
+
+          python -m pytest -q > "$E/full.txt" 2>&1
+          full=$?
+          python -m pytest -q tests/test_updater.py tests/test_v040_post5_version.py > "$E/updater-installer.txt" 2>&1
+          updater_installer=$?
+          python -m compileall -q app tests scripts > "$E/compile.txt" 2>&1
+          compile=$?
+          python -m ruff check app tests scripts > "$E/ruff.txt" 2>&1
+          ruff=$?
+
+          rm -rf .pytest_cache .ruff_cache
+          find app tests scripts -type d -name '__pycache__' -prune -exec rm -rf {} +
+          find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
+          find data/runtime -maxdepth 1 -type f ! -name .gitkeep -delete
+          python - <<'PY' > "$E/cleanup.txt" 2>&1
+          from pathlib import Path
+          bad_dirs = {"__pycache__", ".pytest_cache", ".ruff_cache"}
+          bad_suffixes = {".pyc", ".pyo"}
+          leftovers = [
+              path.as_posix()
+              for path in Path('.').rglob('*')
+              if any(part in bad_dirs for part in path.parts)
+              or (path.is_file() and path.suffix in bad_suffixes)
+          ]
+          runtime = [path.as_posix() for path in Path('data/runtime').glob('*') if path.is_file() and path.name != '.gitkeep']
+          if leftovers or runtime:
+              raise SystemExit({"generated": leftovers, "runtime": runtime})
+          print('generated-file cleanup passed')
+          PY
+          cleanup=$?
+
+          python scripts/validate_package.py > "$E/source-package.txt" 2>&1
+          source_package=$?
+          git status --short > "$E/candidate-status.txt"
+          if [ -s "$E/candidate-status.txt" ]; then source_clean=1; else source_clean=0; fi
+
+          rm -rf dist
+          python scripts/build_release.py --output dist/embodied-alife-update.zip > "$E/build.txt" 2>&1
+          build=$?
+          python scripts/release_notes.py 0.4.0.post5 dist/release-notes.md > "$E/release-notes-command.txt" 2>&1
+          release_notes=$?
+          cp dist/release-notes.md "$E/release-notes.md" 2>/dev/null || true
+
+          CANDIDATE="$C" EXTRACTED="$X" python - <<'PY' > "$E/archive.txt" 2>&1
+          import hashlib
+          import json
+          import os
+          import re
+          import zipfile
+          from pathlib import Path, PurePosixPath
+
+          root = Path(os.environ['CANDIDATE'])
+          extracted = Path(os.environ['EXTRACTED'])
+          archive_path = root / 'dist' / 'embodied-alife-update.zip'
+          checksum_path = root / 'dist' / 'embodied-alife-update.zip.sha256'
+          digest = hashlib.sha256(archive_path.read_bytes()).hexdigest()
+          checksum_text = checksum_path.read_text(encoding='utf-8')
+          match = re.fullmatch(r'([0-9a-f]{64})  embodied-alife-update\.zip\n', checksum_text)
+          if not match or match.group(1) != digest:
+              raise SystemExit('checksum syntax or digest mismatch')
+          with zipfile.ZipFile(archive_path) as archive:
+              if archive.testzip() is not None:
+                  raise SystemExit('ZIP integrity failure')
+              names = archive.namelist()
+              if len(names) != len(set(names)):
+                  raise SystemExit('duplicate archive members')
+              unsafe = [name for name in names if PurePosixPath(name).is_absolute() or '..' in PurePosixPath(name).parts or '\\' in name]
+              if unsafe:
+                  raise SystemExit(f'unsafe archive paths: {unsafe}')
+              temporary = [
+                  name for name in names
+                  if (name.startswith('.github/workflows/') and 'post5' in name.lower())
+                  or (name.startswith('scripts/') and ('post5_' in name.lower() or 'apply_phase' in name.lower()))
+                  or name.startswith('post5-audit-evidence/')
+                  or name in {'post5-test-output.txt', 'post5-compile-output.txt', 'post5-phase10-output.txt'}
+              ]
+              if temporary:
+                  raise SystemExit(f'temporary members: {temporary}')
+              manifest = json.loads(archive.read('update-manifest.json'))
+              managed = manifest.get('managed_paths')
+              expected = sorted(name for name in names if name != 'update-manifest.json')
+              if not isinstance(managed, list) or sorted(managed) != expected:
+                  raise SystemExit('managed-path reconciliation failure')
+              if manifest.get('schema_version') != 1 or manifest.get('app_id') != 'embodied-alife' or manifest.get('version') != '0.4.0.post5':
+                  raise SystemExit(f'manifest identity failure: {manifest}')
+              if manifest.get('preserved_roots') != ['.env', '.venv', 'data', '.git']:
+                  raise SystemExit('preserved roots mismatch')
+              required = {
+                  'app/simulation/integrity.py',
+                  'app/simulation/observer.py',
+                  'scripts/privacy_scan.py',
+                  'tests/test_v040_post5_remediation.py',
+                  'tests/test_v040_post5_version.py',
+                  'appdock.json',
+                  'app/version.py',
+                  'pyproject.toml',
+              }
+              if not required.issubset(set(names)):
+                  raise SystemExit(f'missing required Post5 members: {sorted(required - set(names))}')
+              for name in managed:
+                  source = root / name
+                  if not source.is_file() or archive.read(name) != source.read_bytes():
+                      raise SystemExit(f'source freshness mismatch: {name}')
+              if '__version__ = "0.4.0.post5"' not in archive.read('app/version.py').decode('utf-8'):
+                  raise SystemExit('archive app version mismatch')
+              if 'version = "0.4.0.post5"' not in archive.read('pyproject.toml').decode('utf-8'):
+                  raise SystemExit('archive package version mismatch')
+              appdock = json.loads(archive.read('appdock.json'))
+              if appdock.get('projectDirectory') != '.' or appdock.get('workingDirectoryPolicy') != 'projectDirectory':
+                  raise SystemExit('archive AppDock portability failure')
+              archive.extractall(extracted)
+          print(f'sha256={digest}')
+          print(f'zip_size={archive_path.stat().st_size}')
+          print(f'checksum_size={checksum_path.stat().st_size}')
+          print(f'archive_entries={len(names)}')
+          print(f'managed_paths={len(managed)}')
+          print('manifest=' + json.dumps(manifest, sort_keys=True, separators=(',', ':')))
+          for name in names:
+              print(name)
+          PY
+          archive=$?
+
+          (cd "$X" && python scripts/validate_package.py) > "$E/extracted-package.txt" 2>&1
+          extracted_package=$?
+          cp dist/embodied-alife-update.zip "$E/"
+          cp dist/embodied-alife-update.zip.sha256 "$E/"
+          git rev-parse HEAD > "$E/candidate-commit.txt"
+          git ls-files > "$E/tracked-files.txt"
+
+          overall=0
+          for value in "$focused" "$full" "$updater_installer" "$compile" "$ruff" "$cleanup" "$source_package" "$source_clean" "$build" "$release_notes" "$archive" "$extracted_package"; do
+            if [ "$value" -ne 0 ]; then overall=1; fi
+          done
+          cat > "$E/status.txt" <<EOF
+          candidate=a316028d1ea309a2b05eec6adf592d2e32777236
+          focused=$focused
+          full=$full
+          updater_installer=$updater_installer
+          compile=$compile
+          ruff=$ruff
+          cleanup=$cleanup
+          source_package=$source_package
+          source_clean=$source_clean
+          build=$build
+          release_notes=$release_notes
+          archive=$archive
+          extracted_package=$extracted_package
+          overall=$overall
+          EOF
           exit 0
       - name: Upload evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: post5-diagnostic-e112ed6
+          name: post5-final-a316028-evidence
           path: post5-audit-evidence
           if-no-files-found: error
       - name: Enforce result
-        run: grep -q '^pytest=0$' post5-audit-evidence/status.txt
+        run: grep -q '^overall=0$' post5-audit-evidence/status.txt
