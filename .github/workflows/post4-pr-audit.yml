@@ -1,0 +1,85 @@
+name: post4-pr-audit
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install validation dependencies
+        run: python -m pip install -e '.[dev]'
+      - name: Authoritative source validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest -q | tee post4-test-output.txt
+          python -m compileall -q app tests scripts
+          find app tests scripts -type d -name __pycache__ -prune -exec rm -rf {} +
+          rm -rf .pytest_cache .ruff_cache
+          find data/runtime -maxdepth 1 -type f ! -name .gitkeep -delete
+          python scripts/validate_package.py
+      - name: Audit immutable published bytes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p post4-audit/assets
+          gh api repos/${GITHUB_REPOSITORY}/releases/tags/v0.4.0.post4 > post4-audit/release.json
+          gh api repos/${GITHUB_REPOSITORY}/releases/latest > post4-audit/latest-release.json
+          git fetch --force origin refs/tags/v0.4.0.post4:refs/tags/v0.4.0.post4
+          git rev-list -n 1 v0.4.0.post4 > post4-audit/tag-target.txt
+          gh release download v0.4.0.post4 --repo "$GITHUB_REPOSITORY" --pattern embodied-alife-update.zip --pattern embodied-alife-update.zip.sha256 --dir post4-audit/assets
+          python - <<'PY'
+          import hashlib, json, re, zipfile
+          from pathlib import Path, PurePosixPath
+          from packaging.version import Version
+          root=Path('post4-audit'); z=root/'assets/embodied-alife-update.zip'; c=root/'assets/embodied-alife-update.zip.sha256'
+          rel=json.loads((root/'release.json').read_text()); latest=json.loads((root/'latest-release.json').read_text()); target=(root/'tag-target.txt').read_text().strip()
+          assert rel['tag_name']=='v0.4.0.post4' and not rel['draft'] and not rel['prerelease']
+          assert latest['id']==rel['id'] and target=='1b4204d6a8b0caea13d30a34a71f86d6fcc0216b'
+          assert Version('0.4.0.post4') > Version('0.4.0.post3')
+          digest=hashlib.sha256(z.read_bytes()).hexdigest(); assert c.read_text().split()==[digest,'embodied-alife-update.zip']
+          assets={a['name']:a for a in rel['assets']}; assert set(assets)=={'embodied-alife-update.zip','embodied-alife-update.zip.sha256'}
+          with zipfile.ZipFile(z) as a:
+              assert a.testzip() is None
+              names=a.namelist(); assert len(names)==len(set(names)) and 'update-manifest.json' in names
+              for name in names:
+                  p=PurePosixPath(name); assert not p.is_absolute() and '..' not in p.parts and '\\' not in name
+                  assert not name.lower().endswith(('.db','.sqlite','.sqlite3','.pyc','.log'))
+                  assert not any(x in name.lower() for x in ('post4-apply','post4-pr-audit','post4-release-audit','test-output','__pycache__','.pytest_cache','.ruff_cache'))
+              m=json.loads(a.read('update-manifest.json')); assert m['app_id']=='embodied-alife' and m['schema_version']==1 and m['version']=='0.4.0.post4'
+              assert set(names)==set(m['managed_paths'])|{'update-manifest.json'}
+              required={'app/serialization.py','app/simulation/actions.py','app/simulation/engine.py','app/simulation/perception.py','app/simulation/scheduler.py','app/storage/database.py','tests/test_v040_post4_remediation.py','CHANGELOG.md','docs/ARCHITECTURE.md'}
+              assert required<=set(names)
+              texts={n:a.read(n).decode('utf-8') for n in required if n.endswith('.py') or n.endswith('.md')}
+              assert 'project_recent_view_result' in texts['app/simulation/engine.py'] and 'ari_record_origin_is_safe' in texts['app/simulation/actions.py']
+              assert 'math.hypot(resource.x - agent.x' not in texts['app/simulation/perception.py']
+              private=['Ethan Assistant System','Post4 Remediation Implementation Report','1OjBiXqLsPfBI0sNAc4XfDRXMeWQ98BrGwNAmAhBMyjE','ethan-pc.tailce5cf1.ts.net']
+              readable=0
+              for n in names:
+                  raw=a.read(n)
+                  try: text=raw.decode('utf-8')
+                  except UnicodeDecodeError: continue
+                  readable+=1; assert not any(x in text for x in private)
+          report={'status':'PASS','release_id':rel['id'],'release_name':rel['name'],'tag':rel['tag_name'],'tag_target':target,'draft':rel['draft'],'prerelease':rel['prerelease'],'created_at':rel['created_at'],'published_at':rel['published_at'],'assets':[{'id':x['id'],'name':x['name'],'size':x['size'],'created_at':x['created_at'],'updated_at':x['updated_at'],'digest':x.get('digest')} for x in rel['assets']],'sha256':digest,'archive_entry_count':len(names),'managed_path_count':len(m['managed_paths']),'readable_member_count':readable,'latest_release_id':latest['id'],'updater_ordering':'0.4.0.post4 > 0.4.0.post3'}
+          (root/'audit-report.json').write_text(json.dumps(report,indent=2)+'\n'); print(json.dumps(report,indent=2))
+          PY
+      - name: Upload evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: post4-final-evidence
+          path: |
+            post4-audit
+            post4-test-output.txt
+          retention-days: 30
