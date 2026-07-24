@@ -17,13 +17,6 @@ jobs:
         with:
           ref: remediation/v0.4.0-post4
           fetch-depth: 0
-      - name: Capture pristine branch
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'remediation/v0.4.0-post4'
-        uses: actions/upload-artifact@v4
-        with:
-          name: post4-source-before
-          path: .
-          include-hidden-files: true
       - name: Decode, apply, and commit
         id: apply
         continue-on-error: true
@@ -31,7 +24,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          if [ ! -f .github/workflows/post4-apply.yml ]; then
+          if grep -q '0.4.0.post4' app/version.py; then
             echo "Post4 payload already applied."
             exit 0
           fi
@@ -50,25 +43,12 @@ jobs:
           if [ "$status" -ne 0 ]; then
             exit "$status"
           fi
-          rm -f .github/workflows/post4-apply.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           git diff --cached --check
           git commit -m "Implement v0.4.0.post4 acceptance remediation"
           git push origin HEAD:remediation/v0.4.0-post4
-      - name: Preserve applicator evidence
-        if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'remediation/v0.4.0-post4'
-        shell: bash
-        run: |
-          cp /tmp/post4-apply.log post4-apply.log 2>/dev/null || true
-      - name: Capture post-apply worktree
-        if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'remediation/v0.4.0-post4'
-        uses: actions/upload-artifact@v4
-        with:
-          name: post4-source-after
-          path: .
-          include-hidden-files: true
       - name: Fail when applicator failed
         if: steps.apply.outcome == 'failure'
         run: exit 1
