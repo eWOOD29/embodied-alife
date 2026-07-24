@@ -1,0 +1,4 @@
+  File "<stdin>", line 13
+    print(f"workflow_dynamic_tag={'TAG=\"v${PACKAGE_VERSION}\"' in workflow}")
+                                                                             ^
+SyntaxError: f-string expression part cannot include a backslash

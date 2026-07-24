@@ -1,0 +1,1 @@
+forbidden=['scripts/__pycache__', 'scripts/__pycache__/privacy_scan.cpython-311.pyc'], generated=[], possible_secrets=[], privacy_findings=[]

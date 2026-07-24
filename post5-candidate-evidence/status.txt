@@ -1,0 +1,12 @@
+candidate=e54b91a7c2aa845f30586cf87fa6d75d208c9552
+focused=0
+full=2
+compile=0
+ruff=1
+cleanup=0
+source_validation=1
+build=2
+archive_audit=1
+extracted_validation=2
+version_evidence=1
+overall=1
