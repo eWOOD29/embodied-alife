@@ -15,6 +15,7 @@ from scripts.build_release import project_version
 
 
 def _post5_package(path: Path) -> tuple[Path, str]:
+    path.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr(
             "update-manifest.json",
