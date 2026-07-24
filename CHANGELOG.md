@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.4.0.post4] — 2026-07-23
+
+### Fixed
+
+- Preserved bounded, Ari-safe map, task-journal, and notebook results through the authoritative event path into the next decision prompt, with deterministic expiry after the next completed action.
+- Replaced text-only record filtering with explicit Ari-facing provenance and origin eligibility while retaining narrow secondary redaction for credentials, private paths, Drive URLs, and private tailnet hostnames.
+- Applied normalized finite coordinates consistently through perception and active action-controller distance, direction, lookup, and indexing paths.
+- Added deterministic bounded JSON-safe normalization at persistence, observer, diagnostics, API, WebSocket, event, action-result, agent-state, and prompt boundaries.
+- Added positive continuity, provenance, malformed-state, serialization, persistence/restart, and 10/100/1,000-record scale coverage.
+
 ## [0.4.0.post3] — 2026-07-23
 
 ### Fixed

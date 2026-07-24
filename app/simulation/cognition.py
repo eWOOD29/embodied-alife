@@ -130,7 +130,7 @@ class Provenance:
     detail: str | None = None
 
     @classmethod
-    def from_dict(cls, value: dict[str, Any] | None, *, default_source: str = "system_initialization") -> "Provenance":
+    def from_dict(cls, value: dict[str, Any] | None, *, default_source: str = "unknown") -> "Provenance":
         value = value or {}
         return cls(
             source_type=_text(value.get("source_type"), default_source, 64),
@@ -173,7 +173,7 @@ class TaskRecord:
     metadata: dict[str, Any] = field(default_factory=dict)
     linked_marker_ids: list[str] = field(default_factory=list)
     linked_note_ids: list[str] = field(default_factory=list)
-    provenance: Provenance = field(default_factory=lambda: Provenance("system_initialization"))
+    provenance: Provenance = field(default_factory=lambda: Provenance("unknown"))
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -208,7 +208,7 @@ class NoteRecord:
     updated_at: float
     linked_task_ids: list[str] = field(default_factory=list)
     linked_marker_ids: list[str] = field(default_factory=list)
-    provenance: Provenance = field(default_factory=lambda: Provenance("system_initialization"))
+    provenance: Provenance = field(default_factory=lambda: Provenance("unknown"))
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -242,7 +242,7 @@ class MapMarker:
     updated_at: float
     linked_task_ids: list[str] = field(default_factory=list)
     linked_note_ids: list[str] = field(default_factory=list)
-    provenance: Provenance = field(default_factory=lambda: Provenance("perception"))
+    provenance: Provenance = field(default_factory=lambda: Provenance("unknown"))
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -261,7 +261,7 @@ class MapMarker:
             updated_at=_number(value.get("updated_at", value.get("created_at", 0.0))),
             linked_task_ids=_string_list(value.get("linked_task_ids")),
             linked_note_ids=_string_list(value.get("linked_note_ids")),
-            provenance=Provenance.from_dict(value.get("provenance"), default_source="perception"),
+            provenance=Provenance.from_dict(value.get("provenance"), default_source="unknown"),
         )
 
 

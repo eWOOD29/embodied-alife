@@ -7,6 +7,8 @@ import time
 from pathlib import Path
 from typing import Any, Callable, TypeVar
 
+from app.serialization import finite_number, json_safe, strict_json_dumps
+
 T = TypeVar("T")
 
 
@@ -86,7 +88,7 @@ class Database:
         raise last
 
     def set_metadata(self, key: str, value: Any) -> None:
-        payload = json.dumps(value, separators=(",", ":"))
+        payload = strict_json_dumps(value, max_depth=12, max_items=10000, max_text=4000, max_nodes=200000)
 
         def op() -> None:
             with self._conn:
@@ -131,11 +133,11 @@ class Database:
                 cursor = self._conn.execute(
                     "INSERT INTO events(sim_time, kind, message, importance, data_json) VALUES(?,?,?,?,?)",
                     (
-                        event["sim_time"],
-                        event["kind"],
-                        event["message"],
-                        event.get("importance", 0.3),
-                        json.dumps(event.get("data", {}), separators=(",", ":")),
+                        finite_number(event.get("sim_time"), 0.0) or 0.0,
+                        str(event.get("kind") or "unknown")[:120],
+                        str(event.get("message") or "")[:4000],
+                        finite_number(event.get("importance"), 0.3, minimum=0.0, maximum=1.0) or 0.3,
+                        strict_json_dumps(event.get("data", {}), max_depth=10, max_items=1000, max_text=4000, max_nodes=50000),
                     ),
                 )
                 return int(cursor.lastrowid)
@@ -161,7 +163,7 @@ class Database:
 
     def save_snapshot(self, name: str, state: dict[str, Any]) -> None:
         world = state["world"]
-        payload = json.dumps(state, separators=(",", ":"))
+        payload = strict_json_dumps(state, max_depth=12, max_items=10000, max_text=4000, max_nodes=200000)
 
         def op() -> None:
             with self._conn:
@@ -189,7 +191,8 @@ class Database:
         return [dict(row) for row in rows]
 
     def add_model_response(self, sim_time: float, result: Any) -> int:
-        response_json = result.value.model_dump_json() if hasattr(result.value, "model_dump_json") else json.dumps(result.value)
+        response_value = result.value.model_dump() if hasattr(result.value, "model_dump") else result.value
+        response_json = strict_json_dumps(response_value, max_depth=8, max_items=512, max_text=4000, max_nodes=50000)
         provider_metadata = {
             "finish_reason": getattr(result, "finish_reason", None),
             "provider_response_id": getattr(result, "provider_response_id", None),
@@ -210,7 +213,7 @@ class Database:
                         result.completion_tokens,
                         response_json,
                         result.error,
-                        json.dumps(provider_metadata, separators=(",", ":")),
+                        strict_json_dumps(provider_metadata, max_depth=4, max_items=64, max_text=1000, max_nodes=1000),
                     ),
                 )
                 return int(cursor.lastrowid)
@@ -247,7 +250,7 @@ class Database:
             with self._conn:
                 self._conn.execute(
                     "INSERT OR REPLACE INTO memories(id, sim_time, category, title, path, metadata_json) VALUES(?,?,?,?,?,?)",
-                    (record.id, record.sim_time, record.category, record.title, record.path, json.dumps(payload)),
+                    (record.id, record.sim_time, record.category, record.title, record.path, strict_json_dumps(payload, max_depth=8, max_items=512, max_text=4000, max_nodes=50000)),
                 )
 
         self._retry(op)

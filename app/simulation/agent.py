@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import Any
 
+from app.serialization import json_safe_dict
 from app.simulation.belief_store import BeliefStore
 from app.simulation.cognition import (
     AwakeningState,
@@ -110,10 +111,12 @@ class AgentState:
         return True
 
     def to_dict(self) -> dict[str, Any]:
-        data = asdict(self)
-        data["explored"] = sorted(self.explored)
-        data["beliefs"] = {key: value.to_dict() for key, value in self.beliefs.items()}
-        return data
+        # Read fields directly rather than using dataclasses.asdict(), which deep-copies
+        # arbitrary mutated state before the bounded serializer can detect cycles.
+        data = {field_info.name: getattr(self, field_info.name) for field_info in fields(self)}
+        explored = self.explored if isinstance(self.explored, (list, tuple, set)) else []
+        data["explored"] = sorted((str(item)[:160] for item in explored), key=str)[:10000]
+        return json_safe_dict(data, max_depth=10, max_items=10000, max_text=4000, max_nodes=100000)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "AgentState":

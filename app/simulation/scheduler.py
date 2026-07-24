@@ -14,6 +14,7 @@ from app.llm.schemas import MemoryWrite
 from app.memory.consolidation import consolidate_sleep
 from app.memory.retrieval import retrieve_memories
 from app.memory.vault import MemoryValidationError, MemoryVault
+from app.serialization import finite_number, json_safe, json_safe_dict
 from app.simulation.actions import ActionController, ActionResult
 from app.simulation.agent import AgentState
 from app.simulation.events import Event
@@ -216,7 +217,10 @@ class SimulationEngine:
         if "weather_worsens" in conditions and self.world.weather == "storm":
             return "weather_worsens"
         if "danger_detected" in conditions:
-            if any(npc.dangerous and math.hypot(npc.x - self.agent.x, npc.y - self.agent.y) <= 5 for npc in self.world.npcs.values()):
+            agent_x = finite_number(self.agent.x, 0.0) or 0.0
+            agent_y = finite_number(self.agent.y, 0.0) or 0.0
+            npcs = self.world.npcs if isinstance(self.world.npcs, dict) else {}
+            if any(bool(getattr(npc, "dangerous", False)) and math.hypot((finite_number(getattr(npc, "x", None), 0.0) or 0.0) - agent_x, (finite_number(getattr(npc, "y", None), 0.0) or 0.0) - agent_y) <= 5 for npc in npcs.values()):
                 return "danger_detected"
         return None
 
@@ -409,7 +413,7 @@ class SimulationEngine:
         self._resolve_pending_memory(result, event)
 
     def _record(self, kind: str, message: str, importance: float = 0.3, data: dict[str, Any] | None = None) -> dict[str, Any]:
-        event = Event(self.world.sim_time if hasattr(self, "world") else 0.0, kind, message, data or {}, importance).to_dict()
+        event = Event(self.world.sim_time if hasattr(self, "world") else 0.0, kind, str(message)[:4000], json_safe_dict(data or {}, max_depth=10, max_items=1000, max_text=4000, max_nodes=50000), finite_number(importance, 0.3) or 0.3).to_dict()
         event["id"] = self.database.add_event(event)
         event["run_id"] = self.run_id
         event["world_generation_id"] = self.world_generation_id
@@ -420,7 +424,7 @@ class SimulationEngine:
         return event
 
     def serialize(self) -> dict[str, Any]:
-        return {
+        state = {
             "run_id": self.run_id,
             "world_generation_id": self.world_generation_id,
             "world": self.world.to_dict(),
@@ -434,6 +438,7 @@ class SimulationEngine:
             "memory_writes": list(self.memory_writes),
             "pending_memory": self.pending_memory,
         }
+        return json_safe_dict(state, max_depth=12, max_items=10000, max_text=4000, max_nodes=200000)
 
     def _restore(self, state: dict[str, Any]) -> None:
         from app.simulation.body import ActionExecution
@@ -553,7 +558,7 @@ class SimulationEngine:
         }
         if include_map:
             state["world"]["tiles"] = self.world.tiles
-        return state
+        return json_safe_dict(state, max_depth=12, max_items=10000, max_text=4000, max_nodes=250000)
 
     async def subscribe(self) -> asyncio.Queue:
         queue: asyncio.Queue = asyncio.Queue(maxsize=2)
@@ -573,4 +578,4 @@ class SimulationEngine:
                 with suppress(asyncio.QueueEmpty):
                     queue.get_nowait()
             with suppress(asyncio.QueueFull):
-                queue.put_nowait(state)
+                    queue.put_nowait(json_safe(state, max_depth=12, max_items=10000, max_text=4000, max_nodes=250000))

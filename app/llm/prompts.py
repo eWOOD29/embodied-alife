@@ -5,6 +5,7 @@ import math
 from typing import Any
 
 from app.llm.schemas import ActionDecision, ConsolidationResult
+from app.serialization import json_safe
 
 SYSTEM_PROMPT = """You are Ari, awake in an unfamiliar physical world. You have a body and must decide what to do based only on what you perceive, remember, believe, and feel. Your actions have real consequences.
 
@@ -31,7 +32,7 @@ REFLECTION_PROMPT = """You are Ari performing memory consolidation around sleep.
 DECISION_STRING_LIMIT = 240
 DECISION_LIST_LIMIT = 12
 DECISION_DICT_LIMIT = 40
-DECISION_DEPTH_LIMIT = 5
+DECISION_DEPTH_LIMIT = 7
 ACTIVE_PLAN_LIMIT = 8
 MEMORY_LIMIT = 6
 OUTCOME_LIMIT = 4
@@ -154,7 +155,7 @@ def decision_messages(context: dict) -> list[dict[str, str]]:
     }
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": json.dumps(payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False)},
+        {"role": "user", "content": json.dumps(json_safe(payload, max_depth=8, max_items=512, max_text=4000, max_nodes=50000), ensure_ascii=False, separators=(",", ":"), allow_nan=False)},
     ]
 
 
@@ -171,5 +172,5 @@ def consolidation_messages(context: dict) -> list[dict[str, str]]:
     }
     return [
         {"role": "system", "content": REFLECTION_PROMPT},
-        {"role": "user", "content": json.dumps(payload, ensure_ascii=False, separators=(",", ":"))},
+        {"role": "user", "content": json.dumps(json_safe(payload, max_depth=8, max_items=512, max_text=4000, max_nodes=50000), ensure_ascii=False, separators=(",", ":"), allow_nan=False)},
     ]

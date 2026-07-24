@@ -58,7 +58,7 @@ def test_unsupported_hypothesis_serializes_without_evidence() -> None:
 def test_view_actions_return_only_agent_knowledge_and_do_not_create_inventory_items() -> None:
     world = WorldState.generate(42, 48)
     agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
-    agent.notes["n1"] = NoteRecord("n1", "Test", "Ari-authored note", [], "active", 0, 0, provenance=Provenance("test"))
+    agent.notes["n1"] = NoteRecord("n1", "Test", "Ari-authored note", [], "active", 0, 0, provenance=Provenance("agent"))
     agent.map_markers["m1"] = MapMarker("m1", "Possible water", "water", {"relative": "west"}, 0.4, "active", "uncertain", 0, 0, provenance=Provenance("inference"))
     controller = ActionController()
     agent.known_terrain["41,7"] = "known meadow"
@@ -90,10 +90,10 @@ def test_awakening_appears_once_and_is_serialized() -> None:
 
 
 def test_snapshot_restart_and_reset_round_trip_all_cognitive_stores(engine, settings) -> None:
-    engine.agent.notes["n1"] = NoteRecord("n1", "Note", "content", ["tag"], "active", 1, 1, provenance=Provenance("test"))
-    engine.agent.map_markers["m1"] = MapMarker("m1", "Marker", "unknown", {"relative": "north"}, 0.3, "active", "", 1, 1, provenance=Provenance("test"))
+    engine.agent.notes["n1"] = NoteRecord("n1", "Note", "content", ["tag"], "active", 1, 1, provenance=Provenance("agent"))
+    engine.agent.map_markers["m1"] = MapMarker("m1", "Marker", "unknown", {"relative": "north"}, 0.3, "active", "", 1, 1, provenance=Provenance("agent"))
     engine.agent.beliefs["b1"] = "A subjective working belief."
-    engine.agent.short_term_episodes["e1"] = EpisodeRecord("e1", 1, 1, "episode", "test", 0.5, "recent", provenance=Provenance("test"))
+    engine.agent.short_term_episodes["e1"] = EpisodeRecord("e1", 1, 1, "episode", "test", 0.5, "recent", provenance=Provenance("agent"))
     expected = _cognition(AgentState.from_dict(engine.agent.to_dict()))
     engine.save_snapshot("cognition")
     assert _cognition(AgentState.from_dict(engine.snapshots.load("cognition")["agent"])) == expected
@@ -122,7 +122,7 @@ def test_first_decision_prompt_is_compact_and_normal_prompt_omits_full_stores() 
     world = WorldState.generate(45, 48)
     agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
     for index in range(100):
-        agent.notes[str(index)] = NoteRecord(str(index), f"Note {index}", "x" * 500, [], "active", 0, 0, provenance=Provenance("test"))
+        agent.notes[str(index)] = NoteRecord(str(index), f"Note {index}", "x" * 500, [], "active", 0, 0, provenance=Provenance("agent"))
     perception = build_perception(world, agent)
     prompt = decision_messages({"perception": perception, "action_affordances": {}, "active_plan": [], "retrieved_memories": [], "recent_outcomes": []})[-1]["content"]
     assert "Note 99" not in prompt

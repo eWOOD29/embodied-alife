@@ -12,6 +12,14 @@ LLM proposes; controller validates; world decides.
 
 The LLM receives only Ari's permitted perception, body state, retrieved memories, current plan, and recent authoritative outcomes. It never receives unrestricted host access or direct mutation capabilities.
 
+## Bounded cognitive-tool handoff
+
+A successful `view_map`, `view_task_journal`, or `view_notebook` action creates an immediate authoritative result and an allowlisted, smaller recent-outcome projection. Only the newest completed view action may carry this projection into the next decision prompt; any later completed action replaces it. The handoff can survive ordinary persistence and restart because it is reconstructed from the authoritative event record, but it is not automatically promoted into durable memory.
+
+Ari-facing task, note, and marker eligibility is based primarily on explicit provenance and controlled origin rules. Unknown, observer-only, operational, or malformed origins are omitted even when their text appears harmless. Text redaction remains a secondary safeguard for credential-like strings, private paths, private hostnames, and private document URLs.
+
+Outward and persisted state passes through bounded JSON-safe normalization. Non-finite numbers, binary values, unsupported objects, circular structures, unsafe mapping keys, excessive depth, oversized containers, and excessive text degrade deterministically rather than exposing arbitrary object representations or breaking ordinary API, WebSocket, diagnostic, snapshot, or restart serialization.
+
 ## Runtime layers
 
 ### World engine

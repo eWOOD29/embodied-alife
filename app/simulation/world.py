@@ -7,6 +7,8 @@ from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from typing import Any
 
+from app.serialization import json_safe_dict
+
 
 class Terrain(StrEnum):
     MEADOW = "meadow"
@@ -315,23 +317,9 @@ class WorldState:
         return dx, dy
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "seed": self.seed,
-            "size": self.size,
-            "tiles": self.tiles,
-            "resources": {k: v.to_dict() for k, v in self.resources.items()},
-            "shelters": {k: v.to_dict() for k, v in self.shelters.items()},
-            "npcs": {k: v.to_dict() for k, v in self.npcs.items()},
-            "spawn": list(self.spawn),
-            "cave_position": list(self.cave_position),
-            "build_area": list(self.build_area),
-            "sim_time": self.sim_time,
-            "day": self.day,
-            "weather": self.weather,
-            "ambient_temperature_c": self.ambient_temperature_c,
-            "resource_regen_clock": self.resource_regen_clock,
-            "truth_notes": self.truth_notes,
-        }
+        # Project the dataclass directly so malformed nested state and circular
+        # extension values are bounded before any deep-copy or raw JSON step.
+        return json_safe_dict(self, max_depth=12, max_items=10000, max_text=4000, max_nodes=200000)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "WorldState":
