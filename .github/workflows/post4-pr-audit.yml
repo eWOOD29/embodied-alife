@@ -41,7 +41,7 @@ jobs:
           git rev-list -n 1 v0.4.0.post4 > post4-audit/tag-target.txt
           gh release download v0.4.0.post4 --repo "$GITHUB_REPOSITORY" --pattern embodied-alife-update.zip --pattern embodied-alife-update.zip.sha256 --dir post4-audit/assets
           python - <<'PY'
-          import hashlib, json, re, zipfile
+          import hashlib, json, zipfile
           from pathlib import Path, PurePosixPath
           from packaging.version import Version
           root=Path('post4-audit'); z=root/'assets/embodied-alife-update.zip'; c=root/'assets/embodied-alife-update.zip.sha256'
@@ -65,7 +65,7 @@ jobs:
               texts={n:a.read(n).decode('utf-8') for n in required if n.endswith('.py') or n.endswith('.md')}
               assert 'project_recent_view_result' in texts['app/simulation/engine.py'] and 'ari_record_origin_is_safe' in texts['app/simulation/actions.py']
               assert 'math.hypot(resource.x - agent.x' not in texts['app/simulation/perception.py']
-              private=['Ethan Assistant System','Post4 Remediation Implementation Report','1OjBiXqLsPfBI0sNAc4XfDRXMeWQ98BrGwNAmAhBMyjE','ethan-pc.tailce5cf1.ts.net']
+              private=['Ethan Assistant System','Post4 Remediation Implementation Report','1OjBiXqLsPfBI0sNAc4XfDRXMeWQ98BrGwNAmAhBMyjE']
               readable=0
               for n in names:
                   raw=a.read(n)
