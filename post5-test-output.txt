@@ -1,417 +1,30 @@
-....................F................................................... [ 48%]
-F..FF..................................F................................ [ 97%]
-....                                                                     [100%]
+.................................................F...................... [ 35%]
+..................................................F..................... [ 70%]
+.............FFFFFFFFFFF..............F.FF...................            [100%]
 =================================== FAILURES ===================================
-_ test_diagnostic_bundle_v3_contains_runtime_metrics_soak_readiness_and_no_secrets _
+_ test_public_tree_contains_no_private_machine_configuration_or_decoded_values _
 
-engine = <app.simulation.engine.SimulationEngine object at 0x7f723206ee50>
-
-    def test_diagnostic_bundle_v3_contains_runtime_metrics_soak_readiness_and_no_secrets(engine) -> None:
-        engine.database.add_model_response(
-            engine.world.sim_time,
-            ObservedBrainResult(
-                _decision(),
-                "llm",
-                "ok",
-                latency_ms=10.0,
-                prompt_tokens=50,
-                completion_tokens=10,
-                finish_reason="stop",
-                provider_response_id="chatcmpl-test",
-                request_attempts=1,
-            ),
-        )
-        engine._record(
-            "decision",
-            "Ari chose wait: test",
-            0.5,
-            {"decision": _decision().model_dump(), "provider": {"finish_reason": "stop"}},
-        )
-        engine._record(
-            "action_result",
-            "wait: completed",
-            0.5,
-            {"success": True, "action": "wait", "reason": "completed", "details": "Action wait completed."},
-        )
-    
-        bundle = build_diagnostic_bundle(
-            engine=engine,
-            updater=DummyUpdater(),
-            health={"status": "ok", "version": __version__},
-            application_version=__version__,
-        )
-    
-        header = bundle["diagnostic_bundle"]
-        assert header["schema_version"] == 3
-        assert header["run_id"] == engine.run_id
-        assert header["world_generation_id"] == engine.world_generation_id
-        assert header["privacy"]["api_keys_included"] is False
-        assert header["privacy"]["raw_prompts_included"] is False
-    
-        runtime = bundle["build_and_runtime"]
-        assert runtime["python_version"]
-        assert runtime["process_id"] > 0
->       assert runtime["database_path"] == str(engine.database.path)
-E       AssertionError: assert '<local-path-omitted>' == '/tmp/pytest-...died_alife.db'
+    def test_public_tree_contains_no_private_machine_configuration_or_decoded_values() -> None:
+>       assert scan_tree(ROOT, include_runtime=False) == []
+E       AssertionError: assert ['app/llm/cli...er-home path'] == []
 E         
-E         - /tmp/pytest-of-runner/pytest-0/test_diagnostic_bundle_v3_cont0/data/runtime/embodied_alife.db
-E         + <local-path-omitted>
-
-tests/test_diagnostics_v2.py:100: AssertionError
-_ test_view_actions_return_only_agent_knowledge_and_do_not_create_inventory_items _
-
-    def test_view_actions_return_only_agent_knowledge_and_do_not_create_inventory_items() -> None:
-        world = WorldState.generate(42, 48)
-        agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
-        agent.notes["n1"] = NoteRecord("n1", "Test", "Ari-authored note", [], "active", 0, 0, provenance=Provenance("agent"))
-        agent.map_markers["m1"] = MapMarker("m1", "Possible water", "water", {"relative": "west"}, 0.4, "active", "uncertain", 0, 0, provenance=Provenance("inference"))
-        controller = ActionController()
-        agent.known_terrain["41,7"] = "known meadow"
-        map_result = _complete(controller, world, agent, "view_map")
-        assert "observer_truth_included" not in map_result.data
-        assert "known_terrain" not in map_result.data
-        serialized = json.dumps(map_result.data)
-        assert "41,7" not in serialized
-        assert "wolf" not in serialized and world.truth_notes["cave"] not in serialized
->       assert len(_complete(controller, world, agent, "view_task_journal").data["tasks"]) == 4
-E       assert 0 == 4
-E        +  where 0 = len([])
-
-tests/test_v040_cognitive_foundations.py:71: AssertionError
-_______ test_snapshot_restart_and_reset_round_trip_all_cognitive_stores ________
-
-engine = <app.simulation.engine.SimulationEngine object at 0x7f723204fb50>
-settings = Settings(host='0.0.0.0', port=8797, data_dir=PosixPath('/tmp/pytest-of-runner/pytest-0/test_snapshot_restart_and_rese0...te_max_extract_bytes=262144000, update_max_release_notes_chars=12000, update_auto_restart=True, update_github_token='')
-
-    def test_snapshot_restart_and_reset_round_trip_all_cognitive_stores(engine, settings) -> None:
-        engine.agent.notes["n1"] = NoteRecord("n1", "Note", "content", ["tag"], "active", 1, 1, provenance=Provenance("agent"))
-        engine.agent.map_markers["m1"] = MapMarker("m1", "Marker", "unknown", {"relative": "north"}, 0.3, "active", "", 1, 1, provenance=Provenance("agent"))
-        engine.agent.beliefs["b1"] = "A subjective working belief."
-        engine.agent.short_term_episodes["e1"] = EpisodeRecord("e1", 1, 1, "episode", "test", 0.5, "recent", provenance=Provenance("agent"))
-        expected = _cognition(AgentState.from_dict(engine.agent.to_dict()))
-        engine.save_snapshot("cognition")
-        assert _cognition(AgentState.from_dict(engine.snapshots.load("cognition")["agent"])) == expected
-        engine.agent.notes.clear()
-        engine.load_snapshot("cognition")
->       assert _cognition(engine.agent) == expected
-E       assert {'awakening':..., ...}}}, ...} == {'awakening':..., ...}}}, ...}
-E         
-E         Omitting 7 identical items, use -vv to show
-E         Differing items:
-E         {'key_items': {'blank_field_map': {'description': "A blank field map for recording Ari's own knowledge.", 'display_nam... starter kit', 'proof': '2cea98ec95b2e0f6763e82c0a320a11a49a2e10b0770f54555e04478f0c7a8cd', 'proof_version': 1, ...}}}} != {'key_items': {'blank_field_map': {'description': "A blank field map for recording Ari's own knowledge.", 'display_nam... starter kit', 'proof': 'e329895e503ed970f8ce1ab2a3e4898cb52d6610a7aab90954f5a95a2b082591', 'proof_version': 1, ...}}}}
+E         Left contains 6 more items, first extra item: 'app/llm/client.py: credential-like value'
 E         
 E         Full diff:
-E           {
-E               'awakening': {
-E                   'narrative': 'I wake beneath an unfamiliar sky with no memory of how I arrived. My '
-E                   'body feels real, vulnerable, and entirely my responsibility. I do not '
-E                   'know this land, what lives here, or whether anyone else is nearby.\n'
-E                   '\n'
-E                   'I have only a few possessions: a blank map, a task journal, and a '
-E                   'field notebook. The journal contains a handful of basic survival '
-E                   'reminders—find water, secure food, and establish somewhere safe to '
-E                   'rest—but what I do beyond that is up to me.\n'
-E                   '\n'
-E                   'If I am going to survive here, and perhaps eventually build a life '
-E                   'worth living, I should begin by understanding my situation. The map '
-E                   'and task journal may be the best place to start.',
-E                   'presented': False,
-E                   'presented_at': None,
-E               },
-E               'beliefs': {
-E                   'b1': {
-E                       'basis': 'Subjective model belief update; not observer truth.',
-E                       'belief_id': 'b1',
-E                       'claim': 'A subjective working belief.',
-E                       'confidence': 0.5,
-E                       'contradicting_evidence_ids': [],
-E                       'first_formed_at': 0.0,
-E                       'last_tested_at': None,
-E                       'provenance': {
-E                           'creation_path': None,
-E                           'detail': None,
-E                           'proof': None,
-E                           'proof_version': None,
-E                           'source_id': 'b1',
-E                           'source_type': 'model_belief_update',
-E                       },
-E                       'source_type': 'inference',
-E                       'status': 'working',
-E                       'supporting_evidence_ids': [],
-E                   },
-E                   'self': {
-E                       'basis': 'Migrated from the pre-v0.4.0 subjective belief dictionary.',
-E                       'belief_id': 'self',
-E                       'claim': 'I have a physical body in an unfamiliar place.',
-E                       'confidence': 0.5,
-E                       'contradicting_evidence_ids': [],
-E                       'first_formed_at': 0.0,
-E                       'last_tested_at': None,
-E                       'provenance': {
-E                           'creation_path': 'deterministic_starter',
-E                           'detail': None,
-E                           'proof': '8e07bb1b6d5cb3c3368410e80b92521d6b8df105ba479367b16bada6c16c4c50',
-E                           'proof_version': 1,
-E                           'source_id': 'initial-belief:self',
-E                           'source_type': 'system_initialization',
-E                       },
-E                       'source_type': 'system_initialization',
-E                       'status': 'working',
-E                       'supporting_evidence_ids': [],
-E                   },
-E                   'world': {
-E                       'basis': 'Migrated from the pre-v0.4.0 subjective belief dictionary.',
-E                       'belief_id': 'world',
-E                       'claim': 'The environment appears real and partially observable; my '
-E                       'interpretations may be wrong.',
-E                       'confidence': 0.5,
-E                       'contradicting_evidence_ids': [],
-E                       'first_formed_at': 0.0,
-E                       'last_tested_at': None,
-E                       'provenance': {
-E                           'creation_path': 'deterministic_starter',
-E                           'detail': None,
-E                           'proof': '5fd4d84eb4757ce40759a44664d64d32e86facdd4f94aa944140e19cc709fabd',
-E                           'proof_version': 1,
-E                           'source_id': 'initial-belief:world',
-E                           'source_type': 'system_initialization',
-E                       },
-E                       'source_type': 'system_initialization',
-E                       'status': 'working',
-E                       'supporting_evidence_ids': [],
-E                   },
-E               },
-E               'cognition_schema_version': 1,
-E               'key_items': {
-E                   'blank_field_map': {
-E                       'description': "A blank field map for recording Ari's own knowledge.",
-E                       'display_name': 'Blank Field Map',
-E                       'key_item_id': 'blank_field_map',
-E                       'provenance': {
-E                           'creation_path': 'deterministic_starter',
-E                           'detail': 'v0.4.0 starter kit',
-E         -                 'proof': 'e329895e503ed970f8ce1ab2a3e4898cb52d6610a7aab90954f5a95a2b082591',
-E         +                 'proof': 'c495e7096abe334536a4e4732b062aab7892229e4aff6c36c240d150c6dd4677',
-E                           'proof_version': 1,
-E                           'source_id': 'v0.4.0-starter-kit',
-E                           'source_type': 'system_initialization',
-E                       },
-E                   },
-E                   'field_notebook': {
-E                       'description': "A notebook for Ari's own observations and notes.",
-E                       'display_name': 'Field Notebook',
-E                       'key_item_id': 'field_notebook',
-E                       'provenance': {
-E                           'creation_path': 'deterministic_starter',
-E                           'detail': 'v0.4.0 starter kit',
-E                           'proof': 'e329895e503ed970f8ce1ab2a3e4898cb52d6610a7aab90954f5a95a2b082591',
-E                           'proof_version': 1,
-E                           'source_id': 'v0.4.0-starter-kit',
-E                           'source_type': 'system_initialization',
-E                       },
-E                   },
-E                   'task_journal': {
-E                       'description': 'A journal containing broad survival reminders.',
-E                       'display_name': 'Task Journal',
-E                       'key_item_id': 'task_journal',
-E                       'provenance': {
-E                           'creation_path': 'deterministic_starter',
-E                           'detail': 'v0.4.0 starter kit',
-E         -                 'proof': 'e329895e503ed970f8ce1ab2a3e4898cb52d6610a7aab90954f5a95a2b082591',
-E         +                 'proof': '2cea98ec95b2e0f6763e82c0a320a11a49a2e10b0770f54555e04478f0c7a8cd',
-E                           'proof_version': 1,
-E                           'source_id': 'v0.4.0-starter-kit',
-E                           'source_type': 'system_initialization',
-E                       },
-E                   },
-E               },
-E               'map_markers': {
-E                   'm1': {
-E                       'believed_location': {
-E                           'relative': 'north',
-E                       },
-E                       'confidence': 0.3,
-E                       'created_at': 1.0,
-E                       'label': 'Marker',
-E                       'linked_note_ids': [],
-E                       'linked_task_ids': [],
-E                       'marker_id': 'm1',
-E                       'marker_type': 'unknown',
-E                       'notes': '',
-E                       'provenance': {
-E                           'creation_path': None,
-E                           'detail': None,
-E                           'proof': None,
-E                           'proof_version': None,
-E                           'source_id': None,
-E                           'source_type': 'agent',
-E                       },
-E                       'status': 'active',
-E                       'updated_at': 1.0,
-E                   },
-E               },
-E               'notes': {
-E                   'n1': {
-E                       'content': 'content',
-E                       'created_at': 1.0,
-E                       'linked_marker_ids': [],
-E                       'linked_task_ids': [],
-E                       'note_id': 'n1',
-E                       'provenance': {
-E                           'creation_path': None,
-E                           'detail': None,
-E                           'proof': None,
-E                           'proof_version': None,
-E                           'source_id': None,
-E                           'source_type': 'agent',
-E                       },
-E                       'status': 'active',
-E                       'tags': [
-E                           'tag',
-E                       ],
-E                       'title': 'Note',
-E                       'updated_at': 1.0,
-E                   },
-E               },
-E               'short_term_episodes': {
-E                   'e1': {
-E                       'category': 'test',
-E                       'episode_id': 'e1',
-E                       'linked_belief_ids': [],
-E                       'linked_marker_ids': [],
-E                       'linked_memory_ids': [],
-E                       'linked_note_ids': [],
-E                       'linked_task_ids': [],
-E                       'provenance': {
-E                           'creation_path': None,
-E                           'detail': None,
-E                           'proof': None,
-E                           'proof_version': None,
-E                           'source_id': None,
-E                           'source_type': 'agent',
-E                       },
-E                       'salience': 0.5,
-E                       'simulation_timestamp': 1.0,
-E                       'source_event_id': 1,
-E                       'status': 'recent',
-E                       'summary': 'episode',
-E                   },
-E               },
-E               'tasks': {
-E                   '5e3f17f8-ded3-5893-b259-bb4f06f40352': {
-E                       'created_at': 0.0,
-E                       'created_by': 'starter_journal',
-E                       'description': 'A broad starter reminder, not a mandatory quest or claim about '
-E                       'hidden world state.',
-E                       'linked_marker_ids': [],
-E                       'linked_note_ids': [],
-E                       'metadata': {},
-E                       'parent_task_id': None,
-E                       'priority': 4,
-E                       'provenance': {
-E                           'creation_path': 'deterministic_starter',
-E                           'detail': None,
-E                           'proof': 'd802822322e50b975570b6083ed3d6381a88fd7be29ed1fb698c9dce4380d0a2',
-E                           'proof_version': 1,
-E                           'source_id': 'v0.4.0-starter-journal',
-E                           'source_type': 'system_initialization',
-E                       },
-E                       'status': 'proposed',
-E                       'task_id': '5e3f17f8-ded3-5893-b259-bb4f06f40352',
-E                       'title': 'Find or create a safe place to rest.',
-E                       'updated_at': 0.0,
-E                   },
-E                   '6350efd1-1678-599d-ab9d-084efd3ceac2': {
-E                       'created_at': 0.0,
-E                       'created_by': 'starter_journal',
-E                       'description': 'A broad starter reminder, not a mandatory quest or claim about '
-E                       'hidden world state.',
-E                       'linked_marker_ids': [],
-E                       'linked_note_ids': [],
-E                       'metadata': {},
-E                       'parent_task_id': None,
-E                       'priority': 3,
-E                       'provenance': {
-E                           'creation_path': 'deterministic_starter',
-E                           'detail': None,
-E                           'proof': '3ec0505eeda25f6b3a77e20d66a6c6ac93907c892e9556fba3e2693a7297899d',
-E                           'proof_version': 1,
-E                           'source_id': 'v0.4.0-starter-journal',
-E                           'source_type': 'system_initialization',
-E                       },
-E                       'status': 'proposed',
-E                       'task_id': '6350efd1-1678-599d-ab9d-084efd3ceac2',
-E                       'title': 'Secure enough food for the near future.',
-E                       'updated_at': 0.0,
-E                   },
-E                   '8ddefd76-2e06-566b-8592-031241dd674a': {
-E                       'created_at': 0.0,
-E                       'created_by': 'starter_journal',
-E                       'description': 'A broad starter reminder, not a mandatory quest or claim about '
-E                       'hidden world state.',
-E                       'linked_marker_ids': [],
-E                       'linked_note_ids': [],
-E                       'metadata': {},
-E                       'parent_task_id': None,
-E                       'priority': 2,
-E                       'provenance': {
-E                           'creation_path': 'deterministic_starter',
-E                           'detail': None,
-E                           'proof': '09f48334bf861782a32b25bd9430ab4a19a49545d1ead9a8eba264a3acc12f54',
-E                           'proof_version': 1,
-E                           'source_id': 'v0.4.0-starter-journal',
-E                           'source_type': 'system_initialization',
-E                       },
-E                       'status': 'proposed',
-E                       'task_id': '8ddefd76-2e06-566b-8592-031241dd674a',
-E                       'title': 'Find a reliable source of water.',
-E                       'updated_at': 0.0,
-E                   },
-E                   'd9e5c734-4e58-59e6-8c0c-1a15ba5dd435': {
-E                       'created_at': 0.0,
-E                       'created_by': 'starter_journal',
-E                       'description': 'A broad starter reminder, not a mandatory quest or claim about '
-E                       'hidden world state.',
-E                       'linked_marker_ids': [],
-E                       'linked_note_ids': [],
-E                       'metadata': {},
-E                       'parent_task_id': None,
-E                       'priority': 1,
-E                       'provenance': {
-E                           'creation_path': 'deterministic_starter',
-E                           'detail': None,
-E                           'proof': '4316f873860361770adf27d6b9837cbd3adc3b39cc267c262ef7484d0ca7011e',
-E                           'proof_version': 1,
-E                           'source_id': 'v0.4.0-starter-journal',
-E                           'source_type': 'system_initialization',
-E                       },
-E                       'status': 'proposed',
-E                       'task_id': 'd9e5c734-4e58-59e6-8c0c-1a15ba5dd435',
-E                       'title': 'Assess my immediate surroundings.',
-E                       'updated_at': 0.0,
-E                   },
-E               },
-E           }
+E         - []
+E         + [
+E         +     'app/llm/client.py: credential-like value',
+E         +     'app/web/routes.py: credential-like value',
+E         +     'tests/test_api.py: credential-like value',
+E         +     'tests/test_public_repository_hygiene.py: Tailnet hostname',
+E         +     'tests/test_v040_post4_remediation.py: posix user-home path',
+E         +     'tests/test_v040_post4_remediation.py: windows user-home path',
+E         + ]
 
-tests/test_v040_cognitive_foundations.py:102: AssertionError
-__ test_first_decision_prompt_is_compact_and_normal_prompt_omits_full_stores ___
-
-    def test_first_decision_prompt_is_compact_and_normal_prompt_omits_full_stores() -> None:
-        world = WorldState.generate(45, 48)
-        agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
-        for index in range(100):
-            agent.notes[str(index)] = NoteRecord(str(index), f"Note {index}", "x" * 500, [], "active", 0, 0, provenance=Provenance("agent"))
-        perception = build_perception(world, agent)
-        prompt = decision_messages({"perception": perception, "action_affordances": {}, "active_plan": [], "retrieved_memories": [], "recent_outcomes": []})[-1]["content"]
-        assert "Note 99" not in prompt
-        assert len(prompt) < 50000
->       assert perception["cognitive_tools"]["note_count"] == 100
-E       assert 0 == 100
-
-tests/test_v040_cognitive_foundations.py:130: AssertionError
+tests/test_public_repository_hygiene.py:19: AssertionError
 ___ test_coordinate_matrix_is_controlled_for_direct_and_loaded_state[bytes] ____
 
-factory = <function <lambda> at 0x7f72322f3c40>
+factory = <function <lambda> at 0x7fb0a1f74ea0>
 
     @pytest.mark.parametrize(
         "factory",
@@ -448,6 +61,616 @@ factory = <function <lambda> at 0x7f72322f3c40>
 E           AssertionError: assert 'dense_forest' in {'unknown'}
 
 tests/test_v040_post4_remediation.py:233: AssertionError
+_ test_agent_state_loading_is_type_aware_forward_safe_and_present_empty_stable[None] _
+
+awakening = None
+
+    @pytest.mark.parametrize(
+        "awakening",
+        [None, False, 0, "", True, 1, "truthy", [], [1], {}, {"presented": True}],
+    )
+    def test_agent_state_loading_is_type_aware_forward_safe_and_present_empty_stable(awakening: Any) -> None:
+        raw = {
+            "name": "Ari",
+            "unknown_future_field": {"observer": "preserve-outside-constructor"},
+            "awakening": awakening,
+            "tasks": {},
+            "key_items": {},
+            "notes": "malformed",
+            "map_markers": ["malformed"],
+            "beliefs": object(),
+            "short_term_episodes": True,
+            "known_locations": [],
+            "known_terrain": "bad",
+            "explored": {"1,2"},
+            "inventory": {"branch": "2", "bad": True, "hostile": Hostile()},
+        }
+        agent = AgentState.from_dict(raw)
+        assert agent.tasks == {}
+        assert agent.key_items == {}
+        assert agent.notes == {}
+        assert agent.map_markers == {}
+        assert len(agent.beliefs) == 0
+        assert agent.short_term_episodes == {}
+        assert agent.known_locations == {}
+        assert agent.known_terrain == {}
+>       assert agent.explored == {"1,2"}
+E       AssertionError: assert set() == {'1,2'}
+E         
+E         Extra items in the right set:
+E         '1,2'
+E         
+E         Full diff:
+E         + set()
+E         - {
+E         -     '1,2',
+E         - }
+
+tests/test_v040_post5_remediation.py:343: AssertionError
+_ test_agent_state_loading_is_type_aware_forward_safe_and_present_empty_stable[False] _
+
+awakening = False
+
+    @pytest.mark.parametrize(
+        "awakening",
+        [None, False, 0, "", True, 1, "truthy", [], [1], {}, {"presented": True}],
+    )
+    def test_agent_state_loading_is_type_aware_forward_safe_and_present_empty_stable(awakening: Any) -> None:
+        raw = {
+            "name": "Ari",
+            "unknown_future_field": {"observer": "preserve-outside-constructor"},
+            "awakening": awakening,
+            "tasks": {},
+            "key_items": {},
+            "notes": "malformed",
+            "map_markers": ["malformed"],
+            "beliefs": object(),
+            "short_term_episodes": True,
+            "known_locations": [],
+            "known_terrain": "bad",
+            "explored": {"1,2"},
+            "inventory": {"branch": "2", "bad": True, "hostile": Hostile()},
+        }
+        agent = AgentState.from_dict(raw)
+        assert agent.tasks == {}
+        assert agent.key_items == {}
+        assert agent.notes == {}
+        assert agent.map_markers == {}
+        assert len(agent.beliefs) == 0
+        assert agent.short_term_episodes == {}
+        assert agent.known_locations == {}
+        assert agent.known_terrain == {}
+>       assert agent.explored == {"1,2"}
+E       AssertionError: assert set() == {'1,2'}
+E         
+E         Extra items in the right set:
+E         '1,2'
+E         
+E         Full diff:
+E         + set()
+E         - {
+E         -     '1,2',
+E         - }
+
+tests/test_v040_post5_remediation.py:343: AssertionError
+_ test_agent_state_loading_is_type_aware_forward_safe_and_present_empty_stable[0] _
+
+awakening = 0
+
+    @pytest.mark.parametrize(
+        "awakening",
+        [None, False, 0, "", True, 1, "truthy", [], [1], {}, {"presented": True}],
+    )
+    def test_agent_state_loading_is_type_aware_forward_safe_and_present_empty_stable(awakening: Any) -> None:
+        raw = {
+            "name": "Ari",
+            "unknown_future_field": {"observer": "preserve-outside-constructor"},
+            "awakening": awakening,
+            "tasks": {},
+            "key_items": {},
+            "notes": "malformed",
+            "map_markers": ["malformed"],
+            "beliefs": object(),
+            "short_term_episodes": True,
+            "known_locations": [],
+            "known_terrain": "bad",
+            "explored": {"1,2"},
+            "inventory": {"branch": "2", "bad": True, "hostile": Hostile()},
+        }
+        agent = AgentState.from_dict(raw)
+        assert agent.tasks == {}
+        assert agent.key_items == {}
+        assert agent.notes == {}
+        assert agent.map_markers == {}
+        assert len(agent.beliefs) == 0
+        assert agent.short_term_episodes == {}
+        assert agent.known_locations == {}
+        assert agent.known_terrain == {}
+>       assert agent.explored == {"1,2"}
+E       AssertionError: assert set() == {'1,2'}
+E         
+E         Extra items in the right set:
+E         '1,2'
+E         
+E         Full diff:
+E         + set()
+E         - {
+E         -     '1,2',
+E         - }
+
+tests/test_v040_post5_remediation.py:343: AssertionError
+_ test_agent_state_loading_is_type_aware_forward_safe_and_present_empty_stable[] _
+
+awakening = ''
+
+    @pytest.mark.parametrize(
+        "awakening",
+        [None, False, 0, "", True, 1, "truthy", [], [1], {}, {"presented": True}],
+    )
+    def test_agent_state_loading_is_type_aware_forward_safe_and_present_empty_stable(awakening: Any) -> None:
+        raw = {
+            "name": "Ari",
+            "unknown_future_field": {"observer": "preserve-outside-constructor"},
+            "awakening": awakening,
+            "tasks": {},
+            "key_items": {},
+            "notes": "malformed",
+            "map_markers": ["malformed"],
+            "beliefs": object(),
+            "short_term_episodes": True,
+            "known_locations": [],
+            "known_terrain": "bad",
+            "explored": {"1,2"},
+            "inventory": {"branch": "2", "bad": True, "hostile": Hostile()},
+        }
+        agent = AgentState.from_dict(raw)
+        assert agent.tasks == {}
+        assert agent.key_items == {}
+        assert agent.notes == {}
+        assert agent.map_markers == {}
+        assert len(agent.beliefs) == 0
+        assert agent.short_term_episodes == {}
+        assert agent.known_locations == {}
+        assert agent.known_terrain == {}
+>       assert agent.explored == {"1,2"}
+E       AssertionError: assert set() == {'1,2'}
+E         
+E         Extra items in the right set:
+E         '1,2'
+E         
+E         Full diff:
+E         + set()
+E         - {
+E         -     '1,2',
+E         - }
+
+tests/test_v040_post5_remediation.py:343: AssertionError
+_ test_agent_state_loading_is_type_aware_forward_safe_and_present_empty_stable[True] _
+
+awakening = True
+
+    @pytest.mark.parametrize(
+        "awakening",
+        [None, False, 0, "", True, 1, "truthy", [], [1], {}, {"presented": True}],
+    )
+    def test_agent_state_loading_is_type_aware_forward_safe_and_present_empty_stable(awakening: Any) -> None:
+        raw = {
+            "name": "Ari",
+            "unknown_future_field": {"observer": "preserve-outside-constructor"},
+            "awakening": awakening,
+            "tasks": {},
+            "key_items": {},
+            "notes": "malformed",
+            "map_markers": ["malformed"],
+            "beliefs": object(),
+            "short_term_episodes": True,
+            "known_locations": [],
+            "known_terrain": "bad",
+            "explored": {"1,2"},
+            "inventory": {"branch": "2", "bad": True, "hostile": Hostile()},
+        }
+        agent = AgentState.from_dict(raw)
+        assert agent.tasks == {}
+        assert agent.key_items == {}
+        assert agent.notes == {}
+        assert agent.map_markers == {}
+        assert len(agent.beliefs) == 0
+        assert agent.short_term_episodes == {}
+        assert agent.known_locations == {}
+        assert agent.known_terrain == {}
+>       assert agent.explored == {"1,2"}
+E       AssertionError: assert set() == {'1,2'}
+E         
+E         Extra items in the right set:
+E         '1,2'
+E         
+E         Full diff:
+E         + set()
+E         - {
+E         -     '1,2',
+E         - }
+
+tests/test_v040_post5_remediation.py:343: AssertionError
+_ test_agent_state_loading_is_type_aware_forward_safe_and_present_empty_stable[1] _
+
+awakening = 1
+
+    @pytest.mark.parametrize(
+        "awakening",
+        [None, False, 0, "", True, 1, "truthy", [], [1], {}, {"presented": True}],
+    )
+    def test_agent_state_loading_is_type_aware_forward_safe_and_present_empty_stable(awakening: Any) -> None:
+        raw = {
+            "name": "Ari",
+            "unknown_future_field": {"observer": "preserve-outside-constructor"},
+            "awakening": awakening,
+            "tasks": {},
+            "key_items": {},
+            "notes": "malformed",
+            "map_markers": ["malformed"],
+            "beliefs": object(),
+            "short_term_episodes": True,
+            "known_locations": [],
+            "known_terrain": "bad",
+            "explored": {"1,2"},
+            "inventory": {"branch": "2", "bad": True, "hostile": Hostile()},
+        }
+        agent = AgentState.from_dict(raw)
+        assert agent.tasks == {}
+        assert agent.key_items == {}
+        assert agent.notes == {}
+        assert agent.map_markers == {}
+        assert len(agent.beliefs) == 0
+        assert agent.short_term_episodes == {}
+        assert agent.known_locations == {}
+        assert agent.known_terrain == {}
+>       assert agent.explored == {"1,2"}
+E       AssertionError: assert set() == {'1,2'}
+E         
+E         Extra items in the right set:
+E         '1,2'
+E         
+E         Full diff:
+E         + set()
+E         - {
+E         -     '1,2',
+E         - }
+
+tests/test_v040_post5_remediation.py:343: AssertionError
+_ test_agent_state_loading_is_type_aware_forward_safe_and_present_empty_stable[truthy] _
+
+awakening = 'truthy'
+
+    @pytest.mark.parametrize(
+        "awakening",
+        [None, False, 0, "", True, 1, "truthy", [], [1], {}, {"presented": True}],
+    )
+    def test_agent_state_loading_is_type_aware_forward_safe_and_present_empty_stable(awakening: Any) -> None:
+        raw = {
+            "name": "Ari",
+            "unknown_future_field": {"observer": "preserve-outside-constructor"},
+            "awakening": awakening,
+            "tasks": {},
+            "key_items": {},
+            "notes": "malformed",
+            "map_markers": ["malformed"],
+            "beliefs": object(),
+            "short_term_episodes": True,
+            "known_locations": [],
+            "known_terrain": "bad",
+            "explored": {"1,2"},
+            "inventory": {"branch": "2", "bad": True, "hostile": Hostile()},
+        }
+        agent = AgentState.from_dict(raw)
+        assert agent.tasks == {}
+        assert agent.key_items == {}
+        assert agent.notes == {}
+        assert agent.map_markers == {}
+        assert len(agent.beliefs) == 0
+        assert agent.short_term_episodes == {}
+        assert agent.known_locations == {}
+        assert agent.known_terrain == {}
+>       assert agent.explored == {"1,2"}
+E       AssertionError: assert set() == {'1,2'}
+E         
+E         Extra items in the right set:
+E         '1,2'
+E         
+E         Full diff:
+E         + set()
+E         - {
+E         -     '1,2',
+E         - }
+
+tests/test_v040_post5_remediation.py:343: AssertionError
+_ test_agent_state_loading_is_type_aware_forward_safe_and_present_empty_stable[awakening7] _
+
+awakening = []
+
+    @pytest.mark.parametrize(
+        "awakening",
+        [None, False, 0, "", True, 1, "truthy", [], [1], {}, {"presented": True}],
+    )
+    def test_agent_state_loading_is_type_aware_forward_safe_and_present_empty_stable(awakening: Any) -> None:
+        raw = {
+            "name": "Ari",
+            "unknown_future_field": {"observer": "preserve-outside-constructor"},
+            "awakening": awakening,
+            "tasks": {},
+            "key_items": {},
+            "notes": "malformed",
+            "map_markers": ["malformed"],
+            "beliefs": object(),
+            "short_term_episodes": True,
+            "known_locations": [],
+            "known_terrain": "bad",
+            "explored": {"1,2"},
+            "inventory": {"branch": "2", "bad": True, "hostile": Hostile()},
+        }
+        agent = AgentState.from_dict(raw)
+        assert agent.tasks == {}
+        assert agent.key_items == {}
+        assert agent.notes == {}
+        assert agent.map_markers == {}
+        assert len(agent.beliefs) == 0
+        assert agent.short_term_episodes == {}
+        assert agent.known_locations == {}
+        assert agent.known_terrain == {}
+>       assert agent.explored == {"1,2"}
+E       AssertionError: assert set() == {'1,2'}
+E         
+E         Extra items in the right set:
+E         '1,2'
+E         
+E         Full diff:
+E         + set()
+E         - {
+E         -     '1,2',
+E         - }
+
+tests/test_v040_post5_remediation.py:343: AssertionError
+_ test_agent_state_loading_is_type_aware_forward_safe_and_present_empty_stable[awakening8] _
+
+awakening = [1]
+
+    @pytest.mark.parametrize(
+        "awakening",
+        [None, False, 0, "", True, 1, "truthy", [], [1], {}, {"presented": True}],
+    )
+    def test_agent_state_loading_is_type_aware_forward_safe_and_present_empty_stable(awakening: Any) -> None:
+        raw = {
+            "name": "Ari",
+            "unknown_future_field": {"observer": "preserve-outside-constructor"},
+            "awakening": awakening,
+            "tasks": {},
+            "key_items": {},
+            "notes": "malformed",
+            "map_markers": ["malformed"],
+            "beliefs": object(),
+            "short_term_episodes": True,
+            "known_locations": [],
+            "known_terrain": "bad",
+            "explored": {"1,2"},
+            "inventory": {"branch": "2", "bad": True, "hostile": Hostile()},
+        }
+        agent = AgentState.from_dict(raw)
+        assert agent.tasks == {}
+        assert agent.key_items == {}
+        assert agent.notes == {}
+        assert agent.map_markers == {}
+        assert len(agent.beliefs) == 0
+        assert agent.short_term_episodes == {}
+        assert agent.known_locations == {}
+        assert agent.known_terrain == {}
+>       assert agent.explored == {"1,2"}
+E       AssertionError: assert set() == {'1,2'}
+E         
+E         Extra items in the right set:
+E         '1,2'
+E         
+E         Full diff:
+E         + set()
+E         - {
+E         -     '1,2',
+E         - }
+
+tests/test_v040_post5_remediation.py:343: AssertionError
+_ test_agent_state_loading_is_type_aware_forward_safe_and_present_empty_stable[awakening9] _
+
+awakening = {}
+
+    @pytest.mark.parametrize(
+        "awakening",
+        [None, False, 0, "", True, 1, "truthy", [], [1], {}, {"presented": True}],
+    )
+    def test_agent_state_loading_is_type_aware_forward_safe_and_present_empty_stable(awakening: Any) -> None:
+        raw = {
+            "name": "Ari",
+            "unknown_future_field": {"observer": "preserve-outside-constructor"},
+            "awakening": awakening,
+            "tasks": {},
+            "key_items": {},
+            "notes": "malformed",
+            "map_markers": ["malformed"],
+            "beliefs": object(),
+            "short_term_episodes": True,
+            "known_locations": [],
+            "known_terrain": "bad",
+            "explored": {"1,2"},
+            "inventory": {"branch": "2", "bad": True, "hostile": Hostile()},
+        }
+        agent = AgentState.from_dict(raw)
+        assert agent.tasks == {}
+        assert agent.key_items == {}
+        assert agent.notes == {}
+        assert agent.map_markers == {}
+        assert len(agent.beliefs) == 0
+        assert agent.short_term_episodes == {}
+        assert agent.known_locations == {}
+        assert agent.known_terrain == {}
+>       assert agent.explored == {"1,2"}
+E       AssertionError: assert set() == {'1,2'}
+E         
+E         Extra items in the right set:
+E         '1,2'
+E         
+E         Full diff:
+E         + set()
+E         - {
+E         -     '1,2',
+E         - }
+
+tests/test_v040_post5_remediation.py:343: AssertionError
+_ test_agent_state_loading_is_type_aware_forward_safe_and_present_empty_stable[awakening10] _
+
+awakening = {'presented': True}
+
+    @pytest.mark.parametrize(
+        "awakening",
+        [None, False, 0, "", True, 1, "truthy", [], [1], {}, {"presented": True}],
+    )
+    def test_agent_state_loading_is_type_aware_forward_safe_and_present_empty_stable(awakening: Any) -> None:
+        raw = {
+            "name": "Ari",
+            "unknown_future_field": {"observer": "preserve-outside-constructor"},
+            "awakening": awakening,
+            "tasks": {},
+            "key_items": {},
+            "notes": "malformed",
+            "map_markers": ["malformed"],
+            "beliefs": object(),
+            "short_term_episodes": True,
+            "known_locations": [],
+            "known_terrain": "bad",
+            "explored": {"1,2"},
+            "inventory": {"branch": "2", "bad": True, "hostile": Hostile()},
+        }
+        agent = AgentState.from_dict(raw)
+        assert agent.tasks == {}
+        assert agent.key_items == {}
+        assert agent.notes == {}
+        assert agent.map_markers == {}
+        assert len(agent.beliefs) == 0
+        assert agent.short_term_episodes == {}
+        assert agent.known_locations == {}
+        assert agent.known_terrain == {}
+>       assert agent.explored == {"1,2"}
+E       AssertionError: assert set() == {'1,2'}
+E         
+E         Extra items in the right set:
+E         '1,2'
+E         
+E         Full diff:
+E         + set()
+E         - {
+E         -     '1,2',
+E         - }
+
+tests/test_v040_post5_remediation.py:343: AssertionError
+_ test_affordance_normal_prompt_and_fallback_construct_strict_json_from_malformed_state[bad13] _
+
+bad = <[AssertionError('hostile repr must not run') raised in repr()] Hostile object at 0x7fb0a2108690>
+
+    @pytest.mark.parametrize(
+        "bad",
+        [None, "", "bad", True, [], (), set(), b"12", {"nested": 1}, math.nan, math.inf, -math.inf, 10**500, Hostile()],
+    )
+    def test_affordance_normal_prompt_and_fallback_construct_strict_json_from_malformed_state(bad: Any) -> None:
+        world = WorldState.generate(9103, 48)
+        agent = _agent()
+        agent.x = bad
+        agent.y = bad
+        agent.hunger = bad
+        agent.hydration = bad
+        agent.health = bad
+        agent.energy = bad
+        agent.sleep_pressure = bad
+        agent.body_temperature_c = bad
+        agent.pain = bad
+        agent.inventory = {"berry": bad, "branch": bad, "stone": bad}
+    
+>       perception = build_perception(world, agent)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_v040_post5_remediation.py:397: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+app/simulation/perception.py:191: in build_perception
+    raw_x = _safe_number(getattr(agent, "x", None), math.nan)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app/simulation/perception.py:41: in _safe_number
+    number = float(value)
+             ^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <[AssertionError('hostile repr must not run') raised in repr()] Hostile object at 0x7fb0a2108690>
+
+    def __float__(self) -> float:
+>       raise AssertionError("hostile numeric conversion must not run")
+E       AssertionError: hostile numeric conversion must not run
+
+tests/test_v040_post5_remediation.py:40: AssertionError
+_ test_real_production_chain_scale_is_bounded_persisted_restart_safe_and_excludes_forged_records[100] _
+
+settings = Settings(host='0.0.0.0', port=8797, data_dir=PosixPath('/tmp/pytest-of-runner/pytest-0/test_real_production_chain_sca1...te_max_extract_bytes=262144000, update_max_release_notes_chars=12000, update_auto_restart=True, update_github_token='')
+count = 100
+
+    @pytest.mark.parametrize("count", [10, 100, 1000])
+    @pytest.mark.asyncio
+    async def test_real_production_chain_scale_is_bounded_persisted_restart_safe_and_excludes_forged_records(settings, count: int) -> None:
+        database = Database(settings.database_path)
+        engine = SimulationEngine(settings, database=database, vault=MemoryVault(settings.memory_dir), load_existing=False)
+        key = engine._ari_integrity_key
+        assert isinstance(key, bytes)
+        engine.agent.tasks = {}
+        safe = f"SAFE_PRODUCTION_CHAIN_{count}"
+        forbidden = f"FORBIDDEN_PRODUCTION_CHAIN_{count}"
+        for index in range(count):
+            title = safe if index == 0 else (forbidden if index == count - 1 else f"task-{index}")
+            record = TaskRecord(f"task-{index}", title, "useful", "ari", "active", index, float(index), float(index), provenance=Provenance("agent"))
+            engine.agent.tasks[record.task_id] = record
+            if index != count - 1:
+                assert seal_record("task", record, key, "validated_model_response", source_type="agent", source_ref=f"scale:{index}")
+    
+        result = _complete_view(engine.world, engine.agent, "view_task_journal")
+        immediate_text = json.dumps(result.to_dict(), sort_keys=True, allow_nan=False)
+        assert safe in immediate_text
+        assert forbidden not in immediate_text
+        assert result.data["total_tasks"] == count - 1
+>       assert result.data["visible_tasks"] <= 24
+E       assert 32 <= 24
+
+tests/test_v040_post5_remediation.py:429: AssertionError
+_ test_real_production_chain_scale_is_bounded_persisted_restart_safe_and_excludes_forged_records[1000] _
+
+settings = Settings(host='0.0.0.0', port=8797, data_dir=PosixPath('/tmp/pytest-of-runner/pytest-0/test_real_production_chain_sca2...te_max_extract_bytes=262144000, update_max_release_notes_chars=12000, update_auto_restart=True, update_github_token='')
+count = 1000
+
+    @pytest.mark.parametrize("count", [10, 100, 1000])
+    @pytest.mark.asyncio
+    async def test_real_production_chain_scale_is_bounded_persisted_restart_safe_and_excludes_forged_records(settings, count: int) -> None:
+        database = Database(settings.database_path)
+        engine = SimulationEngine(settings, database=database, vault=MemoryVault(settings.memory_dir), load_existing=False)
+        key = engine._ari_integrity_key
+        assert isinstance(key, bytes)
+        engine.agent.tasks = {}
+        safe = f"SAFE_PRODUCTION_CHAIN_{count}"
+        forbidden = f"FORBIDDEN_PRODUCTION_CHAIN_{count}"
+        for index in range(count):
+            title = safe if index == 0 else (forbidden if index == count - 1 else f"task-{index}")
+            record = TaskRecord(f"task-{index}", title, "useful", "ari", "active", index, float(index), float(index), provenance=Provenance("agent"))
+            engine.agent.tasks[record.task_id] = record
+            if index != count - 1:
+                assert seal_record("task", record, key, "validated_model_response", source_type="agent", source_ref=f"scale:{index}")
+    
+        result = _complete_view(engine.world, engine.agent, "view_task_journal")
+        immediate_text = json.dumps(result.to_dict(), sort_keys=True, allow_nan=False)
+        assert safe in immediate_text
+        assert forbidden not in immediate_text
+        assert result.data["total_tasks"] == count - 1
+>       assert result.data["visible_tasks"] <= 24
+E       assert 32 <= 24
+
+tests/test_v040_post5_remediation.py:429: AssertionError
 =============================== warnings summary ===============================
 ../../../../../opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/fastapi/testclient.py:1
   /opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
@@ -455,313 +678,135 @@ tests/test_v040_post4_remediation.py:233: AssertionError
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
 =========================== short test summary info ============================
-FAILED tests/test_diagnostics_v2.py::test_diagnostic_bundle_v3_contains_runtime_metrics_soak_readiness_and_no_secrets - AssertionError: assert '<local-path-omitted>' == '/tmp/pytest-...died_alife.db'
+FAILED tests/test_public_repository_hygiene.py::test_public_tree_contains_no_private_machine_configuration_or_decoded_values - AssertionError: assert ['app/llm/cli...er-home path'] == []
   
-  - /tmp/pytest-of-runner/pytest-0/test_diagnostic_bundle_v3_cont0/data/runtime/embodied_alife.db
-  + <local-path-omitted>
-FAILED tests/test_v040_cognitive_foundations.py::test_view_actions_return_only_agent_knowledge_and_do_not_create_inventory_items - assert 0 == 4
- +  where 0 = len([])
-FAILED tests/test_v040_cognitive_foundations.py::test_snapshot_restart_and_reset_round_trip_all_cognitive_stores - assert {'awakening':..., ...}}}, ...} == {'awakening':..., ...}}}, ...}
-  
-  Omitting 7 identical items, use -vv to show
-  Differing items:
-  {'key_items': {'blank_field_map': {'description': "A blank field map for recording Ari's own knowledge.", 'display_nam... starter kit', 'proof': '2cea98ec95b2e0f6763e82c0a320a11a49a2e10b0770f54555e04478f0c7a8cd', 'proof_version': 1, ...}}}} != {'key_items': {'blank_field_map': {'description': "A blank field map for recording Ari's own knowledge.", 'display_nam... starter kit', 'proof': 'e329895e503ed970f8ce1ab2a3e4898cb52d6610a7aab90954f5a95a2b082591', 'proof_version': 1, ...}}}}
+  Left contains 6 more items, first extra item: 'app/llm/client.py: credential-like value'
   
   Full diff:
-    {
-        'awakening': {
-            'narrative': 'I wake beneath an unfamiliar sky with no memory of how I arrived. My '
-            'body feels real, vulnerable, and entirely my responsibility. I do not '
-            'know this land, what lives here, or whether anyone else is nearby.\n'
-            '\n'
-            'I have only a few possessions: a blank map, a task journal, and a '
-            'field notebook. The journal contains a handful of basic survival '
-            'reminders—find water, secure food, and establish somewhere safe to '
-            'rest—but what I do beyond that is up to me.\n'
-            '\n'
-            'If I am going to survive here, and perhaps eventually build a life '
-            'worth living, I should begin by understanding my situation. The map '
-            'and task journal may be the best place to start.',
-            'presented': False,
-            'presented_at': None,
-        },
-        'beliefs': {
-            'b1': {
-                'basis': 'Subjective model belief update; not observer truth.',
-                'belief_id': 'b1',
-                'claim': 'A subjective working belief.',
-                'confidence': 0.5,
-                'contradicting_evidence_ids': [],
-                'first_formed_at': 0.0,
-                'last_tested_at': None,
-                'provenance': {
-                    'creation_path': None,
-                    'detail': None,
-                    'proof': None,
-                    'proof_version': None,
-                    'source_id': 'b1',
-                    'source_type': 'model_belief_update',
-                },
-                'source_type': 'inference',
-                'status': 'working',
-                'supporting_evidence_ids': [],
-            },
-            'self': {
-                'basis': 'Migrated from the pre-v0.4.0 subjective belief dictionary.',
-                'belief_id': 'self',
-                'claim': 'I have a physical body in an unfamiliar place.',
-                'confidence': 0.5,
-                'contradicting_evidence_ids': [],
-                'first_formed_at': 0.0,
-                'last_tested_at': None,
-                'provenance': {
-                    'creation_path': 'deterministic_starter',
-                    'detail': None,
-                    'proof': '8e07bb1b6d5cb3c3368410e80b92521d6b8df105ba479367b16bada6c16c4c50',
-                    'proof_version': 1,
-                    'source_id': 'initial-belief:self',
-                    'source_type': 'system_initialization',
-                },
-                'source_type': 'system_initialization',
-                'status': 'working',
-                'supporting_evidence_ids': [],
-            },
-            'world': {
-                'basis': 'Migrated from the pre-v0.4.0 subjective belief dictionary.',
-                'belief_id': 'world',
-                'claim': 'The environment appears real and partially observable; my '
-                'interpretations may be wrong.',
-                'confidence': 0.5,
-                'contradicting_evidence_ids': [],
-                'first_formed_at': 0.0,
-                'last_tested_at': None,
-                'provenance': {
-                    'creation_path': 'deterministic_starter',
-                    'detail': None,
-                    'proof': '5fd4d84eb4757ce40759a44664d64d32e86facdd4f94aa944140e19cc709fabd',
-                    'proof_version': 1,
-                    'source_id': 'initial-belief:world',
-                    'source_type': 'system_initialization',
-                },
-                'source_type': 'system_initialization',
-                'status': 'working',
-                'supporting_evidence_ids': [],
-            },
-        },
-        'cognition_schema_version': 1,
-        'key_items': {
-            'blank_field_map': {
-                'description': "A blank field map for recording Ari's own knowledge.",
-                'display_name': 'Blank Field Map',
-                'key_item_id': 'blank_field_map',
-                'provenance': {
-                    'creation_path': 'deterministic_starter',
-                    'detail': 'v0.4.0 starter kit',
-  -                 'proof': 'e329895e503ed970f8ce1ab2a3e4898cb52d6610a7aab90954f5a95a2b082591',
-  +                 'proof': 'c495e7096abe334536a4e4732b062aab7892229e4aff6c36c240d150c6dd4677',
-                    'proof_version': 1,
-                    'source_id': 'v0.4.0-starter-kit',
-                    'source_type': 'system_initialization',
-                },
-            },
-            'field_notebook': {
-                'description': "A notebook for Ari's own observations and notes.",
-                'display_name': 'Field Notebook',
-                'key_item_id': 'field_notebook',
-                'provenance': {
-                    'creation_path': 'deterministic_starter',
-                    'detail': 'v0.4.0 starter kit',
-                    'proof': 'e329895e503ed970f8ce1ab2a3e4898cb52d6610a7aab90954f5a95a2b082591',
-                    'proof_version': 1,
-                    'source_id': 'v0.4.0-starter-kit',
-                    'source_type': 'system_initialization',
-                },
-            },
-            'task_journal': {
-                'description': 'A journal containing broad survival reminders.',
-                'display_name': 'Task Journal',
-                'key_item_id': 'task_journal',
-                'provenance': {
-                    'creation_path': 'deterministic_starter',
-                    'detail': 'v0.4.0 starter kit',
-  -                 'proof': 'e329895e503ed970f8ce1ab2a3e4898cb52d6610a7aab90954f5a95a2b082591',
-  +                 'proof': '2cea98ec95b2e0f6763e82c0a320a11a49a2e10b0770f54555e04478f0c7a8cd',
-                    'proof_version': 1,
-                    'source_id': 'v0.4.0-starter-kit',
-                    'source_type': 'system_initialization',
-                },
-            },
-        },
-        'map_markers': {
-            'm1': {
-                'believed_location': {
-                    'relative': 'north',
-                },
-                'confidence': 0.3,
-                'created_at': 1.0,
-                'label': 'Marker',
-                'linked_note_ids': [],
-                'linked_task_ids': [],
-                'marker_id': 'm1',
-                'marker_type': 'unknown',
-                'notes': '',
-                'provenance': {
-                    'creation_path': None,
-                    'detail': None,
-                    'proof': None,
-                    'proof_version': None,
-                    'source_id': None,
-                    'source_type': 'agent',
-                },
-                'status': 'active',
-                'updated_at': 1.0,
-            },
-        },
-        'notes': {
-            'n1': {
-                'content': 'content',
-                'created_at': 1.0,
-                'linked_marker_ids': [],
-                'linked_task_ids': [],
-                'note_id': 'n1',
-                'provenance': {
-                    'creation_path': None,
-                    'detail': None,
-                    'proof': None,
-                    'proof_version': None,
-                    'source_id': None,
-                    'source_type': 'agent',
-                },
-                'status': 'active',
-                'tags': [
-                    'tag',
-                ],
-                'title': 'Note',
-                'updated_at': 1.0,
-            },
-        },
-        'short_term_episodes': {
-            'e1': {
-                'category': 'test',
-                'episode_id': 'e1',
-                'linked_belief_ids': [],
-                'linked_marker_ids': [],
-                'linked_memory_ids': [],
-                'linked_note_ids': [],
-                'linked_task_ids': [],
-                'provenance': {
-                    'creation_path': None,
-                    'detail': None,
-                    'proof': None,
-                    'proof_version': None,
-                    'source_id': None,
-                    'source_type': 'agent',
-                },
-                'salience': 0.5,
-                'simulation_timestamp': 1.0,
-                'source_event_id': 1,
-                'status': 'recent',
-                'summary': 'episode',
-            },
-        },
-        'tasks': {
-            '5e3f17f8-ded3-5893-b259-bb4f06f40352': {
-                'created_at': 0.0,
-                'created_by': 'starter_journal',
-                'description': 'A broad starter reminder, not a mandatory quest or claim about '
-                'hidden world state.',
-                'linked_marker_ids': [],
-                'linked_note_ids': [],
-                'metadata': {},
-                'parent_task_id': None,
-                'priority': 4,
-                'provenance': {
-                    'creation_path': 'deterministic_starter',
-                    'detail': None,
-                    'proof': 'd802822322e50b975570b6083ed3d6381a88fd7be29ed1fb698c9dce4380d0a2',
-                    'proof_version': 1,
-                    'source_id': 'v0.4.0-starter-journal',
-                    'source_type': 'system_initialization',
-                },
-                'status': 'proposed',
-                'task_id': '5e3f17f8-ded3-5893-b259-bb4f06f40352',
-                'title': 'Find or create a safe place to rest.',
-                'updated_at': 0.0,
-            },
-            '6350efd1-1678-599d-ab9d-084efd3ceac2': {
-                'created_at': 0.0,
-                'created_by': 'starter_journal',
-                'description': 'A broad starter reminder, not a mandatory quest or claim about '
-                'hidden world state.',
-                'linked_marker_ids': [],
-                'linked_note_ids': [],
-                'metadata': {},
-                'parent_task_id': None,
-                'priority': 3,
-                'provenance': {
-                    'creation_path': 'deterministic_starter',
-                    'detail': None,
-                    'proof': '3ec0505eeda25f6b3a77e20d66a6c6ac93907c892e9556fba3e2693a7297899d',
-                    'proof_version': 1,
-                    'source_id': 'v0.4.0-starter-journal',
-                    'source_type': 'system_initialization',
-                },
-                'status': 'proposed',
-                'task_id': '6350efd1-1678-599d-ab9d-084efd3ceac2',
-                'title': 'Secure enough food for the near future.',
-                'updated_at': 0.0,
-            },
-            '8ddefd76-2e06-566b-8592-031241dd674a': {
-                'created_at': 0.0,
-                'created_by': 'starter_journal',
-                'description': 'A broad starter reminder, not a mandatory quest or claim about '
-                'hidden world state.',
-                'linked_marker_ids': [],
-                'linked_note_ids': [],
-                'metadata': {},
-                'parent_task_id': None,
-                'priority': 2,
-                'provenance': {
-                    'creation_path': 'deterministic_starter',
-                    'detail': None,
-                    'proof': '09f48334bf861782a32b25bd9430ab4a19a49545d1ead9a8eba264a3acc12f54',
-                    'proof_version': 1,
-                    'source_id': 'v0.4.0-starter-journal',
-                    'source_type': 'system_initialization',
-                },
-                'status': 'proposed',
-                'task_id': '8ddefd76-2e06-566b-8592-031241dd674a',
-                'title': 'Find a reliable source of water.',
-                'updated_at': 0.0,
-            },
-            'd9e5c734-4e58-59e6-8c0c-1a15ba5dd435': {
-                'created_at': 0.0,
-                'created_by': 'starter_journal',
-                'description': 'A broad starter reminder, not a mandatory quest or claim about '
-                'hidden world state.',
-                'linked_marker_ids': [],
-                'linked_note_ids': [],
-                'metadata': {},
-                'parent_task_id': None,
-                'priority': 1,
-                'provenance': {
-                    'creation_path': 'deterministic_starter',
-                    'detail': None,
-                    'proof': '4316f873860361770adf27d6b9837cbd3adc3b39cc267c262ef7484d0ca7011e',
-                    'proof_version': 1,
-                    'source_id': 'v0.4.0-starter-journal',
-                    'source_type': 'system_initialization',
-                },
-                'status': 'proposed',
-                'task_id': 'd9e5c734-4e58-59e6-8c0c-1a15ba5dd435',
-                'title': 'Assess my immediate surroundings.',
-                'updated_at': 0.0,
-            },
-        },
-    }
-FAILED tests/test_v040_cognitive_foundations.py::test_first_decision_prompt_is_compact_and_normal_prompt_omits_full_stores - assert 0 == 100
+  - []
+  + [
+  +     'app/llm/client.py: credential-like value',
+  +     'app/web/routes.py: credential-like value',
+  +     'tests/test_api.py: credential-like value',
+  +     'tests/test_public_repository_hygiene.py: Tailnet hostname',
+  +     'tests/test_v040_post4_remediation.py: posix user-home path',
+  +     'tests/test_v040_post4_remediation.py: windows user-home path',
+  + ]
 FAILED tests/test_v040_post4_remediation.py::test_coordinate_matrix_is_controlled_for_direct_and_loaded_state[bytes] - AssertionError: assert 'dense_forest' in {'unknown'}
-5 failed, 143 passed, 1 warning in 10.30s
+FAILED tests/test_v040_post5_remediation.py::test_agent_state_loading_is_type_aware_forward_safe_and_present_empty_stable[None] - AssertionError: assert set() == {'1,2'}
+  
+  Extra items in the right set:
+  '1,2'
+  
+  Full diff:
+  + set()
+  - {
+  -     '1,2',
+  - }
+FAILED tests/test_v040_post5_remediation.py::test_agent_state_loading_is_type_aware_forward_safe_and_present_empty_stable[False] - AssertionError: assert set() == {'1,2'}
+  
+  Extra items in the right set:
+  '1,2'
+  
+  Full diff:
+  + set()
+  - {
+  -     '1,2',
+  - }
+FAILED tests/test_v040_post5_remediation.py::test_agent_state_loading_is_type_aware_forward_safe_and_present_empty_stable[0] - AssertionError: assert set() == {'1,2'}
+  
+  Extra items in the right set:
+  '1,2'
+  
+  Full diff:
+  + set()
+  - {
+  -     '1,2',
+  - }
+FAILED tests/test_v040_post5_remediation.py::test_agent_state_loading_is_type_aware_forward_safe_and_present_empty_stable[] - AssertionError: assert set() == {'1,2'}
+  
+  Extra items in the right set:
+  '1,2'
+  
+  Full diff:
+  + set()
+  - {
+  -     '1,2',
+  - }
+FAILED tests/test_v040_post5_remediation.py::test_agent_state_loading_is_type_aware_forward_safe_and_present_empty_stable[True] - AssertionError: assert set() == {'1,2'}
+  
+  Extra items in the right set:
+  '1,2'
+  
+  Full diff:
+  + set()
+  - {
+  -     '1,2',
+  - }
+FAILED tests/test_v040_post5_remediation.py::test_agent_state_loading_is_type_aware_forward_safe_and_present_empty_stable[1] - AssertionError: assert set() == {'1,2'}
+  
+  Extra items in the right set:
+  '1,2'
+  
+  Full diff:
+  + set()
+  - {
+  -     '1,2',
+  - }
+FAILED tests/test_v040_post5_remediation.py::test_agent_state_loading_is_type_aware_forward_safe_and_present_empty_stable[truthy] - AssertionError: assert set() == {'1,2'}
+  
+  Extra items in the right set:
+  '1,2'
+  
+  Full diff:
+  + set()
+  - {
+  -     '1,2',
+  - }
+FAILED tests/test_v040_post5_remediation.py::test_agent_state_loading_is_type_aware_forward_safe_and_present_empty_stable[awakening7] - AssertionError: assert set() == {'1,2'}
+  
+  Extra items in the right set:
+  '1,2'
+  
+  Full diff:
+  + set()
+  - {
+  -     '1,2',
+  - }
+FAILED tests/test_v040_post5_remediation.py::test_agent_state_loading_is_type_aware_forward_safe_and_present_empty_stable[awakening8] - AssertionError: assert set() == {'1,2'}
+  
+  Extra items in the right set:
+  '1,2'
+  
+  Full diff:
+  + set()
+  - {
+  -     '1,2',
+  - }
+FAILED tests/test_v040_post5_remediation.py::test_agent_state_loading_is_type_aware_forward_safe_and_present_empty_stable[awakening9] - AssertionError: assert set() == {'1,2'}
+  
+  Extra items in the right set:
+  '1,2'
+  
+  Full diff:
+  + set()
+  - {
+  -     '1,2',
+  - }
+FAILED tests/test_v040_post5_remediation.py::test_agent_state_loading_is_type_aware_forward_safe_and_present_empty_stable[awakening10] - AssertionError: assert set() == {'1,2'}
+  
+  Extra items in the right set:
+  '1,2'
+  
+  Full diff:
+  + set()
+  - {
+  -     '1,2',
+  - }
+FAILED tests/test_v040_post5_remediation.py::test_affordance_normal_prompt_and_fallback_construct_strict_json_from_malformed_state[bad13] - AssertionError: hostile numeric conversion must not run
+FAILED tests/test_v040_post5_remediation.py::test_real_production_chain_scale_is_bounded_persisted_restart_safe_and_excludes_forged_records[100] - assert 32 <= 24
+FAILED tests/test_v040_post5_remediation.py::test_real_production_chain_scale_is_bounded_persisted_restart_safe_and_excludes_forged_records[1000] - assert 32 <= 24
+16 failed, 189 passed, 1 warning in 11.60s
 
 PYTEST_EXIT=1
 COMPILE_EXIT=0
