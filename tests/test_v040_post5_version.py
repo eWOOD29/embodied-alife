@@ -16,6 +16,7 @@ from scripts.build_release import project_version
 
 def _post5_package(path: Path) -> tuple[Path, str]:
     path.parent.mkdir(parents=True, exist_ok=True)
+    managed_paths = ["app/main.py", "app/version.py", "pyproject.toml", "scripts/apply_update.py"]
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr(
             "update-manifest.json",
@@ -24,13 +25,16 @@ def _post5_package(path: Path) -> tuple[Path, str]:
                     "schema_version": 1,
                     "app_id": "embodied-alife",
                     "version": "0.4.0.post5",
-                    "managed_paths": ["app/version.py"],
+                    "managed_paths": managed_paths,
                     "preserved_roots": [".env", ".venv", "data", ".git"],
                     "entrypoint": [".venv/Scripts/python.exe", "-m", "app.serve"],
                 }
             ),
         )
+        archive.writestr("app/main.py", "# synthetic updater fixture\n")
         archive.writestr("app/version.py", '__version__ = "0.4.0.post5"\n')
+        archive.writestr("pyproject.toml", '[project]\nname = "embodied-alife"\nversion = "0.4.0.post5"\n')
+        archive.writestr("scripts/apply_update.py", "# synthetic updater fixture\n")
     return path, hashlib.sha256(path.read_bytes()).hexdigest()
 
 
