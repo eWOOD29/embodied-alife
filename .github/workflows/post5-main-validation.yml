@@ -1,0 +1,155 @@
+name: post5-main-validation
+
+on:
+  push:
+    branches:
+      - ops/post5-main-validation
+    paths:
+      - .github/workflows/post5-main-validation.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out evidence branch
+        uses: actions/checkout@v5
+        with:
+          ref: ops/post5-main-validation
+          fetch-depth: 0
+          path: ops
+      - name: Check out current main candidate
+        uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+          path: candidate
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install candidate
+        run: python -m pip install -e './candidate[dev]'
+      - name: Run authoritative validation and package audit
+        shell: bash
+        run: |
+          set +e
+          E="$GITHUB_WORKSPACE/ops/post5-main-evidence"
+          C="$GITHUB_WORKSPACE/candidate"
+          mkdir -p "$E"
+          cd "$C"
+          git rev-parse HEAD > "$E/main-commit.txt"
+
+          python -m pytest -q tests/test_v040_post5_remediation.py tests/test_v040_post4_remediation.py tests/test_v040_cognitive_foundations.py tests/test_v040_remediation.py tests/test_v040_post5_version.py > "$E/focused.txt" 2>&1
+          focused=$?
+          python -m pytest -q > "$E/full.txt" 2>&1
+          full=$?
+          python -m compileall -q app tests scripts > "$E/compile.txt" 2>&1
+          compile=$?
+          python -m ruff check app tests scripts > "$E/ruff.txt" 2>&1
+          ruff=$?
+
+          rm -rf .pytest_cache .ruff_cache
+          find app tests scripts -type d -name '__pycache__' -prune -exec rm -rf {} +
+          find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
+          python - <<'PY' > "$E/cleanup.txt" 2>&1
+          from pathlib import Path
+          bad_dirs = {"__pycache__", ".pytest_cache", ".ruff_cache"}
+          bad_suffixes = {".pyc", ".pyo"}
+          leftovers = [p.as_posix() for p in Path('.').rglob('*') if any(part in bad_dirs for part in p.parts) or (p.is_file() and p.suffix in bad_suffixes)]
+          if leftovers:
+              raise SystemExit(leftovers)
+          print('generated-file cleanup passed')
+          PY
+          cleanup=$?
+
+          python scripts/validate_package.py > "$E/source-package.txt" 2>&1
+          source_package=$?
+          rm -rf dist "$RUNNER_TEMP/post5-main-extracted"
+          python scripts/build_release.py --output dist/embodied-alife-update.zip --app-id embodied-alife > "$E/build.txt" 2>&1
+          build=$?
+          mkdir -p "$RUNNER_TEMP/post5-main-extracted"
+
+          python - <<'PY' > "$E/archive.txt" 2>&1
+          import hashlib, json, os, zipfile
+          from pathlib import Path, PurePosixPath
+          path = Path('dist/embodied-alife-update.zip')
+          data = path.read_bytes()
+          digest = hashlib.sha256(data).hexdigest()
+          print(f'sha256={digest}')
+          print(f'checksum={digest}  embodied-alife-update.zip')
+          print(f'size={len(data)}')
+          with zipfile.ZipFile(path) as archive:
+              if archive.testzip() is not None:
+                  raise SystemExit('archive integrity failed')
+              names = archive.namelist()
+              if len(names) != len(set(names)):
+                  raise SystemExit('duplicate members')
+              unsafe = [n for n in names if PurePosixPath(n).is_absolute() or '..' in PurePosixPath(n).parts or '\\' in n]
+              if unsafe:
+                  raise SystemExit(f'unsafe={unsafe}')
+              temporary = [n for n in names if 'post5-' in n.lower() or 'apply_phase' in n.lower()]
+              if temporary:
+                  raise SystemExit(f'temporary={temporary}')
+              manifest = json.loads(archive.read('update-manifest.json'))
+              expected = sorted(n for n in names if n != 'update-manifest.json')
+              if sorted(manifest['managed_paths']) != expected:
+                  raise SystemExit('managed path mismatch')
+              if manifest['version'] != '0.4.0.post5' or manifest['app_id'] != 'embodied-alife':
+                  raise SystemExit(manifest)
+              if manifest['preserved_roots'] != ['.env', '.venv', 'data', '.git']:
+                  raise SystemExit(manifest['preserved_roots'])
+              print(f'member_count={len(names)}')
+              print('manifest=' + json.dumps(manifest, sort_keys=True, separators=(',', ':')))
+              for name in names:
+                  print(name)
+              archive.extractall(Path(os.environ['RUNNER_TEMP']) / 'post5-main-extracted')
+          PY
+          archive=$?
+
+          (cd "$RUNNER_TEMP/post5-main-extracted" && python scripts/validate_package.py) > "$E/extracted-package.txt" 2>&1
+          extracted=$?
+          cp dist/embodied-alife-update.zip "$E/"
+          sha256sum dist/embodied-alife-update.zip > "$E/sha256.txt"
+
+          overall=0
+          for value in "$focused" "$full" "$compile" "$ruff" "$cleanup" "$source_package" "$build" "$archive" "$extracted"; do
+            if [ "$value" -ne 0 ]; then overall=1; fi
+          done
+          cat > "$E/status.txt" <<EOF
+          focused=$focused
+          full=$full
+          compile=$compile
+          ruff=$ruff
+          cleanup=$cleanup
+          source_package=$source_package
+          build=$build
+          archive=$archive
+          extracted=$extracted
+          overall=$overall
+          EOF
+          exit 0
+      - name: Commit textual evidence
+        working-directory: ops
+        shell: bash
+        run: |
+          rm -f post5-main-evidence/embodied-alife-update.zip
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add post5-main-evidence
+          git commit -m "Record post5 main validation evidence" || true
+          git push origin HEAD:ops/post5-main-validation
+      - name: Upload archive and evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: post5-main-validation-evidence
+          path: post5-main-evidence
+          if-no-files-found: error
+      - name: Enforce validation result
+        working-directory: ops
+        shell: bash
+        run: grep -q '^overall=0$' post5-main-evidence/status.txt
