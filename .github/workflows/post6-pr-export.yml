@@ -1,0 +1,21 @@
+name: post6-pr-export
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/upload-artifact@v4
+        with:
+          name: post6-pr-source
+          path: .
+          include-hidden-files: true
+          retention-days: 1
