@@ -270,31 +270,40 @@ class SimulationEngine:
         return None
 
     async def make_decision(self) -> None:
-        if not self.agent.alive or self.controller.execution or self.agent.sleeping:
+        if self.agent.alive is not True or self.controller.execution or self.agent.sleeping is True:
             return
+        recent_events = self.agent.recent_events if isinstance(self.agent.recent_events, list) else []
         due_consolidation = next(
-            (event for event in self.agent.recent_events[-4:] if event.get("kind") == "consolidation_due"),
+            (event for event in recent_events[-4:] if isinstance(event, dict) and event.get("kind") == "consolidation_due"),
             None,
         )
         if due_consolidation:
             await self._consolidate("wake")
-            self.agent.recent_events = [event for event in self.agent.recent_events if event.get("kind") != "consolidation_due"]
+            self.agent.recent_events = [event for event in recent_events if not isinstance(event, dict) or event.get("kind") != "consolidation_due"]
 
         perception = build_perception(self.world, self.agent)
-        query_parts = [self.agent.current_intention]
-        query_parts.extend(obj["kind"] for obj in perception["visible_objects"][:8])
-        query_parts.extend(entity["classification"] for entity in perception["visible_entities"][:5])
-        tags = {item for item in self.agent.inventory}
+        query_parts: list[str] = []
+        intention = self.agent.current_intention if isinstance(self.agent.current_intention, str) else ""
+        if intention.strip():
+            query_parts.append(intention.strip()[:400])
+        for obj in (perception.get("visible_objects") if isinstance(perception.get("visible_objects"), list) else [])[:8]:
+            if isinstance(obj, dict) and isinstance(obj.get("kind"), str) and obj.get("kind"):
+                query_parts.append(obj["kind"][:80])
+        for entity in (perception.get("visible_entities") if isinstance(perception.get("visible_entities"), list) else [])[:5]:
+            if isinstance(entity, dict) and isinstance(entity.get("classification"), str) and entity.get("classification"):
+                query_parts.append(entity["classification"][:80])
+        inventory = self.agent.inventory if isinstance(self.agent.inventory, dict) else {}
+        tags = {key[:80] for index, key in enumerate(inventory) if index < 64 and isinstance(key, str) and key}
         verified_memory_records = [
             record
-            for record in self.vault.list_records()
+            for record in self.vault.list_records(limit=4096, scan_limit=4096)
             if verify_memory_record(self.settings.runtime_dir, record, self._ari_integrity_key)
         ]
         memories = retrieve_memories(
             verified_memory_records,
-            " ".join(query_parts),
+            " ".join(query_parts)[:2000],
             tags=tags,
-            sim_time=self.world.sim_time,
+            sim_time=finite_number(getattr(self.world, "sim_time", None), 0.0) or 0.0,
             limit=6,
         )
         self.agent.retrieved_memories = memories
