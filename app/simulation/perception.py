@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import math
 from types import SimpleNamespace
+from itertools import islice
 from typing import Any
 
+from app.serialization import finite_number
 from app.simulation.actions import ari_record_origin_is_safe
 from app.simulation.integrity import seal_knowledge, verify_knowledge, verify_record
 from app.simulation.agent import AgentState
@@ -34,20 +36,8 @@ def _truncate(value: Any, limit: int = BELIEF_TEXT_LIMIT) -> str:
 
 
 def _safe_number(value: Any, default: float = 0.0, *, minimum: float | None = None, maximum: float | None = None) -> float:
-    if isinstance(value, bool):
-        number = default
-    else:
-        try:
-            number = float(value)
-        except (TypeError, ValueError, OverflowError):
-            number = default
-    if not math.isfinite(number):
-        number = default
-    if minimum is not None:
-        number = max(minimum, number)
-    if maximum is not None:
-        number = min(maximum, number)
-    return number
+    number = finite_number(value, default, minimum=minimum, maximum=maximum)
+    return default if number is None else number
 
 
 def _bounded_pairs(value: Any, *, count_limit: int, key_limit: int, value_limit: int) -> dict[str, Any]:
@@ -420,7 +410,11 @@ def build_perception(world: WorldState, agent: AgentState, radius: int = 10) -> 
         "available_actions": sorted(set(affordances)),
         "known_locations": _known_location_summaries(agent, agent_x, agent_y),
         "previously_explored": {
-            "tile_count": sum(1 for key, value in (terrain_store.items() if terrain_store is not None else []) if verify_knowledge(agent, "terrain", key, value)),
+            "tile_count": sum(
+                1
+                for key, value in islice(terrain_store.items(), 4096)
+                if verify_knowledge(agent, "terrain", key, value)
+            ) if terrain_store is not None else 0,
             "nearby_known_tiles": _known_tile_summaries(agent, ax, ay),
         },
         "belief_summary": _belief_summary(agent),

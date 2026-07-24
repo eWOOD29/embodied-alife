@@ -69,10 +69,17 @@ def _mapping(value: Any, limit: int = 10000) -> dict[str, Any]:
 
 
 def _string_list(value: Any, limit: int) -> list[str]:
-    if not isinstance(value, (list, tuple)):
+    if not isinstance(value, (list, tuple, set, frozenset)):
         return []
+    if isinstance(value, (set, frozenset)):
+        iterable = sorted(
+            (raw for raw in value if isinstance(raw, (str, int)) and not isinstance(raw, bool)),
+            key=lambda raw: (type(raw).__name__, raw),
+        )
+    else:
+        iterable = value
     result: list[str] = []
-    for raw in value:
+    for raw in iterable:
         item = _scalar_text(raw, 4000)
         if item:
             result.append(item)

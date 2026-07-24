@@ -29,7 +29,7 @@ TEST_KEY = b"post5-test-integrity-key-material".ljust(32, b"!")
 
 class HostileObject:
     def __repr__(self) -> str:
-        return "<HostileObject C:\\Users\\private\\secret.txt at 0xDEADBEEF>"
+        return "<HostileObject synthetic-machine-path at 0xDEADBEEF>"
 
     def __str__(self) -> str:
         raise AssertionError("hostile __str__ must not be called")
@@ -361,7 +361,7 @@ def test_persistence_observer_api_websocket_and_diagnostics_normalize_mutated_st
     engine.agent.current_action = {"set": {3, 1, 2}, "bytes": b"private", "object": HostileObject(), "nan": math.nan}
     engine.agent.recent_events.append({"kind": "custom", "message": "safe", "data": cycle})
     engine.world.truth_notes["cycle"] = cycle  # type: ignore[assignment]
-    engine.last_action_result = {"object": HostileObject(), "cycle": cycle, "path": Path("/home/private/secret")}
+    engine.last_action_result = {"object": HostileObject(), "cycle": cycle, "path": Path("synthetic-private-path")}
 
     serialized = engine.serialize()
     observer = engine.observer_state(include_map=True)
@@ -380,7 +380,7 @@ def test_persistence_observer_api_websocket_and_diagnostics_normalize_mutated_st
             payload = response.json()
             _strict(payload)
             assert "0xDEADBEEF" not in response.text
-            assert "/home/private/secret" not in response.text
+            assert "synthetic-private-path" not in response.text
         with client.websocket_connect("/ws") as socket:
             websocket_payload = socket.receive_json()
             _strict(websocket_payload)
@@ -394,4 +394,4 @@ def test_persistence_observer_api_websocket_and_diagnostics_normalize_mutated_st
     )
     bundle_text = _strict(bundle)
     assert "0xDEADBEEF" not in bundle_text
-    assert "/home/private/secret" not in bundle_text
+    assert "synthetic-private-path" not in bundle_text

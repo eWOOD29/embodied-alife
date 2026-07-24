@@ -15,7 +15,7 @@ from app.llm.prompts import decision_messages
 from app.llm.schemas import ActionDecision
 from app.memory.vault import MemoryVault
 from app.serialization import UNORDERED_OMITTED, json_safe, strict_json_dumps
-from app.simulation.actions import ActionController, ActionResult
+from app.simulation.actions import ARI_TASK_LIMIT, ActionController, ActionResult
 from app.simulation.affordances import build_action_affordances
 from app.simulation.agent import AgentState
 from app.simulation.cognition import BeliefRecord, EpisodeRecord, KeyItem, MapMarker, NoteRecord, Provenance, TaskRecord
@@ -426,7 +426,7 @@ async def test_real_production_chain_scale_is_bounded_persisted_restart_safe_and
     assert safe in immediate_text
     assert forbidden not in immediate_text
     assert result.data["total_tasks"] == count - 1
-    assert result.data["visible_tasks"] <= 24
+    assert result.data["visible_tasks"] <= ARI_TASK_LIMIT
     assert len(immediate_text) < 30000
 
     engine._handle_action_result(result)

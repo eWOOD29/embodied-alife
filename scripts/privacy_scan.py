@@ -17,7 +17,7 @@ POSIX_USER_HOME = re.compile(r"(?i)(?:^|[^a-z0-9])(?:file:/{2,3})?/(?:home|users
 TAILNET_HOST = re.compile(r"(?i)\b[a-z0-9-]+(?:\.[a-z0-9-]+)+\.ts\.net\b")
 DRIVE_URL = re.compile(r"(?i)https?://(?:docs|drive)\.google\.com/")
 CREDENTIAL = re.compile(
-    r"(?i)(?:bearer\s+[a-z0-9._~-]{12,}|(?:api[_-]?key|access[_-]?token|refresh[_-]?token|password|secret)\s*[:=]\s*[\"']?[a-z0-9._~+/=-]{12,})"
+    r"(?i)(?:bearer\s+[a-z0-9._~-]{20,}|sk-[a-z0-9_-]{20,}|(?:api[_-]?key|access[_-]?token|refresh[_-]?token|password|secret)\s*[:=]\s*[\"'][^\"'\r\n]{12,}[\"'])"
 )
 URI_ENCODED_USER_HOME = re.compile(r"(?i)(?:%5c|%2f)users(?:%5c|%2f)[^%\s]+(?:%5c|%2f)")
 

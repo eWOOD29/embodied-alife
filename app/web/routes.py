@@ -54,20 +54,23 @@ def _updater(request: Request):
 
 def _health_payload(request: Request) -> dict:
     engine = _engine(request)
+    brain_status = getattr(getattr(engine, "brain", None), "status", {})
+    brain_status = brain_status if isinstance(brain_status, dict) else {}
+    updater_status = getattr(_updater(request), "status", None)
     return {
         "status": "ok",
         "app": "embodied-alife",
         "version": __version__,
         "run_id": getattr(engine, "run_id", None),
         "world_generation_id": getattr(engine, "world_generation_id", None),
-        "paused": engine.paused,
-        "alive": engine.agent.alive,
-        "seed": engine.world.seed,
+        "paused": getattr(engine, "paused", False) is True,
+        "alive": getattr(getattr(engine, "agent", None), "alive", False) is True,
+        "seed": finite_number(getattr(getattr(engine, "world", None), "seed", None), 0.0),
         "sim_time": round(finite_number(getattr(engine.world, "sim_time", None), 0.0) or 0.0, 2),
-        "model_mode": engine.brain.status.get("mode"),
-        "model_available": engine.brain.status.get("available"),
-        "generation_healthy": engine.brain.status.get("generation_healthy"),
-        "update_state": _updater(request).status.state,
+        "model_mode": brain_status.get("mode") if isinstance(brain_status.get("mode"), str) else "unknown",
+        "model_available": brain_status.get("available") is True,
+        "generation_healthy": brain_status.get("generation_healthy") is True,
+        "update_state": getattr(updater_status, "state", "unknown") if isinstance(getattr(updater_status, "state", "unknown"), str) else "unknown",
     }
 
 
