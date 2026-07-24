@@ -1,0 +1,212 @@
+name: post5-published-byte-audit-v2
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPOSITORY: eWOOD29/embodied-alife
+      RELEASE_TAG: v0.4.0.post5
+      RELEASE_COMMIT: a51d589268cd889d5f84c5c611c4e08cb3a25602
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install verifier dependency
+        run: python -m pip install 'packaging>=24,<26'
+      - name: Check out final main source
+        run: git worktree add "$RUNNER_TEMP/post5-main" "$RELEASE_COMMIT"
+      - name: Retrieve release metadata and actual published assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          E="$GITHUB_WORKSPACE/post5-published-v2-evidence"
+          mkdir -p "$E"
+          gh api "repos/$REPOSITORY/releases/latest" > "$E/latest-release.json"
+          gh api "repos/$REPOSITORY/releases/tags/$RELEASE_TAG" > "$E/post5-release.json"
+          gh api "repos/$REPOSITORY/git/ref/tags/$RELEASE_TAG" > "$E/post5-tag-ref.json"
+          EVIDENCE="$E" python - <<'PY'
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+          evidence = Path(os.environ['EVIDENCE'])
+          release = json.loads((evidence / 'post5-release.json').read_text(encoding='utf-8'))
+          assets = {asset['name']: asset for asset in release.get('assets', [])}
+          required = {'embodied-alife-update.zip', 'embodied-alife-update.zip.sha256'}
+          if set(assets) != required:
+              raise SystemExit(f'asset set mismatch: {sorted(assets)}')
+          for name in sorted(required):
+              with (evidence / name).open('wb') as output:
+                  subprocess.run(
+                      ['gh', 'api', '-H', 'Accept: application/octet-stream', f"repos/{os.environ['REPOSITORY']}/releases/assets/{assets[name]['id']}"],
+                      check=True,
+                      stdout=output,
+                  )
+          PY
+      - name: Independently audit published bytes
+        shell: bash
+        run: |
+          set +e
+          E="$GITHUB_WORKSPACE/post5-published-v2-evidence"
+          S="$RUNNER_TEMP/post5-main"
+          X="$RUNNER_TEMP/post5-published-v2-extracted"
+          mkdir -p "$X"
+          SOURCE="$S" EXTRACTED="$X" EVIDENCE="$E" RELEASE_COMMIT="$RELEASE_COMMIT" PYTHONDONTWRITEBYTECODE=1 python - <<'PY' > "$E/audit.txt" 2>&1
+          import hashlib
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+          import zipfile
+          from pathlib import Path, PurePosixPath
+          from packaging.version import Version
+
+          source = Path(os.environ['SOURCE'])
+          extracted = Path(os.environ['EXTRACTED'])
+          evidence = Path(os.environ['EVIDENCE'])
+          expected_commit = os.environ['RELEASE_COMMIT']
+          release = json.loads((evidence / 'post5-release.json').read_text(encoding='utf-8'))
+          latest = json.loads((evidence / 'latest-release.json').read_text(encoding='utf-8'))
+          tag_ref = json.loads((evidence / 'post5-tag-ref.json').read_text(encoding='utf-8'))
+
+          if release.get('tag_name') != 'v0.4.0.post5' or release.get('draft') is not False or release.get('prerelease') is not False:
+              raise SystemExit('release state mismatch')
+          if latest.get('id') != release.get('id') or latest.get('tag_name') != 'v0.4.0.post5':
+              raise SystemExit('latest-release mismatch')
+          tag_object = tag_ref.get('object', {})
+          if tag_object.get('type') != 'commit' or tag_object.get('sha') != expected_commit:
+              raise SystemExit(f'tag target mismatch: {tag_object}')
+          if not release.get('created_at') or not release.get('published_at'):
+              raise SystemExit('release timestamps absent')
+
+          assets = {asset['name']: asset for asset in release.get('assets', [])}
+          required_assets = {'embodied-alife-update.zip', 'embodied-alife-update.zip.sha256'}
+          if set(assets) != required_assets:
+              raise SystemExit(f'asset set mismatch: {sorted(assets)}')
+          for name, asset in assets.items():
+              local = evidence / name
+              if local.stat().st_size != asset.get('size'):
+                  raise SystemExit(f'asset size mismatch: {name}')
+              if not asset.get('created_at') or not asset.get('updated_at') or not asset.get('url') or not asset.get('browser_download_url'):
+                  raise SystemExit(f'asset metadata incomplete: {name}')
+
+          archive_path = evidence / 'embodied-alife-update.zip'
+          checksum_path = evidence / 'embodied-alife-update.zip.sha256'
+          digest = hashlib.sha256(archive_path.read_bytes()).hexdigest()
+          checksum_text = checksum_path.read_text(encoding='utf-8')
+          match = re.fullmatch(r'([0-9a-f]{64})  embodied-alife-update\.zip\n', checksum_text)
+          if not match or match.group(1) != digest:
+              raise SystemExit('checksum syntax or digest mismatch')
+          github_digest = assets['embodied-alife-update.zip'].get('digest')
+          if github_digest and github_digest != f'sha256:{digest}':
+              raise SystemExit('GitHub digest mismatch')
+
+          with zipfile.ZipFile(archive_path) as archive:
+              if archive.testzip() is not None:
+                  raise SystemExit('ZIP integrity failure')
+              names = archive.namelist()
+              if len(names) != len(set(names)):
+                  raise SystemExit('duplicate archive members')
+              unsafe = [name for name in names if PurePosixPath(name).is_absolute() or '..' in PurePosixPath(name).parts or '\\' in name]
+              if unsafe:
+                  raise SystemExit(f'unsafe archive paths: {unsafe}')
+              forbidden = [
+                  name for name in names
+                  if (name.startswith('.github/workflows/') and ('post5' in name.lower() or 'audit' in name.lower() or 'finalization' in name.lower()))
+                  or (name.startswith('scripts/') and ('post5_' in name.lower() or 'apply_phase' in name.lower() or 'audit' in name.lower()))
+                  or name.startswith('post5-')
+                  or '/post5-' in name
+                  or name.endswith(('.log', '.db', '.sqlite', '.sqlite3', '.zip'))
+                  or any(part in {'__pycache__', '.pytest_cache', '.ruff_cache'} for part in PurePosixPath(name).parts)
+              ]
+              if forbidden:
+                  raise SystemExit(f'forbidden archive members: {forbidden}')
+
+              manifest = json.loads(archive.read('update-manifest.json'))
+              managed = manifest.get('managed_paths')
+              expected_managed = sorted(name for name in names if name != 'update-manifest.json')
+              if not isinstance(managed, list) or sorted(managed) != expected_managed:
+                  raise SystemExit('managed-path reconciliation failure')
+              if manifest.get('schema_version') != 1 or manifest.get('app_id') != 'embodied-alife' or manifest.get('version') != '0.4.0.post5':
+                  raise SystemExit(f'manifest identity failure: {manifest}')
+              if manifest.get('preserved_roots') != ['.env', '.venv', 'data', '.git']:
+                  raise SystemExit('preserved-roots mismatch')
+
+              required = {
+                  'app/simulation/integrity.py', 'app/simulation/observer.py', 'app/serialization.py',
+                  'scripts/privacy_scan.py', 'scripts/validate_package.py',
+                  'tests/test_v040_post5_remediation.py', 'tests/test_v040_post5_version.py',
+                  'appdock.json', 'app/version.py', 'pyproject.toml', '.github/workflows/release.yml',
+              }
+              if not required.issubset(set(names)):
+                  raise SystemExit(f'missing required Post5 members: {sorted(required - set(names))}')
+              for name in managed:
+                  source_path = source / name
+                  if not source_path.is_file():
+                      raise SystemExit(f'main source missing: {name}')
+                  if name != 'app/build_info.py' and archive.read(name) != source_path.read_bytes():
+                      raise SystemExit(f'source freshness mismatch: {name}')
+
+              build_info = archive.read('app/build_info.py').decode('utf-8')
+              if expected_commit not in build_info or '0.4.0.post5' not in build_info:
+                  raise SystemExit('build identity mismatch')
+              if '__version__ = "0.4.0.post5"' not in archive.read('app/version.py').decode('utf-8'):
+                  raise SystemExit('runtime version mismatch')
+              if 'version = "0.4.0.post5"' not in archive.read('pyproject.toml').decode('utf-8'):
+                  raise SystemExit('package version mismatch')
+              appdock = json.loads(archive.read('appdock.json'))
+              if appdock.get('projectDirectory') != '.' or appdock.get('workingDirectoryPolicy') != 'projectDirectory':
+                  raise SystemExit('AppDock privacy/portability mismatch')
+              archive.extractall(extracted)
+
+          if Version('0.4.0.post5') <= Version('0.4.0.post4'):
+              raise SystemExit('version ordering failure')
+          subprocess.run([sys.executable, 'scripts/validate_package.py'], cwd=extracted, check=True, env={**os.environ, 'PYTHONDONTWRITEBYTECODE': '1'})
+          privacy_code = "from pathlib import Path; from scripts.privacy_scan import scan_tree; f=scan_tree(Path('.'), include_runtime=False); print('published raw and decoded privacy scan passed' if not f else f); raise SystemExit(1 if f else 0)"
+          subprocess.run([sys.executable, '-c', privacy_code], cwd=extracted, check=True, env={**os.environ, 'PYTHONDONTWRITEBYTECODE': '1'})
+
+          print(f"release_id={release['id']}")
+          print(f"release_created_at={release.get('created_at')}")
+          print(f"release_published_at={release.get('published_at')}")
+          print(f"release_draft={release.get('draft')}")
+          print(f"release_prerelease={release.get('prerelease')}")
+          print(f"release_latest={latest.get('id') == release.get('id')}")
+          print(f"tag_target={tag_object.get('sha')}")
+          for name in sorted(assets):
+              asset = assets[name]
+              print(f"asset={name}|id={asset['id']}|size={asset['size']}|created_at={asset.get('created_at')}|updated_at={asset.get('updated_at')}|api_url={asset.get('url')}|download_url={asset.get('browser_download_url')}|digest={asset.get('digest')}")
+          print(f'sha256={digest}')
+          print(f'archive_entries={len(names)}')
+          print(f'managed_paths={len(managed)}')
+          print('manifest=' + json.dumps(manifest, sort_keys=True, separators=(',', ':')))
+          print('members_begin')
+          for name in names:
+              print(name)
+          print('members_end')
+          PY
+          audit=$?
+          printf 'release_commit=%s\naudit=%s\noverall=%s\n' "$RELEASE_COMMIT" "$audit" "$audit" > "$E/status.txt"
+          exit 0
+      - name: Upload published-byte audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: post5-published-byte-audit-v2-a51d589
+          path: post5-published-v2-evidence
+          if-no-files-found: error
+      - name: Enforce published-byte audit
+        run: grep -q '^overall=0$' post5-published-v2-evidence/status.txt
