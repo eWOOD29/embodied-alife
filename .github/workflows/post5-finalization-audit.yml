@@ -6,6 +6,9 @@ on:
       - audit/v0.4.0-post5-finalization
     paths:
       - .github/workflows/post5-finalization-audit.yml
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
