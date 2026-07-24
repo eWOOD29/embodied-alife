@@ -1,0 +1,74 @@
+name: post4-release-audit-pr
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: v0.4.0.post4
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install audit dependency
+        run: python -m pip install packaging
+      - name: Wait for immutable published assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ready=false
+          for _ in $(seq 1 180); do
+            if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease,assets >/tmp/post4-release-view.json 2>/dev/null; then
+              if python - <<'PY'
+          import json
+          data = json.load(open('/tmp/post4-release-view.json', encoding='utf-8'))
+          names = {item['name'] for item in data.get('assets', [])}
+          raise SystemExit(0 if not data.get('isDraft') and not data.get('isPrerelease') and {
+              'embodied-alife-update.zip',
+              'embodied-alife-update.zip.sha256',
+          } <= names else 1)
+          PY
+              then
+                ready=true
+                break
+              fi
+            fi
+            sleep 5
+          done
+          test "$ready" = true
+      - name: Redownload release evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p post4-audit/assets
+          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" > post4-audit/release.json
+          gh api "repos/${GITHUB_REPOSITORY}/releases/latest" > post4-audit/latest-release.json
+          git fetch --force origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+          git rev-list -n 1 "$RELEASE_TAG" > post4-audit/tag-target.txt
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern 'embodied-alife-update.zip' \
+            --pattern 'embodied-alife-update.zip.sha256' \
+            --dir post4-audit/assets
+      - name: Independently audit published bytes
+        run: python scripts/post4_release_audit.py post4-audit
+      - name: Upload complete audit evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: post4-release-audit-evidence
+          path: post4-audit
+          include-hidden-files: true
+          retention-days: 30
