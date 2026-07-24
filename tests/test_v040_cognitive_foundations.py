@@ -7,9 +7,17 @@ from app.llm.schemas import ActionDecision
 from app.simulation.actions import ActionController
 from app.simulation.agent import AgentState
 from app.simulation.cognition import AWAKENING_NARRATIVE, BeliefRecord, BeliefStatus, EpisodeRecord, MapMarker, NoteRecord, Provenance
+from app.simulation.integrity import attach_key, seal_deterministic_starters, seal_knowledge, seal_record
 from app.simulation.perception import build_perception
 from app.simulation.world import WorldState
 from app.storage.database import Database
+
+KEY = b"cognitive-foundations-key".ljust(32, b"!")
+
+
+def _prepare(agent: AgentState) -> None:
+    attach_key(agent, KEY)
+    seal_deterministic_starters(agent, KEY)
 
 
 def _decision(action: str, *, target_id: str | None = None) -> ActionDecision:
@@ -55,13 +63,17 @@ def test_unsupported_hypothesis_serializes_without_evidence() -> None:
     assert restored.beliefs["unproven"].status == "hypothesis"
 
 
-def test_view_actions_return_only_agent_knowledge_and_do_not_create_inventory_items() -> None:
+def test_view_actions_return_only_verified_agent_knowledge_and_do_not_create_inventory_items() -> None:
     world = WorldState.generate(42, 48)
     agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+    _prepare(agent)
     agent.notes["n1"] = NoteRecord("n1", "Test", "Ari-authored note", [], "active", 0, 0, provenance=Provenance("agent"))
     agent.map_markers["m1"] = MapMarker("m1", "Possible water", "water", {"relative": "west"}, 0.4, "active", "uncertain", 0, 0, provenance=Provenance("inference"))
+    assert seal_record("note", agent.notes["n1"], KEY, "validated_model_response", source_type="agent", source_ref="test-note")
+    assert seal_record("marker", agent.map_markers["m1"], KEY, "validated_model_response", source_type="inference", source_ref="test-marker")
     controller = ActionController()
     agent.known_terrain["41,7"] = "known meadow"
+    assert seal_knowledge(agent, "terrain", "41,7", "known meadow", "validated_perception", source_ref="test-terrain")
     map_result = _complete(controller, world, agent, "view_map")
     assert "observer_truth_included" not in map_result.data
     assert "known_terrain" not in map_result.data
@@ -121,8 +133,11 @@ def test_snapshot_restart_and_reset_round_trip_all_cognitive_stores(engine, sett
 def test_first_decision_prompt_is_compact_and_normal_prompt_omits_full_stores() -> None:
     world = WorldState.generate(45, 48)
     agent = AgentState(x=float(world.spawn[0]), y=float(world.spawn[1]))
+    _prepare(agent)
     for index in range(100):
-        agent.notes[str(index)] = NoteRecord(str(index), f"Note {index}", "x" * 500, [], "active", 0, 0, provenance=Provenance("agent"))
+        note = NoteRecord(str(index), f"Note {index}", "x" * 500, [], "active", 0, 0, provenance=Provenance("agent"))
+        agent.notes[str(index)] = note
+        assert seal_record("note", note, KEY, "validated_model_response", source_type="agent", source_ref=f"note:{index}")
     perception = build_perception(world, agent)
     prompt = decision_messages({"perception": perception, "action_affordances": {}, "active_plan": [], "retrieved_memories": [], "recent_outcomes": []})[-1]["content"]
     assert "Note 99" not in prompt
