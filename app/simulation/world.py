@@ -368,9 +368,9 @@ class WorldState:
                 return {}
             result: dict[str, Any] = {}
             for index, (raw_key, raw_value) in enumerate(value.items()):
-                if index >= 10000 or not isinstance(raw_key, str) or not isinstance(raw_value, dict):
-                    if index >= 10000:
-                        break
+                if index >= 10000:
+                    break
+                if not isinstance(raw_key, str) or not isinstance(raw_value, dict):
                     continue
                 allowed = {field_info.name for field_info in __import__("dataclasses").fields(record_type)}
                 payload = {key: item for key, item in raw_value.items() if key in allowed}

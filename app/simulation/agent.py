@@ -36,8 +36,10 @@ def _load_records(value: Any, record_type: Any, id_field: str) -> dict[str, Any]
         return {}
     records: dict[str, Any] = {}
     for index, (key, raw) in enumerate(value.items()):
-        if index >= 10000 or not isinstance(raw, dict):
+        if index >= 10000:
             break
+        if not isinstance(raw, dict):
+            continue
         payload = dict(raw)
         identity = _scalar_text(raw.get(id_field) or key)
         if not identity:
