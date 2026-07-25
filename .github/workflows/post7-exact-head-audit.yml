@@ -206,10 +206,10 @@ jobs:
               manifest = json.loads(zf.read('update-manifest.json'))
           assert manifest['version'] == '0.4.0.post7'
           assert len(names) == 117
-          assert len(manifest['files']) == 116
+          assert len(manifest['managed_paths']) == 116
           print(f'archive_sha256={hashlib.sha256(archive.read_bytes()).hexdigest()}')
           print(f'archive_members={len(names)}')
-          print(f'manifest_files={len(manifest["files"])}')
+          print(f'manifest_files={len(manifest["managed_paths"])}')
           print('manifest_reconciliation=PASS')
           PY
           echo 0 > evidence/commands/decoded-privacy-and-manifest.exitcode
