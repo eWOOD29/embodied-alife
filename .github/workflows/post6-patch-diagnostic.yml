@@ -24,26 +24,22 @@ jobs:
           set +e
           cat .post6-patch/part* > /tmp/post6.patch.bz2.b64
           base64 -d /tmp/post6.patch.bz2.b64 | bzip2 -d > /tmp/post6.patch
-          echo '=== hashes ==='
-          sha256sum /tmp/post6.patch.bz2.b64 /tmp/post6.patch
-          echo '=== summary ==='
-          git apply --summary /tmp/post6.patch
-          echo "summary_exit=$?"
-          echo '=== stat ==='
-          git apply --stat /tmp/post6.patch
-          echo "stat_exit=$?"
-          echo '=== worktree check ==='
-          git apply --check --verbose /tmp/post6.patch 2>&1
-          echo "worktree_check_exit=$?"
-          echo '=== index check ==='
-          git apply --index --check --verbose /tmp/post6.patch 2>&1
-          echo "index_check_exit=$?"
-          echo '=== three-way check in disposable clone ==='
+          git apply --check --verbose /tmp/post6.patch > /tmp/worktree.out 2>&1
+          worktree_status=$?
+          git apply --index --check --verbose /tmp/post6.patch > /tmp/index.out 2>&1
+          index_status=$?
           rm -rf /tmp/post6-diag
           git clone --quiet --no-local . /tmp/post6-diag
           cd /tmp/post6-diag
           git checkout --quiet agent/v0.4.0-post6-remediation
-          git apply --3way --index /tmp/post6.patch 2>&1
-          echo "threeway_exit=$?"
-          git status --short
+          git apply --3way --index /tmp/post6.patch > /tmp/threeway.out 2>&1
+          threeway_status=$?
+          echo "PATCH_B64_SHA=$(sha256sum /tmp/post6.patch.bz2.b64 | cut -d' ' -f1)"
+          echo "PATCH_SHA=$(sha256sum /tmp/post6.patch | cut -d' ' -f1)"
+          echo "WORKTREE_CHECK_EXIT=${worktree_status}"
+          grep -E '^(error:|warning:|Skipped patch|Checking patch)' /tmp/worktree.out | tail -40 || true
+          echo "INDEX_CHECK_EXIT=${index_status}"
+          grep -E '^(error:|warning:|Skipped patch|Checking patch)' /tmp/index.out | tail -40 || true
+          echo "THREEWAY_EXIT=${threeway_status}"
+          grep -E '^(error:|warning:|Applied patch|Falling back)' /tmp/threeway.out | tail -40 || true
           exit 0
