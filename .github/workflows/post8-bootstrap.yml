@@ -1,0 +1,61 @@
+name: post8 bootstrap
+
+on:
+  push:
+    branches:
+      - agent/v0.4.0-post8-bootstrap
+
+permissions:
+  contents: write
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Create exact Post8 candidate branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat post8-payload-chunk-*.txt > /tmp/post8-payload.b64
+          base64 -d /tmp/post8-payload.b64 > /tmp/post8-payload.tar.gz
+          echo "e95d7d0c3c363b9d50edf16b594325dbc3cb41c9e5c9c761f2dda2e04f123f2c  /tmp/post8-payload.tar.gz" | sha256sum -c -
+          git checkout -B agent/v0.4.0-post8-remediation 7fd1e3eaea1048cdc4b8ddc0072a4c2fdb5bcb6e
+          git clean -fdx
+          tar -xzf /tmp/post8-payload.tar.gz
+          git add \
+            .github/workflows/tests.yml \
+            CHANGELOG.md \
+            app/simulation/agent.py \
+            app/simulation/perception.py \
+            app/simulation/safe_state.py \
+            app/simulation/world.py \
+            app/version.py \
+            pyproject.toml \
+            scripts/validate_candidate_archive.py \
+            tests/test_v040_post7_version.py \
+            tests/test_v040_post8_remediation.py \
+            tests/test_v040_post8_version.py
+          git diff --cached --name-only | sort > /tmp/actual-paths.txt
+          cat > /tmp/expected-paths.txt <<'EOF'
+          .github/workflows/tests.yml
+          CHANGELOG.md
+          app/simulation/agent.py
+          app/simulation/perception.py
+          app/simulation/safe_state.py
+          app/simulation/world.py
+          app/version.py
+          pyproject.toml
+          scripts/validate_candidate_archive.py
+          tests/test_v040_post7_version.py
+          tests/test_v040_post8_remediation.py
+          tests/test_v040_post8_version.py
+          EOF
+          sort -o /tmp/expected-paths.txt /tmp/expected-paths.txt
+          diff -u /tmp/expected-paths.txt /tmp/actual-paths.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Harden Post8 persistence and terrain evidence boundaries"
+          git push origin HEAD:refs/heads/agent/v0.4.0-post8-remediation
