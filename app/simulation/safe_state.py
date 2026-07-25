@@ -95,6 +95,35 @@ def builtin_dict_get(value: Any, key: Any, default: Any = None) -> Any:
         return default
 
 
+def builtin_collection(value: Any, *, limit: int = 4096) -> list[Any]:
+    """Read accepted built-in container storage without invoking subclass overrides.
+
+    Ordered containers preserve storage order. Set and frozenset storage is copied in
+    native iteration order; callers that require determinism must normalize exact safe
+    scalar values before sorting.
+    """
+    bounded = max(0, min(100_000, limit if type(limit) is int else 0))
+    if issubclass(type(value), (list, tuple, deque)):
+        return builtin_sequence(value, limit=bounded)
+    result: list[Any] = []
+    try:
+        if issubclass(type(value), set):
+            size = set.__len__(value)
+            iterator = set.__iter__(value)
+        elif issubclass(type(value), frozenset):
+            size = frozenset.__len__(value)
+            iterator = frozenset.__iter__(value)
+        else:
+            return []
+        if size > bounded:
+            return []
+        for _ in range(size):
+            result.append(next(iterator))
+    except Exception:
+        return []
+    return result
+
+
 def builtin_sequence(value: Any, *, limit: int = 4096) -> list[Any]:
     """Read built-in ordered-container storage without invoking subclass overrides."""
     bounded = max(0, min(100_000, limit if type(limit) is int else 0))

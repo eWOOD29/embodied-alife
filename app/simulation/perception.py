@@ -174,8 +174,19 @@ def _line_points(x0: int, y0: int, x1: int, y1: int) -> list[tuple[int, int]]:
     return points
 
 
+def _has_line_of_sight(world: WorldState, x0: int, y0: int, x1: int, y1: int) -> bool:
+    for x, y in _line_points(x0, y0, x1, y1)[1:-1]:
+        tile = world.tile(x, y)
+        if type(tile) is not Terrain or tile in BLOCKING_TERRAIN:
+            return False
+    return True
+
+
 def has_line_of_sight(world: WorldState, x0: int, y0: int, x1: int, y1: int) -> bool:
-    return all(world.tile(x, y) not in BLOCKING_TERRAIN for x, y in _line_points(x0, y0, x1, y1)[1:-1])
+    try:
+        return _has_line_of_sight(world, x0, y0, x1, y1)
+    except Exception:
+        return False
 
 
 def _direction(dx: float, dy: float) -> str:
@@ -202,18 +213,18 @@ def _observation_position(world: WorldState, agent: AgentState) -> tuple[int, in
 
 def _terrain_observations(world: WorldState, ax: int, ay: int, world_size: int, radius: int) -> list[tuple[int, int, str]]:
     result: list[tuple[int, int, str]] = []
-    for y in range(max(0, ay - radius), min(world_size, ay + radius + 1)):
-        for x in range(max(0, ax - radius), min(world_size, ax + radius + 1)):
-            distance = math.hypot(x - ax, y - ay)
-            if distance > radius or not has_line_of_sight(world, ax, ay, x, y):
-                continue
-            try:
+    try:
+        for y in range(max(0, ay - radius), min(world_size, ay + radius + 1)):
+            for x in range(max(0, ax - radius), min(world_size, ax + radius + 1)):
+                distance = math.hypot(x - ax, y - ay)
+                if distance > radius or not _has_line_of_sight(world, ax, ay, x, y):
+                    continue
                 tile = world.tile(x, y)
-            except Exception:
-                continue
-            if type(tile) is not Terrain:
-                continue
-            result.append((x, y, tile.value))
+                if type(tile) is not Terrain:
+                    continue
+                result.append((x, y, tile.value))
+    except Exception:
+        return []
     return result
 
 

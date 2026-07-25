@@ -232,22 +232,26 @@ class WorldState:
                         return xx, yy
         return 1, 1
 
-    def tile(self, x: int, y: int) -> Terrain:
+    def tile(self, x: int, y: int) -> Terrain | None:
         if not self.in_bounds(x, y):
             return Terrain.ROCK
         safe_x = integer(x, None, minimum=0)
         safe_y = integer(y, None, minimum=0)
         size = integer(self.size, None, minimum=1, maximum=1_000_000)
-        if safe_x is None or safe_y is None or size is None or type(self.tiles) is not list or safe_y >= len(self.tiles):
-            return Terrain.ROCK
-        row = self.tiles[safe_y]
-        if type(row) is not list or safe_x >= len(row):
-            return Terrain.ROCK
-        value = row[safe_x]
+        if safe_x is None or safe_y is None or size is None or type(self.tiles) is not list:
+            return None
+        if safe_y >= list.__len__(self.tiles):
+            return None
+        row = list.__getitem__(self.tiles, safe_y)
+        if type(row) is not list or safe_x >= list.__len__(row):
+            return None
+        value = list.__getitem__(row, safe_x)
+        if type(value) is not str:
+            return None
         try:
-            return Terrain(value) if type(value) is str else Terrain.ROCK
+            return Terrain(value)
         except ValueError:
-            return Terrain.ROCK
+            return None
 
     def in_bounds(self, x: int, y: int) -> bool:
         safe_x = integer(x, None)
@@ -256,10 +260,12 @@ class WorldState:
         return bool(safe_x is not None and safe_y is not None and size is not None and 0 <= safe_x < size and 0 <= safe_y < size)
 
     def is_walkable(self, x: int, y: int) -> bool:
-        return self.in_bounds(x, y) and self.tile(x, y) not in BLOCKING_TERRAIN
+        tile = self.tile(x, y)
+        return self.in_bounds(x, y) and type(tile) is Terrain and tile not in BLOCKING_TERRAIN
 
     def is_water(self, x: int, y: int) -> bool:
-        return self.in_bounds(x, y) and self.tile(x, y) in {Terrain.SHALLOW_WATER, Terrain.DEEP_WATER}
+        tile = self.tile(x, y)
+        return self.in_bounds(x, y) and type(tile) is Terrain and tile in {Terrain.SHALLOW_WATER, Terrain.DEEP_WATER}
 
     def nearby_shelter(self, x: float, y: float, radius: float = 1.5) -> Shelter | None:
         position = finite_pair(x, y)

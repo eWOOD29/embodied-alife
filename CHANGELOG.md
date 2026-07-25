@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.0.post8] — 2026-07-25
+
+### Fixed
+
+- Made `AgentState.explored` serialization read list, tuple, set, and frozenset storage without invoking hostile subclass operations, preserving valid siblings through engine serialization, persistence, snapshots, explicit save, autosave/stop persistence, and restart.
+- Made malformed or hostile terrain roots, rows, and scalar cells become honest unknown/omitted observations instead of plausible `Terrain.ROCK`, preventing invalid source material from acquiring validated-perception proofs while retaining safe neighboring observations.
+- Added exact production-path regressions for hostile persistence-adjacent containers, malformed terrain ingestion, decision-time ingestion, batch atomicity, valid-input idempotence, affected-record-only updates, restart, snapshot, and Reset behavior while retaining the previously passing Post6/Post7 contracts.
+
+### Candidate status
+
+- This source is an unmerged pre-publication candidate. No v0.4.0.post8 tag, Release, updater asset, Post5 asset change, local Windows validation, or v0.4.1 work is included or authorized by this changelog entry.
+
 ## [0.4.0.post7] — 2026-07-25
 
 ### Fixed
