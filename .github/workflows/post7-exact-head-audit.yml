@@ -1,0 +1,291 @@
+name: post7-exact-head-audit
+
+on:
+  pull_request:
+    branches:
+      - agent/v0.4.0-post7-remediation
+
+permissions:
+  contents: read
+
+jobs:
+  exact-head-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out frozen Post7 SHA directly
+        uses: actions/checkout@v5
+        with:
+          ref: 7fd1e3eaea1048cdc4b8ddc0072a4c2fdb5bcb6e
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Assert identity, ancestry, versions, and exact surface
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/commands
+          EXPECTED=7fd1e3eaea1048cdc4b8ddc0072a4c2fdb5bcb6e
+          POST6=1181e234f397a4f4652e8fddf4369c38488d9ec3
+          MAIN=a51d589268cd889d5f84c5c611c4e08cb3a25602
+          ACTUAL="$(git rev-parse HEAD)"
+          printf 'expected_sha=%s\nactual_sha=%s\n' "$EXPECTED" "$ACTUAL" | tee evidence/exact-head.txt
+          test "$ACTUAL" = "$EXPECTED"
+          test -z "$(git status --porcelain)"
+          test "$(git rev-parse HEAD^)" = "$POST6"
+          git fetch --no-tags origin main
+          test "$(git rev-parse origin/main)" = "$MAIN"
+          test ! -e .github/workflows/post7-exact-head-audit.yml
+          test ! -e .github/workflows/post7-apply-candidate.yml
+          test ! -e .post7-payload
+          test ! -e .post7-patch
+          python - <<'PY' | tee evidence/version-assertions.txt
+          import pathlib, tomllib
+          from packaging.version import Version
+          from app.version import __version__
+          project = tomllib.loads(pathlib.Path('pyproject.toml').read_text(encoding='utf-8'))['project']['version']
+          assert __version__ == project == '0.4.0.post7'
+          assert Version(__version__) > Version('0.4.0.post6') > Version('0.4.0.post5')
+          print(f'app_version={__version__}')
+          print(f'project_version={project}')
+          print('ordering=PASS')
+          PY
+          git diff --name-status "$POST6" "$EXPECTED" | tee evidence/post6-to-post7-name-status.txt
+          git diff --name-only "$POST6" "$EXPECTED" | sort > evidence/post6-to-post7-files.txt
+          cat > evidence/expected-post7-files.txt <<'EOF'
+          .github/workflows/tests.yml
+          CHANGELOG.md
+          app/diagnostics.py
+          app/llm/fallback.py
+          app/llm/prompts.py
+          app/serialization.py
+          app/simulation/affordances.py
+          app/simulation/engine.py
+          app/simulation/observer.py
+          app/simulation/perception.py
+          app/simulation/safe_state.py
+          app/simulation/scheduler.py
+          app/version.py
+          app/web/routes.py
+          pyproject.toml
+          scripts/validate_candidate_archive.py
+          tests/test_v040_post6_version.py
+          tests/test_v040_post7_remediation.py
+          tests/test_v040_post7_version.py
+          EOF
+          diff -u evidence/expected-post7-files.txt evidence/post6-to-post7-files.txt | tee evidence/post7-surface-reconciliation.txt
+          git diff --name-status "$MAIN" "$EXPECTED" | tee evidence/main-to-post7-name-status.txt
+          git log --oneline --decorate "$POST6".."$EXPECTED" | tee evidence/post7-commit-list.txt
+          git tag -l 'v0.4.0.post7' | tee evidence/post7-tag-search.txt
+          test ! -s evidence/post7-tag-search.txt
+          status="$(curl -sS -o evidence/post7-release-lookup.json -w '%{http_code}' https://api.github.com/repos/eWOOD29/embodied-alife/releases/tags/v0.4.0.post7)"
+          echo "$status" | tee evidence/post7-release-http-status.txt
+          test "$status" = "404"
+
+      - name: Install exact-head dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install -e '.[dev]' 2>&1 | tee evidence/commands/install.log
+
+      - name: Run focused Post7 and retained semantic suites
+        shell: bash
+        run: |
+          set -uo pipefail
+          set +e
+          python -m pytest -q \
+            tests/test_v040_post7_remediation.py \
+            tests/test_v040_post7_version.py \
+            tests/test_v040_post6_remediation.py \
+            tests/test_v040_post6_version.py \
+            tests/test_v040_post5_remediation.py \
+            tests/test_v040_post4_remediation.py \
+            tests/test_v040_post3_remediation.py \
+            tests/test_v040_remediation.py \
+            tests/test_v040_cognitive_foundations.py 2>&1 | tee evidence/commands/focused.log
+          code=${PIPESTATUS[0]}
+          set -e
+          echo "$code" | tee evidence/commands/focused.exitcode
+          test "$code" -eq 0
+
+      - name: Run complete pytest suite
+        shell: bash
+        run: |
+          set -uo pipefail
+          set +e
+          python -m pytest -q 2>&1 | tee evidence/commands/complete.log
+          code=${PIPESTATUS[0]}
+          set -e
+          echo "$code" | tee evidence/commands/complete.exitcode
+          test "$code" -eq 0
+
+      - name: Run updater installer configuration and version suite
+        shell: bash
+        run: |
+          set -uo pipefail
+          set +e
+          python -m pytest -q \
+            tests/test_v040_post7_version.py \
+            tests/test_v040_post6_version.py \
+            tests/test_updater.py \
+            tests/test_update_shutdown.py \
+            tests/test_config_and_serve.py 2>&1 | tee evidence/commands/compatibility.log
+          code=${PIPESTATUS[0]}
+          set -e
+          echo "$code" | tee evidence/commands/compatibility.exitcode
+          test "$code" -eq 0
+
+      - name: Compile and run advisory Ruff
+        shell: bash
+        run: |
+          set -uo pipefail
+          set +e
+          python -m compileall -q app tests scripts 2>&1 | tee evidence/commands/compile.log
+          compile_code=${PIPESTATUS[0]}
+          python -m ruff check app tests scripts 2>&1 | tee evidence/commands/ruff.log
+          ruff_code=${PIPESTATUS[0]}
+          set -e
+          echo "$compile_code" | tee evidence/commands/compile.exitcode
+          echo "$ruff_code" | tee evidence/commands/ruff.exitcode
+          test "$compile_code" -eq 0
+
+      - name: Clean generated files and validate source package
+        shell: bash
+        run: |
+          set -euo pipefail
+          find app tests scripts -type d -name __pycache__ -prune -exec rm -rf {} +
+          rm -rf .pytest_cache .ruff_cache dist
+          find data/runtime -maxdepth 1 -type f ! -name .gitkeep -delete
+          test -z "$(git status --porcelain)"
+          set +e
+          PYTHONDONTWRITEBYTECODE=1 python scripts/validate_package.py 2>&1 | tee evidence/commands/source-package.log
+          code=${PIPESTATUS[0]}
+          set -e
+          echo "$code" | tee evidence/commands/source-package.exitcode
+          test "$code" -eq 0
+
+      - name: Run raw source privacy scan
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONDONTWRITEBYTECODE=1 python - <<'PY' 2>&1 | tee evidence/commands/raw-privacy.log
+          from pathlib import Path
+          from scripts.privacy_scan import scan_tree
+          findings = scan_tree(Path('.').resolve(), include_runtime=False)
+          print(f'raw_privacy_findings={len(findings)}')
+          for finding in findings:
+              print(finding)
+          if findings:
+              raise SystemExit(1)
+          PY
+          echo 0 | tee evidence/commands/raw-privacy.exitcode
+
+      - name: Build, validate, and inspect candidate archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist evidence/archive-extracted
+          set +e
+          python scripts/build_release.py --output dist/embodied-alife-update.zip 2>&1 | tee evidence/commands/build-archive.log
+          build_code=${PIPESTATUS[0]}
+          python scripts/validate_candidate_archive.py dist/embodied-alife-update.zip 2>&1 | tee evidence/commands/archive-validator.log
+          validator_code=${PIPESTATUS[0]}
+          unzip -t dist/embodied-alife-update.zip 2>&1 | tee evidence/commands/zip-integrity.log
+          zip_code=${PIPESTATUS[0]}
+          set -e
+          printf '%s\n' "$build_code" > evidence/commands/build-archive.exitcode
+          printf '%s\n' "$validator_code" > evidence/commands/archive-validator.exitcode
+          printf '%s\n' "$zip_code" > evidence/commands/zip-integrity.exitcode
+          test "$build_code" -eq 0
+          test "$validator_code" -eq 0
+          test "$zip_code" -eq 0
+          sha256sum dist/embodied-alife-update.zip | tee evidence/embodied-alife-update.zip.sha256
+          unzip -Z1 dist/embodied-alife-update.zip | tee evidence/archive-member-list.txt
+          unzip -p dist/embodied-alife-update.zip update-manifest.json > evidence/update-manifest.json
+          unzip -q dist/embodied-alife-update.zip -d evidence/archive-extracted
+          cp dist/embodied-alife-update.zip evidence/embodied-alife-update.zip
+
+      - name: Run decoded archive privacy scan and manifest reconciliation
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONDONTWRITEBYTECODE=1 python - <<'PY' 2>&1 | tee evidence/commands/decoded-privacy-and-manifest.log
+          import hashlib, json, pathlib, zipfile
+          from scripts.privacy_scan import scan_tree
+          root = pathlib.Path('evidence/archive-extracted').resolve()
+          findings = scan_tree(root, include_runtime=True)
+          print(f'decoded_privacy_findings={len(findings)}')
+          for finding in findings:
+              print(finding)
+          if findings:
+              raise SystemExit(1)
+          archive = pathlib.Path('evidence/embodied-alife-update.zip')
+          digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+          with zipfile.ZipFile(archive) as zf:
+              names = zf.namelist()
+              manifest = json.loads(zf.read('update-manifest.json'))
+          assert manifest['version'] == '0.4.0.post7'
+          assert len(names) == 117
+          assert len(manifest['files']) == 116
+          print(f'archive_sha256={digest}')
+          print(f'archive_members={len(names)}')
+          print(f'manifest_files={len(manifest["files"])}')
+          print('manifest_reconciliation=PASS')
+          PY
+          echo 0 | tee evidence/commands/decoded-privacy-and-manifest.exitcode
+
+      - name: Write machine-readable validation summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, json, pathlib, re
+          root = pathlib.Path('evidence')
+          def text(path):
+              return (root / path).read_text(encoding='utf-8', errors='replace')
+          def count(pattern, path):
+              matches = re.findall(pattern, text(path))
+              return int(matches[-1]) if matches else None
+          archive = root / 'embodied-alife-update.zip'
+          summary = {
+              'candidate_sha': '7fd1e3eaea1048cdc4b8ddc0072a4c2fdb5bcb6e',
+              'post6_parent': '1181e234f397a4f4652e8fddf4369c38488d9ec3',
+              'main_sha': 'a51d589268cd889d5f84c5c611c4e08cb3a25602',
+              'version': '0.4.0.post7',
+              'focused_passed': count(r'(\d+) passed', 'commands/focused.log'),
+              'complete_passed': count(r'(\d+) passed', 'commands/complete.log'),
+              'compatibility_passed': count(r'(\d+) passed', 'commands/compatibility.log'),
+              'compile_exit_code': int(text('commands/compile.exitcode').strip()),
+              'ruff_exit_code': int(text('commands/ruff.exitcode').strip()),
+              'source_package_exit_code': int(text('commands/source-package.exitcode').strip()),
+              'archive_validator_exit_code': int(text('commands/archive-validator.exitcode').strip()),
+              'zip_integrity_exit_code': int(text('commands/zip-integrity.exitcode').strip()),
+              'raw_privacy_findings': 0,
+              'decoded_privacy_findings': 0,
+              'archive_members': 117,
+              'manifest_files': 116,
+              'archive_sha256': hashlib.sha256(archive.read_bytes()).hexdigest(),
+              'changed_files_post6_to_post7': 19,
+              'temporary_workflow_absent_from_candidate': True,
+              'working_tree_clean_at_checkout': True,
+              'release_lookup_http_status': int(text('post7-release-http-status.txt').strip()),
+              'post7_tag_absent': True,
+          }
+          (root / 'validation-summary.json').write_text(json.dumps(summary, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+          print(json.dumps(summary, indent=2, sort_keys=True))
+          PY
+          find evidence -type f -printf '%P\t%s bytes\n' | sort | tee evidence/evidence-member-list.txt
+
+      - name: Upload retained exact-head evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: post7-exact-head-evidence-7fd1e3e
+          path: evidence
+          retention-days: 90
+          if-no-files-found: error
