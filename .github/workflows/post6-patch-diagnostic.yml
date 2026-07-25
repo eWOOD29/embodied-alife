@@ -34,12 +34,19 @@ jobs:
           git checkout --quiet agent/v0.4.0-post6-remediation
           git apply --3way --index /tmp/post6.patch > /tmp/threeway.out 2>&1
           threeway_status=$?
-          echo "PATCH_B64_SHA=$(sha256sum /tmp/post6.patch.bz2.b64 | cut -d' ' -f1)"
-          echo "PATCH_SHA=$(sha256sum /tmp/post6.patch | cut -d' ' -f1)"
-          echo "WORKTREE_CHECK_EXIT=${worktree_status}"
-          grep -E '^(error:|warning:|Skipped patch|Checking patch)' /tmp/worktree.out | tail -40 || true
-          echo "INDEX_CHECK_EXIT=${index_status}"
-          grep -E '^(error:|warning:|Skipped patch|Checking patch)' /tmp/index.out | tail -40 || true
-          echo "THREEWAY_EXIT=${threeway_status}"
-          grep -E '^(error:|warning:|Applied patch|Falling back)' /tmp/threeway.out | tail -40 || true
+          {
+            echo "PATCH_B64_SHA=$(sha256sum /tmp/post6.patch.bz2.b64 | cut -d' ' -f1)"
+            echo "PATCH_SHA=$(sha256sum /tmp/post6.patch | cut -d' ' -f1)"
+            echo "WORKTREE_CHECK_EXIT=${worktree_status}"
+            cat /tmp/worktree.out
+            echo "INDEX_CHECK_EXIT=${index_status}"
+            cat /tmp/index.out
+            echo "THREEWAY_EXIT=${threeway_status}"
+            cat /tmp/threeway.out
+          } > /tmp/post6-patch-diagnostic.txt
           exit 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: post6-patch-diagnostic
+          path: /tmp/post6-patch-diagnostic.txt
+          retention-days: 1
