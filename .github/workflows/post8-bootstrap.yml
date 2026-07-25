@@ -27,7 +27,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git checkout -B agent/v0.4.0-post8-remediation 7fd1e3eaea1048cdc4b8ddc0072a4c2fdb5bcb6e
+          git checkout -B agent/v0.4.0-post8-upload 7fd1e3eaea1048cdc4b8ddc0072a4c2fdb5bcb6e
           git clean -fdx
           tar -xzf /tmp/post8-payload.tar.gz
       - name: Verify exact changed paths and blobs
@@ -35,7 +35,6 @@ jobs:
         run: |
           set -euo pipefail
           git add \
-            .github/workflows/tests.yml \
             CHANGELOG.md \
             app/simulation/agent.py \
             app/simulation/perception.py \
@@ -49,7 +48,6 @@ jobs:
             tests/test_v040_post8_version.py
           git diff --cached --name-only | sort > /tmp/actual-paths.txt
           cat > /tmp/expected-paths.txt <<'EOF'
-          .github/workflows/tests.yml
           CHANGELOG.md
           app/simulation/agent.py
           app/simulation/perception.py
@@ -82,16 +80,16 @@ jobs:
             actual="$(git hash-object "$path")"
             test "$actual" = "$expected" || { echo "blob mismatch: $path expected=$expected actual=$actual" >&2; exit 1; }
           done < /tmp/expected-blobs.txt
-      - name: Commit exact Post8 candidate
+      - name: Commit exact non-workflow payload
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Harden Post8 persistence and terrain evidence boundaries"
+          git commit -m "Stage exact Post8 payload for final tree assembly"
           test "$(git rev-parse HEAD^)" = "7fd1e3eaea1048cdc4b8ddc0072a4c2fdb5bcb6e"
-      - name: Publish candidate branch
+      - name: Publish temporary upload branch
         shell: bash
         run: |
           set -euo pipefail
-          git push origin HEAD:refs/heads/agent/v0.4.0-post8-remediation
+          git push origin HEAD:refs/heads/agent/v0.4.0-post8-upload
