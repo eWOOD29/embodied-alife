@@ -9,20 +9,41 @@ permissions:
   contents: read
 
 jobs:
-  hashes:
+  apply-diagnostic:
     if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'agent/v0.4.0-post6-remediation'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
         with:
-          fetch-depth: 1
+          fetch-depth: 0
           show-progress: false
           ref: agent/v0.4.0-post6-remediation
-      - name: Print patch chunk hashes
+      - name: Diagnose exact patch preconditions
         shell: bash
         run: |
-          sha256sum .post6-patch/part*
+          set +e
           cat .post6-patch/part* > /tmp/post6.patch.bz2.b64
-          sha256sum /tmp/post6.patch.bz2.b64
           base64 -d /tmp/post6.patch.bz2.b64 | bzip2 -d > /tmp/post6.patch
-          sha256sum /tmp/post6.patch
+          echo '=== hashes ==='
+          sha256sum /tmp/post6.patch.bz2.b64 /tmp/post6.patch
+          echo '=== summary ==='
+          git apply --summary /tmp/post6.patch
+          echo "summary_exit=$?"
+          echo '=== stat ==='
+          git apply --stat /tmp/post6.patch
+          echo "stat_exit=$?"
+          echo '=== worktree check ==='
+          git apply --check --verbose /tmp/post6.patch 2>&1
+          echo "worktree_check_exit=$?"
+          echo '=== index check ==='
+          git apply --index --check --verbose /tmp/post6.patch 2>&1
+          echo "index_check_exit=$?"
+          echo '=== three-way check in disposable clone ==='
+          rm -rf /tmp/post6-diag
+          git clone --quiet --no-local . /tmp/post6-diag
+          cd /tmp/post6-diag
+          git checkout --quiet agent/v0.4.0-post6-remediation
+          git apply --3way --index /tmp/post6.patch 2>&1
+          echo "threeway_exit=$?"
+          git status --short
+          exit 0
