@@ -1,0 +1,28 @@
+name: post6-patch-diagnostic
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  hashes:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'agent/v0.4.0-post6-remediation'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+          show-progress: false
+          ref: agent/v0.4.0-post6-remediation
+      - name: Print patch chunk hashes
+        shell: bash
+        run: |
+          sha256sum .post6-patch/part*
+          cat .post6-patch/part* > /tmp/post6.patch.bz2.b64
+          sha256sum /tmp/post6.patch.bz2.b64
+          base64 -d /tmp/post6.patch.bz2.b64 | bzip2 -d > /tmp/post6.patch
+          sha256sum /tmp/post6.patch
