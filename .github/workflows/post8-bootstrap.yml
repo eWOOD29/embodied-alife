@@ -1,9 +1,6 @@
 name: post8 bootstrap
 
 on:
-  push:
-    branches:
-      - agent/v0.4.0-post8-bootstrap
   pull_request:
     types: [opened, synchronize, reopened]
     branches:
@@ -19,16 +16,24 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - name: Create exact Post8 candidate branch
+      - name: Reconstruct and verify locked payload
         shell: bash
         run: |
           set -euo pipefail
           cat post8-payload-chunk-*.txt > /tmp/post8-payload.b64
           base64 -d /tmp/post8-payload.b64 > /tmp/post8-payload.tar.gz
           echo "e95d7d0c3c363b9d50edf16b594325dbc3cb41c9e5c9c761f2dda2e04f123f2c  /tmp/post8-payload.tar.gz" | sha256sum -c -
+      - name: Extract payload onto exact Post7 parent
+        shell: bash
+        run: |
+          set -euo pipefail
           git checkout -B agent/v0.4.0-post8-remediation 7fd1e3eaea1048cdc4b8ddc0072a4c2fdb5bcb6e
           git clean -fdx
           tar -xzf /tmp/post8-payload.tar.gz
+      - name: Verify exact changed paths and blobs
+        shell: bash
+        run: |
+          set -euo pipefail
           git add \
             .github/workflows/tests.yml \
             CHANGELOG.md \
@@ -59,7 +64,34 @@ jobs:
           EOF
           sort -o /tmp/expected-paths.txt /tmp/expected-paths.txt
           diff -u /tmp/expected-paths.txt /tmp/actual-paths.txt
+          cat > /tmp/expected-blobs.txt <<'EOF'
+          d4bbd0eac695beb743226b5738ed51bc88890c9e  .github/workflows/tests.yml
+          58a7e55de4d102561bb9054c649345711d13b4e2  CHANGELOG.md
+          b3d895c37f7d4136b64489867ad5c0364eca9099  app/simulation/agent.py
+          a3ad194bb89a57d8637f0384b607168f6f86af07  app/simulation/perception.py
+          99dd6734f9d839b3f619231e59c44e778e1d0115  app/simulation/safe_state.py
+          a3aca22637ce3a9e53d99fc25365cad5b2aacd61  app/simulation/world.py
+          7da97fa717a0167dfcda51d0a2cf8f89eb9988fd  app/version.py
+          3eb0bd741d91b690996c8a2d5860e962bbd0fdbd  pyproject.toml
+          5af53ccb8e21a1afe9681747a616df5889e2f876  scripts/validate_candidate_archive.py
+          f3448987629f6edd631bb53462a57e61c4069c30  tests/test_v040_post7_version.py
+          185d197e0049b6b1012da23efa7900892d8677d5  tests/test_v040_post8_remediation.py
+          c44b584488161bb3b8b8bdba9c8cb6bc454d3cdd  tests/test_v040_post8_version.py
+          EOF
+          while read -r expected path; do
+            actual="$(git hash-object "$path")"
+            test "$actual" = "$expected" || { echo "blob mismatch: $path expected=$expected actual=$actual" >&2; exit 1; }
+          done < /tmp/expected-blobs.txt
+      - name: Commit exact Post8 candidate
+        shell: bash
+        run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "Harden Post8 persistence and terrain evidence boundaries"
+          test "$(git rev-parse HEAD^)" = "7fd1e3eaea1048cdc4b8ddc0072a4c2fdb5bcb6e"
+      - name: Publish candidate branch
+        shell: bash
+        run: |
+          set -euo pipefail
           git push origin HEAD:refs/heads/agent/v0.4.0-post8-remediation
