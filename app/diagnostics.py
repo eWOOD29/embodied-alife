@@ -8,10 +8,11 @@ from collections import Counter
 from datetime import UTC, datetime
 from importlib import metadata
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from app.build_info import BUILD_COMMIT, BUILD_TIME_UTC, BUILD_VERSION
 from app.serialization import finite_number, json_safe, json_safe_dict
+from app.simulation.safe_state import builtin_dict_copy, builtin_sequence
 from app.validation import build_soak_readiness
 
 PROCESS_STARTED_AT = datetime.now(UTC)
@@ -19,14 +20,14 @@ DIAGNOSTIC_RECORD_LIMIT = 10000
 
 
 def _text(value: Any, limit: int = 4000) -> str:
-    if isinstance(value, str):
+    if type(value) is str:
         text = value.replace("\x00", "").strip()
-    elif isinstance(value, int) and not isinstance(value, bool):
+    elif type(value) is int:
         text = str(value)
-    elif isinstance(value, float):
+    elif type(value) is float:
         number = finite_number(value)
         text = "" if number is None else str(number)
-    elif isinstance(value, bool):
+    elif type(value) is bool:
         text = "true" if value else "false"
     else:
         return ""
@@ -37,19 +38,18 @@ def _number(value: Any, default: float | None = None, *, minimum: float | None =
     return finite_number(value, default, minimum=minimum, maximum=maximum)
 
 
-def _mapping(value: Any) -> Mapping[Any, Any]:
-    return value if isinstance(value, Mapping) else {}
+def _mapping(value: Any) -> dict[Any, Any]:
+    return builtin_dict_copy(value, limit=DIAGNOSTIC_RECORD_LIMIT)
 
 
 def _records(value: Any, limit: int = DIAGNOSTIC_RECORD_LIMIT) -> list[dict[str, Any]]:
-    if not isinstance(value, (list, tuple)):
-        return []
     result: list[dict[str, Any]] = []
-    for raw in value:
-        if len(result) >= limit:
-            break
-        if isinstance(raw, Mapping):
-            result.append(json_safe_dict(raw, max_depth=10, max_items=1000, max_text=4000, max_nodes=10000, max_source_items=20000))
+    for raw in builtin_sequence(value, limit=limit):
+        if not issubclass(type(raw), dict):
+            continue
+        projected = json_safe_dict(raw, max_depth=10, max_items=1000, max_text=4000, max_nodes=10000, max_source_items=20000)
+        if projected:
+            result.append(projected)
     return result
 
 
@@ -232,10 +232,10 @@ def build_diagnostic_bundle(*, engine: Any, updater: Any, health: dict[str, Any]
         live_instances = None
     anomaly_checks = {
         "live_simulation_engine_instances": _number(live_instances),
-        "multiple_live_engines_detected": isinstance(live_instances, int) and not isinstance(live_instances, bool) and live_instances > 1,
+        "multiple_live_engines_detected": type(live_instances) is int and live_instances > 1,
         "duplicate_adjacent_restore_event_pairs": duplicate_restore_events,
         "pending_memory": json_safe(getattr(engine, "pending_memory", None), max_depth=6, max_items=128, max_text=2000, max_nodes=2000, max_source_items=4000),
-        "status": "warning" if (isinstance(live_instances, int) and live_instances > 1) or duplicate_restore_events else "ok",
+        "status": "warning" if (type(live_instances) is int and live_instances > 1) or duplicate_restore_events else "ok",
     }
     try:
         soak_readiness = build_soak_readiness(
@@ -321,8 +321,8 @@ def build_diagnostic_bundle(*, engine: Any, updater: Any, health: dict[str, Any]
             "snapshots": len(snapshots),
             "persisted_events": len(events),
             "model_responses": len(model_responses),
-            "in_memory_events": len(getattr(engine, "events", ())) if isinstance(getattr(engine, "events", None), (list, tuple, set)) else 0,
-            "recent_memory_writes": len(getattr(engine, "memory_writes", ())) if isinstance(getattr(engine, "memory_writes", None), (list, tuple, set)) else 0,
+            "in_memory_events": len(builtin_sequence(getattr(engine, "events", None), limit=DIAGNOSTIC_RECORD_LIMIT)),
+            "recent_memory_writes": len(builtin_sequence(getattr(engine, "memory_writes", None), limit=DIAGNOSTIC_RECORD_LIMIT)),
         },
     }
     return json_safe_dict(bundle, max_depth=14, max_items=10000, max_text=4000, max_nodes=300000, max_source_items=350000)

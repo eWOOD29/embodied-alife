@@ -6,6 +6,7 @@ from typing import Any
 
 from app.llm.schemas import ActionDecision, ConsolidationResult
 from app.serialization import json_safe
+from app.simulation.safe_state import builtin_dict_copy, builtin_dict_items, builtin_sequence
 
 SYSTEM_PROMPT = """You are Ari, awake in an unfamiliar physical world. You have a body and must decide what to do based only on what you perceive, remember, believe, and feel. Your actions have real consequences.
 
@@ -40,25 +41,25 @@ MEMORY_TEXT_LIMIT = 400
 
 
 def _text(value: Any, limit: int = DECISION_STRING_LIMIT) -> str:
-    if isinstance(value, str):
+    if type(value) is str:
         text = value.replace("\n", " ").strip()
-    elif isinstance(value, int) and not isinstance(value, bool):
+    elif type(value) is int:
         text = str(value)
-    elif isinstance(value, float) and math.isfinite(value):
+    elif type(value) is float and math.isfinite(value):
         text = str(value)
-    elif isinstance(value, bool):
+    elif type(value) is bool:
         text = "true" if value else "false"
     else:
         return ""
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
-def _number(value: Any) -> int | float | None:
-    if isinstance(value, bool):
+def _number(value: Any) -> int | float | bool | None:
+    if type(value) is bool:
         return value
-    if isinstance(value, int):
+    if type(value) is int:
         return value
-    if isinstance(value, float):
+    if type(value) is float:
         return value if math.isfinite(value) else None
     return None
 
@@ -66,17 +67,17 @@ def _number(value: Any) -> int | float | None:
 def _project(value: Any, *, depth: int = 0, list_limit: int = DECISION_LIST_LIMIT, dict_limit: int = DECISION_DICT_LIMIT) -> Any:
     if depth >= DECISION_DEPTH_LIMIT:
         return None
-    if value is None or isinstance(value, bool):
+    if value is None or type(value) is bool:
         return value
     numeric = _number(value)
     if numeric is not None:
         return numeric
-    if isinstance(value, str):
+    if type(value) is str:
         return _text(value)
-    if isinstance(value, dict):
+    if issubclass(type(value), dict):
         result: dict[str, Any] = {}
         scanned = 0
-        for raw_key, raw_value in value.items():
+        for raw_key, raw_value in builtin_dict_items(value, limit=dict_limit + 1):
             scanned += 1
             if scanned > dict_limit:
                 if len(result) >= dict_limit and result:
@@ -90,9 +91,9 @@ def _project(value: Any, *, depth: int = 0, list_limit: int = DECISION_LIST_LIMI
             if projected is not None:
                 result[key] = projected
         return result
-    if isinstance(value, (list, tuple)):
+    if issubclass(type(value), (list, tuple)):
         result: list[Any] = []
-        for index, item in enumerate(value):
+        for index, item in enumerate(builtin_sequence(value, limit=list_limit + 1)):
             if index >= list_limit:
                 if result:
                     result[-1] = "<truncated>"
@@ -103,7 +104,7 @@ def _project(value: Any, *, depth: int = 0, list_limit: int = DECISION_LIST_LIMI
             if projected is not None:
                 result.append(projected)
         return result
-    if isinstance(value, (set, frozenset)):
+    if type(value) in {set, frozenset}:
         if len(value) > list_limit:
             return ["<unordered-omitted>"]
         projected = []
@@ -116,10 +117,8 @@ def _project(value: Any, *, depth: int = 0, list_limit: int = DECISION_LIST_LIMI
 
 
 def _plan_summary(value: Any) -> list[str]:
-    if not isinstance(value, (list, tuple)):
-        return []
     result = []
-    for item in value:
+    for item in builtin_sequence(value, limit=ACTIVE_PLAN_LIMIT):
         text = _text(item)
         if text:
             result.append(text)
@@ -129,9 +128,10 @@ def _plan_summary(value: Any) -> list[str]:
 
 
 def _memory_summary(raw: Any) -> dict[str, Any] | None:
-    if not isinstance(raw, dict):
+    if not issubclass(type(raw), dict):
         text = _text(raw, MEMORY_TEXT_LIMIT)
         return {"summary": text} if text else None
+    raw = builtin_dict_copy(raw, limit=64)
     result: dict[str, Any] = {}
     for key, limit in (("memory_id", 96), ("id", 96), ("category", 64), ("title", 160)):
         if key in raw and key not in result:
@@ -152,10 +152,8 @@ def _memory_summary(raw: Any) -> dict[str, Any] | None:
 
 
 def _memory_summaries(value: Any) -> list[dict[str, Any]]:
-    if not isinstance(value, (list, tuple)):
-        return []
     result = []
-    for raw in value:
+    for raw in builtin_sequence(value, limit=MEMORY_LIMIT):
         summary = _memory_summary(raw)
         if summary:
             result.append(summary)
@@ -165,7 +163,7 @@ def _memory_summaries(value: Any) -> list[dict[str, Any]]:
 
 
 def decision_messages(context: dict) -> list[dict[str, str]]:
-    safe_context = context if isinstance(context, dict) else {}
+    safe_context = builtin_dict_copy(context, limit=128)
     payload = {
         "perception": _project(safe_context.get("perception", {}), list_limit=64, dict_limit=64),
         "executable_action_map": _project(safe_context.get("action_affordances", {}), list_limit=32, dict_limit=64),
@@ -189,7 +187,7 @@ def decision_messages(context: dict) -> list[dict[str, str]]:
 
 
 def consolidation_messages(context: dict) -> list[dict[str, str]]:
-    safe_context = context if isinstance(context, dict) else {}
+    safe_context = builtin_dict_copy(context, limit=128)
     payload = {
         "day": safe_context.get("day"),
         "body": _project(safe_context.get("body"), list_limit=64, dict_limit=64),

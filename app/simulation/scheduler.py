@@ -35,8 +35,8 @@ from app.simulation.events import Event
 from app.simulation.needs import update_needs
 from app.simulation.observer import build_observer_state
 from app.simulation.npcs import resolve_npc_interactions
-from app.simulation.perception import build_perception
-from app.simulation.safe_state import exact_dict, exact_sequence, finite, finite_pair, integer, records, strict_text
+from app.simulation.perception import build_perception, observe
+from app.simulation.safe_state import builtin_sequence, exact_dict, exact_sequence, exact_weather, finite, finite_pair, integer, records, strict_text
 from app.simulation.world import Shelter, WorldState
 from app.storage.database import Database
 from app.storage.snapshots import SnapshotStore
@@ -252,7 +252,8 @@ class SimulationEngine:
 
         sim_time = finite(getattr(self.world, "sim_time", None), None, minimum=0.0)
         seed = integer(getattr(self.world, "seed", None), None, minimum=-2_147_483_648, maximum=2_147_483_647)
-        if getattr(self.world, "weather", None) == "storm" and sim_time is not None and seed is not None:
+        weather = exact_weather(getattr(self.world, "weather", None))
+        if weather == "storm" and sim_time is not None and seed is not None:
             for shelter in records(getattr(self.world, "shelters", None), Shelter):
                 durability = finite(shelter.durability, None, minimum=0.0, maximum=1_000_000.0)
                 position = finite_pair(shelter.x, shelter.y)
@@ -308,7 +309,8 @@ class SimulationEngine:
             return "energy_critical"
         if "hydration_critical" in conditions and hydration is not None and hydration <= 7:
             return "hydration_critical"
-        if "weather_worsens" in conditions and getattr(self.world, "weather", None) == "storm":
+        weather = exact_weather(getattr(self.world, "weather", None))
+        if "weather_worsens" in conditions and weather == "storm":
             return "weather_worsens"
         if "danger_detected" in conditions:
             position = finite_pair(getattr(self.agent, "x", None), getattr(self.agent, "y", None))
@@ -325,28 +327,28 @@ class SimulationEngine:
     async def make_decision(self) -> None:
         if self.agent.alive is not True or self.controller.execution or self.agent.sleeping is True:
             return
-        recent_events = self.agent.recent_events if type(self.agent.recent_events) is list else []
+        recent_events = builtin_sequence(self.agent.recent_events, limit=4096)
         due_consolidation = next(
-            (event for event in recent_events[-4:] if isinstance(event, dict) and event.get("kind") == "consolidation_due"),
+            (event for event in recent_events[-4:] if type(event) is dict and event.get("kind") == "consolidation_due"),
             None,
         )
         if due_consolidation:
             await self._consolidate("wake")
-            self.agent.recent_events = [event for event in recent_events if not isinstance(event, dict) or event.get("kind") != "consolidation_due"]
+            self.agent.recent_events = [event for event in recent_events if type(event) is not dict or event.get("kind") != "consolidation_due"]
 
-        perception = build_perception(self.world, self.agent)
+        perception = observe(self.world, self.agent)
         query_parts: list[str] = []
-        intention = self.agent.current_intention if isinstance(self.agent.current_intention, str) else ""
+        intention = self.agent.current_intention if type(self.agent.current_intention) is str else ""
         if intention.strip():
             query_parts.append(intention.strip()[:400])
-        for obj in (perception.get("visible_objects") if isinstance(perception.get("visible_objects"), list) else [])[:8]:
-            if isinstance(obj, dict) and isinstance(obj.get("kind"), str) and obj.get("kind"):
+        for obj in (perception.get("visible_objects") if type(perception.get("visible_objects")) is list else [])[:8]:
+            if type(obj) is dict and type(obj.get("kind")) is str and obj.get("kind"):
                 query_parts.append(obj["kind"][:80])
-        for entity in (perception.get("visible_entities") if isinstance(perception.get("visible_entities"), list) else [])[:5]:
-            if isinstance(entity, dict) and isinstance(entity.get("classification"), str) and entity.get("classification"):
+        for entity in (perception.get("visible_entities") if type(perception.get("visible_entities")) is list else [])[:5]:
+            if type(entity) is dict and type(entity.get("classification")) is str and entity.get("classification"):
                 query_parts.append(entity["classification"][:80])
         inventory = self.agent.inventory if type(self.agent.inventory) is dict else {}
-        tags = {key[:80] for index, key in enumerate(inventory) if index < 64 and isinstance(key, str) and key}
+        tags = {key[:80] for index, key in enumerate(inventory) if index < 64 and type(key) is str and key}
         verified_memory_records = [
             record
             for record in self.vault.list_records(limit=4096, scan_limit=4096)
@@ -598,9 +600,11 @@ class SimulationEngine:
             return event
 
         event = self.database.add_finalized_event(finalize)
-        self.events.append(event)
+        events = builtin_sequence(self.events, limit=599)
+        events.append(event)
+        self.events = deque(events[-600:], maxlen=600)
         if hasattr(self, "agent"):
-            recent = self.agent.recent_events if type(self.agent.recent_events) is list else []
+            recent = builtin_sequence(self.agent.recent_events, limit=49)
             recent.append(event)
             self.agent.recent_events = recent[-50:]
         return event
@@ -634,10 +638,12 @@ class SimulationEngine:
         if stored_epoch is not None and (type(stored_epoch) is not str or stored_epoch != live_epoch):
             raise ValueError("authorization_epoch_mismatch")
         raw_world = state.get("world")
-        if not isinstance(raw_world, dict):
+        if type(raw_world) is not dict:
             raise ValueError("invalid_world_state")
-        self.run_id = state.get("run_id") if isinstance(state.get("run_id"), str) and state.get("run_id") else uuid.uuid4().hex
-        self.world_generation_id = state.get("world_generation_id") if isinstance(state.get("world_generation_id"), str) and state.get("world_generation_id") else uuid.uuid4().hex
+        raw_run_id = state.get("run_id")
+        raw_world_generation_id = state.get("world_generation_id")
+        self.run_id = raw_run_id if type(raw_run_id) is str and raw_run_id else uuid.uuid4().hex
+        self.world_generation_id = raw_world_generation_id if type(raw_world_generation_id) is str and raw_world_generation_id else uuid.uuid4().hex
         self.world = WorldState.from_dict(raw_world)
         self.agent = AgentState.from_dict(state.get("agent"))
         attach_key(
@@ -650,7 +656,7 @@ class SimulationEngine:
         seal_deterministic_starters(self.agent, self._ari_integrity_key)
         self.controller = ActionController()
         raw_controller = state.get("controller")
-        if isinstance(raw_controller, dict):
+        if type(raw_controller) is dict:
             try:
                 self.controller.execution = ActionExecution.from_dict(raw_controller)
                 self.agent.current_action = self.controller.execution.to_dict()
@@ -659,13 +665,13 @@ class SimulationEngine:
                 self.agent.current_action = None
         self.paused = state.get("paused") is True
         raw_speed = state.get("speed")
-        self.speed = raw_speed if isinstance(raw_speed, int) and not isinstance(raw_speed, bool) and raw_speed in {1, 10, 100} else 1
+        self.speed = raw_speed if type(raw_speed) is int and raw_speed in {1, 10, 100} else 1
         raw_events = state.get("events")
-        self.events = deque(raw_events[:600], maxlen=600) if isinstance(raw_events, (list, tuple)) else deque(maxlen=600)
-        self.last_action_result = state.get("last_action_result") if isinstance(state.get("last_action_result"), dict) else None
-        self.last_decision = state.get("last_decision") if isinstance(state.get("last_decision"), dict) else None
+        self.events = deque(builtin_sequence(raw_events, limit=600), maxlen=600)
+        self.last_action_result = state.get("last_action_result") if type(state.get("last_action_result")) is dict else None
+        self.last_decision = state.get("last_decision") if type(state.get("last_decision")) is dict else None
         raw_writes = state.get("memory_writes")
-        self.memory_writes = deque(raw_writes[:60], maxlen=60) if isinstance(raw_writes, (list, tuple)) else deque(maxlen=60)
+        self.memory_writes = deque(builtin_sequence(raw_writes, limit=60), maxlen=60)
         self.pending_memory = state.get("pending_memory") if type(state.get("pending_memory")) is dict else None
         raw_decision_event_id = state.get("current_decision_event_id")
         self.current_decision_event_id = raw_decision_event_id if type(raw_decision_event_id) is int and raw_decision_event_id > 0 else None

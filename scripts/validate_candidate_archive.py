@@ -14,6 +14,7 @@ FORBIDDEN_PARTS = {".git", ".venv", "data", "dist", "__pycache__", ".pytest_cach
 TEMPORARY_PATHS = {
     ".github/workflows/post6-source-export.yml",
     ".github/workflows/post6-pr-export.yml",
+    ".github/workflows/post7-exact-head-audit.yml",
 }
 
 
@@ -46,7 +47,7 @@ def validate(archive_path: Path) -> dict[str, object]:
         if manifest.get("version") != expected_version:
             raise SystemExit("manifest version does not match runtime version")
 
-        with tempfile.TemporaryDirectory(prefix="embodied-alife-post6-") as temporary:
+        with tempfile.TemporaryDirectory(prefix="embodied-alife-candidate-") as temporary:
             destination = Path(temporary)
             archive.extractall(destination)
             findings = scan_tree(destination, include_runtime=True)

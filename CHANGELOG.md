@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.4.0.post7] — 2026-07-25
+
+### Fixed
+
+- Hardened observer, diagnostics, REST, WebSocket, prompt, fallback, serialization, and persistence consumers so hostile built-in subclasses cannot invoke overridden iteration, indexing, mapping, equality, conversion, formatting, truthiness, hashing, or representation behavior.
+- Added controlled built-in-storage projections that preserve valid sibling records while safely omitting or bounding hostile values.
+- Normalized weather and simulation-time scalars once at active boundaries, preserving honest unknown-state semantics without invented conditions or source identities.
+- Split authoritative perception ingestion from pure projection, made unchanged observations idempotent across time, retained unchanged proofs byte-for-byte, and limited re-signing to newly observed or materially changed records.
+- Added exact production-path regressions for hostile final consumers, REST/WebSocket delivery, normal and first-decision prompts, fallback actions, scheduler weather, simulation-time conversion, perception proof counts, pure projections, restart, snapshots, Reset, and positive useful-sibling continuity.
+
+### Candidate status
+
+- This source is an unmerged pre-publication candidate. No v0.4.0.post7 tag, Release, updater asset, Post5 asset change, local Windows validation, or v0.4.1 work is included or authorized by this changelog entry.
+
 ## [0.4.0.post6] — 2026-07-24
 
 ### Fixed

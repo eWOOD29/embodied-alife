@@ -11,9 +11,10 @@ from app.llm.schemas import ActionDecision, MemoryWrite
 from app.memory.retrieval import retrieve_memories
 from app.memory.vault import MemoryValidationError, MemoryVault
 from app.serialization import finite_number
+from app.simulation.safe_state import builtin_sequence
 from app.simulation.actions import ActionResult, VIEW_ACTIONS, project_view_result_for_recent_outcome
 from app.simulation.affordances import build_action_affordances
-from app.simulation.perception import build_perception
+from app.simulation.perception import build_perception, observe
 from app.simulation.integrity import seal_memory_record, seal_record, verify_event, verify_memory_record
 from app.simulation.scheduler import SimulationEngine as BaseSimulationEngine
 from app.storage.database import Database
@@ -58,7 +59,7 @@ class SimulationEngine(BaseSimulationEngine):
     def _recent_action_outcomes(self, limit: int = 8) -> list[dict[str, Any]]:
         bounded_limit = max(1, min(32, int(limit))) if type(limit) is int and not isinstance(limit, bool) else 8
         verified_by_id: dict[int, tuple[dict[str, Any], dict[str, Any]]] = {}
-        events = self.events if isinstance(self.events, (list, tuple, deque)) else []
+        events = builtin_sequence(self.events, limit=4096)
         for index, event in enumerate(events):
             if index >= 4096:
                 break
@@ -264,19 +265,19 @@ class SimulationEngine(BaseSimulationEngine):
     async def make_decision(self) -> None:
         if self.agent.alive is not True or self.controller.execution or self.agent.sleeping is True:
             return
-        recent_events = self.agent.recent_events if type(self.agent.recent_events) is list else []
+        recent_events = builtin_sequence(self.agent.recent_events, limit=4096)
         due_consolidation = next(
-            (event for event in recent_events[-4:] if isinstance(event, dict) and event.get("kind") == "consolidation_due"),
+            (event for event in recent_events[-4:] if type(event) is dict and event.get("kind") == "consolidation_due"),
             None,
         )
         if due_consolidation:
             await self._consolidate("wake")
             self.agent.recent_events = [
                 event for event in recent_events
-                if not isinstance(event, dict) or event.get("kind") != "consolidation_due"
+                if not type(event) is dict or event.get("kind") != "consolidation_due"
             ]
 
-        perception = build_perception(self.world, self.agent)
+        perception = observe(self.world, self.agent)
         action_affordances = build_action_affordances(self.world, self.agent, perception)
         recent_outcomes = self._recent_action_outcomes(limit=8)
         action_affordances["recent_authoritative_outcomes"] = [
@@ -294,22 +295,22 @@ class SimulationEngine(BaseSimulationEngine):
         ]
 
         query_parts: list[str] = []
-        intention = self.agent.current_intention if isinstance(self.agent.current_intention, str) else ""
+        intention = self.agent.current_intention if type(self.agent.current_intention) is str else ""
         if intention.strip():
             query_parts.append(intention.strip()[:400])
-        visible_objects = perception.get("visible_objects") if isinstance(perception.get("visible_objects"), list) else []
+        visible_objects = perception.get("visible_objects") if type(perception.get("visible_objects")) is list else []
         for obj in visible_objects[:8]:
-            if isinstance(obj, dict) and isinstance(obj.get("kind"), str) and obj.get("kind"):
+            if type(obj) is dict and type(obj.get("kind")) is str and obj.get("kind"):
                 query_parts.append(obj["kind"][:80])
-        visible_entities = perception.get("visible_entities") if isinstance(perception.get("visible_entities"), list) else []
+        visible_entities = perception.get("visible_entities") if type(perception.get("visible_entities")) is list else []
         for entity in visible_entities[:5]:
-            if isinstance(entity, dict) and isinstance(entity.get("classification"), str) and entity.get("classification"):
+            if type(entity) is dict and type(entity.get("classification")) is str and entity.get("classification"):
                 query_parts.append(entity["classification"][:80])
         inventory = self.agent.inventory if type(self.agent.inventory) is dict else {}
         tags = {
             key[:80]
             for index, key in enumerate(inventory)
-            if index < 64 and isinstance(key, str) and key
+            if index < 64 and type(key) is str and key
         }
         verified_memory_records = [
             record
