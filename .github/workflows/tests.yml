@@ -79,7 +79,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
-      - name: Recover, patch, run, and retain diagnostic output
+      - name: Recover, harden redirects, run, and retain diagnostic output
         shell: bash
         run: |
           set +e
@@ -95,13 +95,27 @@ jobs:
           original_digest = hashlib.sha256(data).hexdigest()
           if original_digest != 'd9ef2afd461a7e0d692338c23537c6f7b079d197b114c2e94aadef5f7341e9a4':
               raise SystemExit(f'original finalizer payload digest mismatch: {original_digest}')
-          old = b'''    _, outer_bytes, _ = api(\n        f"/repos/{REPO}/actions/artifacts/{ARTIFACT_ID}/zip",\n        accept="application/octet-stream",\n        expected=(200,),\n        parse_json=False,\n    )'''
-          new = b'''    _, outer_bytes, _ = api(\n        f"/repos/{REPO}/actions/artifacts/{ARTIFACT_ID}/zip",\n        accept="application/vnd.github+json",\n        expected=(200,),\n        parse_json=False,\n    )'''
-          if data.count(old) != 1:
-              raise SystemExit(f'unexpected artifact download block occurrence count: {data.count(old)}')
-          data = data.replace(old, new)
+
+          artifact_old = b'''    _, outer_bytes, _ = api(\n        f"/repos/{REPO}/actions/artifacts/{ARTIFACT_ID}/zip",\n        accept="application/octet-stream",\n        expected=(200,),\n        parse_json=False,\n    )'''
+          artifact_new = b'''    _, outer_bytes, _ = api(\n        f"/repos/{REPO}/actions/artifacts/{ARTIFACT_ID}/zip",\n        accept="application/vnd.github+json",\n        expected=(200,),\n        parse_json=False,\n    )'''
+          if data.count(artifact_old) != 1:
+              raise SystemExit(f'unexpected artifact download block occurrence count: {data.count(artifact_old)}')
+          data = data.replace(artifact_old, artifact_new)
+
+          redirect_anchor = b'''def sha256(data: bytes) -> str:\n    return hashlib.sha256(data).hexdigest()\n\ndef request_url('''
+          redirect_insert = b'''def sha256(data: bytes) -> str:\n    return hashlib.sha256(data).hexdigest()\n\nclass StripAuthOnCrossHostRedirect(urllib.request.HTTPRedirectHandler):\n    def redirect_request(self, req, fp, code, msg, headers, newurl):\n        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)\n        if redirected is not None and urllib.parse.urlparse(req.full_url).netloc != urllib.parse.urlparse(newurl).netloc:\n            redirected.remove_header("Authorization")\n            redirected.remove_header("X-GitHub-Api-Version")\n        return redirected\n\nOPENER = urllib.request.build_opener(StripAuthOnCrossHostRedirect())\n\ndef request_url('''
+          if data.count(redirect_anchor) != 1:
+              raise SystemExit(f'unexpected redirect insertion anchor count: {data.count(redirect_anchor)}')
+          data = data.replace(redirect_anchor, redirect_insert)
+
+          urlopen_old = b'with urllib.request.urlopen(req, timeout=120) as resp:'
+          urlopen_new = b'with OPENER.open(req, timeout=120) as resp:'
+          if data.count(urlopen_old) != 1:
+              raise SystemExit(f'unexpected urlopen call count: {data.count(urlopen_old)}')
+          data = data.replace(urlopen_old, urlopen_new)
+
           patched_digest = hashlib.sha256(data).hexdigest()
-          if patched_digest != '37489949fa6aec22fe6d55cec3e58fc7a67ab19985e011beddcfc9c16fa2627b':
+          if patched_digest != 'bdc088aeba8b5489c6fef033d2e407fb7b336470425772e6ef1dfe09963a584d':
               raise SystemExit(f'patched finalizer payload digest mismatch: {patched_digest}')
           Path('/tmp/post8_finalize.py').write_bytes(data)
           PY
