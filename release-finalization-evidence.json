@@ -1,9 +1,125 @@
 {
+  "archive_verification": {
+    "decoded_privacy_findings": 0,
+    "embedded_app_version": "0.4.0.post8",
+    "embedded_package_version": "0.4.0.post8",
+    "managed_files": 118,
+    "manifest_member_reconciliation": "PASS",
+    "manifest_version": "0.4.0.post8",
+    "members": 119,
+    "raw_privacy_findings": 0,
+    "sha256": "4f44cbaa76786136fa6e62e3d2f7517cf0574849b672e67185ddfa64b831c483",
+    "temporary_or_runtime_artifacts": 0,
+    "unique_members": 119,
+    "unsafe_paths": 0,
+    "zip_integrity": "PASS"
+  },
+  "assets": [
+    {
+      "browser_download_url": "https://github.com/eWOOD29/embodied-alife/releases/download/v0.4.0.post8/embodied-alife-update.zip",
+      "content_type": "application/zip",
+      "created_at": "2026-07-26T01:12:17Z",
+      "id": 489911673,
+      "name": "embodied-alife-update.zip",
+      "sha256": "4f44cbaa76786136fa6e62e3d2f7517cf0574849b672e67185ddfa64b831c483",
+      "size": 242052,
+      "updated_at": "2026-07-26T01:12:17Z"
+    },
+    {
+      "browser_download_url": "https://github.com/eWOOD29/embodied-alife/releases/download/v0.4.0.post8/embodied-alife-update.zip.sha256",
+      "content_type": "text/plain",
+      "created_at": "2026-07-26T01:12:18Z",
+      "id": 489911677,
+      "name": "embodied-alife-update.zip.sha256",
+      "sha256": "b581e2e6e5b00df3d5a8729468e53fede4cbae054af6c0a046bde03463d90552",
+      "size": 92,
+      "updated_at": "2026-07-26T01:12:18Z"
+    }
+  ],
+  "automatic_release_workflow": {
+    "action": "cancelled before tag or Release publication to prevent rebuilt substitute bytes",
+    "conclusion": "cancelled",
+    "created_at": "2026-07-26T01:12:03Z",
+    "html_url": "https://github.com/eWOOD29/embodied-alife/actions/runs/30182489056",
+    "id": 30182489056,
+    "status": "completed",
+    "updated_at": "2026-07-26T01:12:10Z"
+  },
+  "base_sha": "a51d589268cd889d5f84c5c611c4e08cb3a25602",
+  "byte_identity": {
+    "byte_equal": true,
+    "checksum_asset_exact": true,
+    "published_updater_sha256": "4f44cbaa76786136fa6e62e3d2f7517cf0574849b672e67185ddfa64b831c483",
+    "retained_candidate_sha256": "4f44cbaa76786136fa6e62e3d2f7517cf0574849b672e67185ddfa64b831c483"
+  },
   "candidate_sha": "3fb63ef571f9bda5a6709d78a5acb68c28e4786e",
-  "error": "HTTP 401 for GET https://api.github.com/repos/eWOOD29/embodied-alife/actions/artifacts/8623114889/zip: \ufeff<?xml version=\"1.0\" encoding=\"utf-8\"?><Error><Code>InvalidAuthenticationInfo</Code><Message>Server failed to authenticate the request. Please refer to the information in the www-authenticate header.\nRequestId:2afa1359-a01e-00d9-479b-1ce001000000\nTime:2026-07-26T01:09:23.0132574Z</Message><AuthenticationErrorDetail>The access token was missing or malformed.</AuthenticationErrorDetail></Error>",
-  "stage": "preflight-live-state",
-  "status": "FAIL",
-  "tag": "v0.4.0.post8",
-  "traceback": "Traceback (most recent call last):\n  File \"/tmp/post8_finalize.py\", line 429, in <module>\n    _, outer_bytes, _ = api(\n                        ^^^^\n  File \"/tmp/post8_finalize.py\", line 100, in api\n    status, body, headers = request_url(\n                            ^^^^^^^^^^^^\n  File \"/tmp/post8_finalize.py\", line 86, in request_url\n    raise RuntimeError(f\"HTTP {status} for {method} {url}: {excerpt}\")\nRuntimeError: HTTP 401 for GET https://api.github.com/repos/eWOOD29/embodied-alife/actions/artifacts/8623114889/zip: \ufeff<?xml version=\"1.0\" encoding=\"utf-8\"?><Error><Code>InvalidAuthenticationInfo</Code><Message>Server failed to authenticate the request. Please refer to the information in the www-authenticate header.\nRequestId:2afa1359-a01e-00d9-479b-1ce001000000\nTime:2026-07-26T01:09:23.0132574Z</Message><AuthenticationErrorDetail>The access token was missing or malformed.</AuthenticationErrorDetail></Error>\n",
-  "workdir": "/tmp/post8-release-finalization-9bz8lvtz"
+  "cleanup": {
+    "candidate_and_main_contain_temp_workflow": false,
+    "repository_evidence_files_on_main": false,
+    "temp_branch_reset_required_by_controller": true
+  },
+  "historical_preservation": {
+    "release_count_after_excluding_post8": 18,
+    "release_count_before_excluding_post8": 18,
+    "releases_assets_unchanged": true,
+    "tag_count_after_excluding_post8": 19,
+    "tag_count_before_excluding_post8": 19,
+    "tags_unchanged": true
+  },
+  "limitations": [
+    "This is release-owner mechanical verification, not the required separate independent published-byte audit.",
+    "The isolated temporary branch must be reset after this evidence is read back."
+  ],
+  "merge": {
+    "candidate_tree_sha": "98a54f8b4155921bf65a5bc8913040d63a7ae57c",
+    "main_sha": "65ed0a371ed1257254ac9f2f0777e17244ecf122",
+    "merge_tree_sha": "98a54f8b4155921bf65a5bc8913040d63a7ae57c",
+    "method": "normal merge commit",
+    "parents": [
+      "a51d589268cd889d5f84c5c611c4e08cb3a25602",
+      "3fb63ef571f9bda5a6709d78a5acb68c28e4786e"
+    ],
+    "sha": "65ed0a371ed1257254ac9f2f0777e17244ecf122",
+    "tree_equivalent": true
+  },
+  "post7_parent_sha": "7fd1e3eaea1048cdc4b8ddc0072a4c2fdb5bcb6e",
+  "prohibited_work": {
+    "independent_published_byte_audit": false,
+    "local_installation_or_migration": false,
+    "local_windows_validation": false,
+    "post9_or_v041": false,
+    "project_hub_update": false,
+    "startup_or_tailscale_changes": false
+  },
+  "release": {
+    "created_at": "2026-07-26T01:12:01Z",
+    "draft": false,
+    "html_url": "https://github.com/eWOOD29/embodied-alife/releases/tag/v0.4.0.post8",
+    "id": 359896955,
+    "latest": true,
+    "name": "Embodied ALife v0.4.0.post8",
+    "prerelease": false,
+    "published_at": "2026-07-26T01:12:17Z",
+    "tag_name": "v0.4.0.post8",
+    "target_commitish": "65ed0a371ed1257254ac9f2f0777e17244ecf122"
+  },
+  "retained_artifact": {
+    "candidate_zip_sha256": "4f44cbaa76786136fa6e62e3d2f7517cf0574849b672e67185ddfa64b831c483",
+    "candidate_zip_size": 242052,
+    "id": 8623114889,
+    "outer_sha256": "fe05afd146f75a0229aab3cdfbbcb8b7cf1f7846f2b53acef7864010fa4f7f73",
+    "outer_size": 264963
+  },
+  "status": "PASS",
+  "tag": {
+    "name": "v0.4.0.post8",
+    "stable": true,
+    "target": "65ed0a371ed1257254ac9f2f0777e17244ecf122"
+  },
+  "updater_discovery": {
+    "latest_download_sha256": "4f44cbaa76786136fa6e62e3d2f7517cf0574849b672e67185ddfa64b831c483",
+    "latest_release_id": 359896955,
+    "latest_tag": "v0.4.0.post8",
+    "resolves_to_post8": true
+  }
 }
