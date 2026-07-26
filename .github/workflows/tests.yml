@@ -78,9 +78,10 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
-      - name: Recover and run exact-byte finalizer
+      - name: Recover, run, and retain diagnostic output
         shell: bash
         run: |
+          set -u
           python - <<'PY'
           import base64, gzip
           from pathlib import Path
@@ -89,4 +90,15 @@ jobs:
           encoded = ''.join(line.strip() for line in payload.splitlines())
           Path('/tmp/post8_finalize.py').write_bytes(gzip.decompress(base64.b64decode(encoded)))
           PY
-          python /tmp/post8_finalize.py
+          set +e
+          python /tmp/post8_finalize.py > /tmp/release-finalization-debug.log 2>&1
+          rc=$?
+          set -e
+          cp /tmp/release-finalization-debug.log release-finalization-debug.log
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add release-finalization-debug.log
+          git commit -m "Record Post8 finalization diagnostic" || true
+          git push origin "HEAD:${TEMP_BRANCH}"
+          cat /tmp/release-finalization-debug.log
+          exit "$rc"
