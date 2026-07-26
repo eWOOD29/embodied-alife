@@ -4,6 +4,7 @@ from typing import Any
 
 from app.llm.schemas import ActionDecision, ConsolidationResult, MemoryWrite
 from app.serialization import finite_number
+from app.simulation.safe_state import builtin_dict_copy, builtin_sequence
 
 
 class FallbackBrain:
@@ -14,13 +15,16 @@ class FallbackBrain:
 
     @staticmethod
     def _mapping(value: Any) -> dict[str, Any]:
-        return value if isinstance(value, dict) else {}
+        return builtin_dict_copy(value, limit=256)
 
     @staticmethod
     def _records(value: Any, limit: int) -> list[dict[str, Any]]:
-        if not isinstance(value, (list, tuple)):
-            return []
-        return [item for item in value[:limit] if isinstance(item, dict)]
+        result: list[dict[str, Any]] = []
+        for item in builtin_sequence(value, limit=limit):
+            if issubclass(type(item), dict):
+                result.append(builtin_dict_copy(item, limit=128))
+        return result
+
 
     @staticmethod
     def _number(value: Any, default: float = 0.0, *, minimum: float | None = None, maximum: float | None = None) -> float:
@@ -29,11 +33,12 @@ class FallbackBrain:
 
     @staticmethod
     def _text(value: Any, limit: int = 160) -> str:
-        if isinstance(value, str):
+        if type(value) is str:
             return value.strip()[:limit]
-        if isinstance(value, int) and not isinstance(value, bool):
+        if type(value) is int:
             return str(value)[:limit]
         return ""
+
 
     def decide(self, perception: dict) -> ActionDecision:
         self.decision_count += 1
@@ -55,7 +60,7 @@ class FallbackBrain:
             action
             for action in (
                 self._text(item, 48)
-                for item in (raw_available[:64] if isinstance(raw_available, (list, tuple)) else [])
+                for item in builtin_sequence(raw_available, limit=64)
             )
             if action
         }
@@ -174,7 +179,7 @@ class FallbackBrain:
     def consolidate(self, context: dict) -> ConsolidationResult:
         safe_context = self._mapping(context)
         raw_events = safe_context.get("events")
-        events = self._records(raw_events[-12:] if isinstance(raw_events, (list, tuple)) else [], 12)
+        events = self._records(builtin_sequence(raw_events, limit=4096)[-12:], 12)
         messages = [self._text(event.get("message"), 400) for event in events]
         event_text = "; ".join(message for message in messages if message) or "The period passed without a major recorded event."
         day = int(self._number(safe_context.get("day"), 1.0, minimum=1.0, maximum=10_000_000.0))

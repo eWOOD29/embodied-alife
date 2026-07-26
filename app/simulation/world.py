@@ -8,6 +8,7 @@ from enum import StrEnum
 from typing import Any
 
 from app.serialization import finite_number, json_safe_dict
+from app.simulation.safe_state import exact_dict, finite, finite_pair, integer, records, strict_text
 
 
 class Terrain(StrEnum):
@@ -231,26 +232,64 @@ class WorldState:
                         return xx, yy
         return 1, 1
 
-    def tile(self, x: int, y: int) -> Terrain:
+    def tile(self, x: int, y: int) -> Terrain | None:
         if not self.in_bounds(x, y):
             return Terrain.ROCK
-        return Terrain(self.tiles[y][x])
+        safe_x = integer(x, None, minimum=0)
+        safe_y = integer(y, None, minimum=0)
+        size = integer(self.size, None, minimum=1, maximum=1_000_000)
+        if safe_x is None or safe_y is None or size is None or type(self.tiles) is not list:
+            return None
+        if safe_y >= list.__len__(self.tiles):
+            return None
+        row = list.__getitem__(self.tiles, safe_y)
+        if type(row) is not list or safe_x >= list.__len__(row):
+            return None
+        value = list.__getitem__(row, safe_x)
+        if type(value) is not str:
+            return None
+        try:
+            return Terrain(value)
+        except ValueError:
+            return None
 
     def in_bounds(self, x: int, y: int) -> bool:
-        return 0 <= x < self.size and 0 <= y < self.size
+        safe_x = integer(x, None)
+        safe_y = integer(y, None)
+        size = integer(self.size, None, minimum=1, maximum=1_000_000)
+        return bool(safe_x is not None and safe_y is not None and size is not None and 0 <= safe_x < size and 0 <= safe_y < size)
 
     def is_walkable(self, x: int, y: int) -> bool:
-        return self.in_bounds(x, y) and self.tile(x, y) not in BLOCKING_TERRAIN
+        tile = self.tile(x, y)
+        return self.in_bounds(x, y) and type(tile) is Terrain and tile not in BLOCKING_TERRAIN
 
     def is_water(self, x: int, y: int) -> bool:
-        return self.tile(x, y) in {Terrain.SHALLOW_WATER, Terrain.DEEP_WATER}
+        tile = self.tile(x, y)
+        return self.in_bounds(x, y) and type(tile) is Terrain and tile in {Terrain.SHALLOW_WATER, Terrain.DEEP_WATER}
 
     def nearby_shelter(self, x: float, y: float, radius: float = 1.5) -> Shelter | None:
-        return next((s for s in self.shelters.values() if s.durability > 0 and math.hypot(s.x - x, s.y - y) <= radius), None)
+        position = finite_pair(x, y)
+        safe_radius = finite(radius, None, minimum=0.0, maximum=1_000_000.0)
+        if position is None or safe_radius is None:
+            return None
+        for shelter in records(self.shelters, Shelter):
+            durability = finite(shelter.durability, None, minimum=0.0, maximum=1_000_000.0)
+            shelter_position = finite_pair(shelter.x, shelter.y)
+            if durability is None or durability <= 0 or shelter_position is None:
+                continue
+            if math.hypot(shelter_position[0] - position[0], shelter_position[1] - position[1]) <= safe_radius:
+                return shelter
+        return None
 
     def weather_for_time(self, sim_time: float) -> str:
-        slot = int(sim_time // 240)
-        value = self._coord_value(self.seed, slot, self.day, "weather")
+        safe_time = finite(sim_time, None, minimum=0.0)
+        safe_seed = integer(self.seed, None, minimum=-2_147_483_648, maximum=2_147_483_647)
+        safe_day = integer(self.day, None, minimum=1, maximum=10_000_000)
+        if safe_time is None or safe_seed is None or safe_day is None:
+            current = strict_text(self.weather, maximum=16)
+            return current if current in {"clear", "cloudy", "rain", "storm"} else "clear"
+        slot = int(safe_time // 240)
+        value = self._coord_value(safe_seed, slot, safe_day, "weather")
         if value < 0.08:
             return "storm"
         if value < 0.24:
@@ -260,7 +299,8 @@ class WorldState:
         return "clear"
 
     def hour(self) -> float:
-        return (self.sim_time % self.DAY_LENGTH_SECONDS) / self.DAY_LENGTH_SECONDS * 24.0
+        safe_time = finite(self.sim_time, None, minimum=0.0)
+        return 0.0 if safe_time is None else (safe_time % self.DAY_LENGTH_SECONDS) / self.DAY_LENGTH_SECONDS * 24.0
 
     def daylight(self) -> float:
         hour = self.hour()
@@ -268,52 +308,70 @@ class WorldState:
 
     def tick(self, dt: float) -> list[dict[str, Any]]:
         events: list[dict[str, Any]] = []
-        previous_weather = self.weather
-        previous_day = self.day
-        self.sim_time += dt
-        self.day = int(self.sim_time // self.DAY_LENGTH_SECONDS) + 1
-        self.weather = self.weather_for_time(self.sim_time)
+        safe_dt = finite(dt, None, minimum=0.0, maximum=3600.0)
+        current_time = finite(self.sim_time, None, minimum=0.0)
+        safe_seed = integer(self.seed, None, minimum=-2_147_483_648, maximum=2_147_483_647)
+        if safe_dt is None or safe_dt <= 0 or current_time is None or safe_seed is None:
+            return events
+
+        previous_weather = self.weather if type(self.weather) is str and self.weather in {"clear", "cloudy", "rain", "storm"} else None
+        previous_day = integer(self.day, None, minimum=1, maximum=10_000_000)
+        next_time = current_time + safe_dt
+        next_day = int(next_time // self.DAY_LENGTH_SECONDS) + 1
+        self.sim_time = next_time
+        self.day = next_day
+        self.weather = self.weather_for_time(next_time)
         hour = self.hour()
         daily = 12.0 + 9.0 * math.sin(2 * math.pi * (hour - 8) / 24)
-        weather_delta = {"clear": 2.0, "cloudy": 0.0, "rain": -3.0, "storm": -6.0}[self.weather]
+        weather_delta = {"clear": 2.0, "cloudy": 0.0, "rain": -3.0, "storm": -6.0}.get(self.weather, 0.0)
         self.ambient_temperature_c = round(daily + weather_delta, 2)
-        if self.weather != previous_weather:
+        if previous_weather is not None and self.weather != previous_weather:
             events.append({"kind": "weather", "message": f"Weather changed to {self.weather}.", "importance": 0.55})
-        if self.day != previous_day:
+        if previous_day is not None and self.day != previous_day:
             events.append({"kind": "day", "message": f"Day {self.day} began.", "importance": 0.6})
 
-        # Resource regeneration.
-        for resource in self.resources.values():
-            if (
-                resource.quantity < resource.max_quantity
-                and resource.respawn_seconds > 0
-                and resource.last_harvest_time >= 0
-                and self.sim_time - resource.last_harvest_time >= resource.respawn_seconds
-            ):
-                resource.quantity = resource.max_quantity
+        for resource in records(self.resources, Resource):
+            quantity = finite(resource.quantity, None, minimum=0.0, maximum=1_000_000.0)
+            maximum = finite(resource.max_quantity, None, minimum=0.0, maximum=1_000_000.0)
+            respawn = finite(resource.respawn_seconds, None, minimum=0.0, maximum=1_000_000_000.0)
+            harvested = finite(resource.last_harvest_time, None, minimum=-1.0, maximum=1_000_000_000_000.0)
+            if None in {quantity, maximum, respawn, harvested}:
+                continue
+            if quantity < maximum and respawn > 0 and harvested >= 0 and next_time - harvested >= respawn:
+                resource.quantity = int(maximum) if float(maximum).is_integer() else maximum
                 resource.last_harvest_time = -1.0
 
-        # Deterministic NPC movement in one-second slots.
-        slot = int(self.sim_time)
-        for npc in self.npcs.values():
-            if npc.health <= 0 or npc.last_move_slot == slot:
+        slot = int(next_time)
+        for npc in records(self.npcs, NPC):
+            health = finite(npc.health, None, minimum=0.0, maximum=1_000_000.0)
+            last_slot = integer(npc.last_move_slot, None, minimum=-1, maximum=10**15)
+            position = finite_pair(npc.x, npc.y)
+            npc_id = strict_text(npc.id, maximum=160)
+            if health is None or health <= 0 or last_slot is None or last_slot == slot or position is None or npc_id is None:
                 continue
             npc.last_move_slot = slot
             dx, dy = self._npc_delta(npc, slot)
-            nx, ny = int(round(npc.x + dx)), int(round(npc.y + dy))
+            nx, ny = int(round(position[0] + dx)), int(round(position[1] + dy))
             if self.is_walkable(nx, ny):
                 npc.x, npc.y = float(nx), float(ny)
         return events
 
     def _npc_delta(self, npc: NPC, slot: int) -> tuple[int, int]:
-        value = int(self._coord_value(self.seed, slot, sum(ord(c) for c in npc.id), "npc") * 9)
+        safe_seed = integer(self.seed, None, minimum=-2_147_483_648, maximum=2_147_483_647)
+        safe_slot = integer(slot, None, minimum=0, maximum=10**15)
+        npc_id = strict_text(getattr(npc, "id", None), maximum=160)
+        if safe_seed is None or safe_slot is None or npc_id is None:
+            return 0, 0
+        value = int(self._coord_value(safe_seed, safe_slot, sum(ord(c) for c in npc_id), "npc") * 9)
         directions = [(0, 0), (1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1)]
         dx, dy = directions[value % len(directions)]
-        if npc.kind == "wolf":
-            # Wolf tends to remain near its cave.
-            if math.hypot(npc.x - self.cave_position[0], npc.y - self.cave_position[1]) > 12:
-                dx = 1 if self.cave_position[0] > npc.x else -1
-                dy = 1 if self.cave_position[1] > npc.y else -1
+        position = finite_pair(getattr(npc, "x", None), getattr(npc, "y", None))
+        cave = self.cave_position if type(self.cave_position) in {tuple, list} and len(self.cave_position) == 2 else None
+        cave_pair = finite_pair(cave[0], cave[1]) if cave is not None else None
+        if getattr(npc, "kind", None) == "wolf" and position is not None and cave_pair is not None:
+            if math.hypot(position[0] - cave_pair[0], position[1] - cave_pair[1]) > 12:
+                dx = 1 if cave_pair[0] > position[0] else -1
+                dy = 1 if cave_pair[1] > position[1] else -1
         return dx, dy
 
     def to_dict(self) -> dict[str, Any]:

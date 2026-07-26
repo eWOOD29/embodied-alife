@@ -50,11 +50,11 @@ def finite_number(
     Booleans, bytes, containers, and arbitrary objects are rejected even when their
     Python type implements numeric conversion. Numeric strings remain supported.
     """
-    if isinstance(value, bool):
+    if type(value) is bool:
         return default
-    if isinstance(value, (int, float)):
+    if type(value) in {int, float}:
         candidate: int | float | str = value
-    elif isinstance(value, str):
+    elif type(value) is str:
         candidate = value.strip()
         if not candidate:
             return default
@@ -80,19 +80,22 @@ def _bounded_text(value: str, maximum: int) -> str:
 
 
 def _safe_key(value: Any, maximum: int) -> str | None:
-    if isinstance(value, str):
+    if type(value) is str:
         return _bounded_text(value, maximum)
     if value is None:
         return "null"
-    if isinstance(value, bool):
+    if type(value) is bool:
         return "true" if value else "false"
-    if isinstance(value, int):
+    if type(value) is int:
         return str(max(-int(MAX_FINITE_MAGNITUDE), min(int(MAX_FINITE_MAGNITUDE), value)))
-    if isinstance(value, float):
+    if type(value) is float:
         number = finite_number(value)
         return None if number is None else str(number)
     if isinstance(value, Enum):
-        return _safe_key(value.value, maximum)
+        try:
+            return _safe_key(value.value, maximum)
+        except Exception:
+            return None
     return None
 
 
@@ -103,6 +106,72 @@ def _truncation_key(result: Mapping[str, Any]) -> str:
         key = f"__truncated__#{suffix}"
         suffix += 1
     return key
+
+
+def _builtin_dict_items(value: Any, limit: int) -> tuple[list[tuple[Any, Any]], bool]:
+    if not issubclass(type(value), dict):
+        return [], False
+    result: list[tuple[Any, Any]] = []
+    truncated = False
+    try:
+        iterator = iter(dict.items(value))
+        for _ in range(max(0, limit) + 1):
+            try:
+                result.append(next(iterator))
+            except StopIteration:
+                break
+        if len(result) > limit:
+            truncated = True
+            result = result[:limit]
+    except Exception:
+        return [], True
+    return result, truncated
+
+
+def _builtin_sequence_items(value: Any, limit: int) -> tuple[list[Any], bool]:
+    result: list[Any] = []
+    try:
+        if issubclass(type(value), list):
+            length = list.__len__(value)
+            take = min(length, limit + 1)
+            result = [list.__getitem__(value, index) for index in range(take)]
+        elif issubclass(type(value), tuple):
+            length = tuple.__len__(value)
+            take = min(length, limit + 1)
+            result = [tuple.__getitem__(value, index) for index in range(take)]
+        elif issubclass(type(value), deque):
+            iterator = deque.__iter__(value)
+            for _ in range(limit + 1):
+                try:
+                    result.append(next(iterator))
+                except StopIteration:
+                    break
+        else:
+            return [], False
+    except Exception:
+        return [], True
+    truncated = len(result) > limit
+    return result[:limit], truncated
+
+
+def _builtin_set_items(value: Any, limit: int) -> tuple[list[Any], bool]:
+    try:
+        if issubclass(type(value), set):
+            size = set.__len__(value)
+            iterator = set.__iter__(value)
+        elif issubclass(type(value), frozenset):
+            size = frozenset.__len__(value)
+            iterator = frozenset.__iter__(value)
+        else:
+            return [], False
+        if size > limit:
+            return [], True
+        result = []
+        for _ in range(size):
+            result.append(next(iterator))
+        return result, False
+    except Exception:
+        return [], True
 
 
 def json_safe(
@@ -132,15 +201,15 @@ def json_safe(
             return "<max-nodes>"
         if depth > max_depth:
             return "<max-depth>"
-        if current is None or isinstance(current, bool):
+        if current is None or type(current) is bool:
             return current
-        if isinstance(current, int):
+        if type(current) is int:
             return max(-int(MAX_FINITE_MAGNITUDE), min(int(MAX_FINITE_MAGNITUDE), current))
-        if isinstance(current, float):
+        if type(current) is float:
             return finite_number(current)
-        if isinstance(current, str):
+        if type(current) is str:
             return _bounded_text(current, max_text)
-        if isinstance(current, (bytes, bytearray, memoryview)):
+        if type(current) in {bytes, bytearray, memoryview}:
             return f"<binary:{min(len(current), int(MAX_FINITE_MAGNITUDE))}>"
         if isinstance(current, Path):
             return "<path-omitted>"
@@ -169,6 +238,34 @@ def json_safe(
                     except Exception:
                         raw_value = "<unavailable>"
                     result[field_info.name] = project(raw_value, depth + 1)
+                if truncated:
+                    result[_truncation_key(result)] = True
+                return result
+            finally:
+                active.discard(identity)
+
+        if issubclass(type(current), dict):
+            active.add(identity)
+            try:
+                result: dict[str, Any] = {}
+                selected: list[tuple[str, Any]] = []
+                raw_items, truncated = _builtin_dict_items(current, item_limit)
+                for raw_key, raw_value in raw_items:
+                    if not budget.take_source():
+                        truncated = True
+                        break
+                    key = _safe_key(raw_key, 160)
+                    if key is not None:
+                        selected.append((key, raw_value))
+                if truncated and item_limit > 1 and len(selected) >= item_limit:
+                    selected = selected[: item_limit - 1]
+                for key, raw_value in selected:
+                    unique_key = key
+                    suffix = 2
+                    while unique_key in result:
+                        unique_key = _bounded_text(f"{key}#{suffix}", 160)
+                        suffix += 1
+                    result[unique_key] = project(raw_value, depth + 1)
                 if truncated:
                     result[_truncation_key(result)] = True
                 return result
@@ -217,30 +314,16 @@ def json_safe(
             finally:
                 active.discard(identity)
 
-        if isinstance(current, (list, tuple, deque)):
+        if issubclass(type(current), (list, tuple, deque)):
             active.add(identity)
             try:
                 result: list[Any] = []
-                truncated = False
-                try:
-                    iterator = iter(current)
-                except Exception:
-                    return ["<unavailable-sequence>"]
-                while len(result) < item_limit + 1:
+                raw_items, truncated = _builtin_sequence_items(current, item_limit)
+                for item in raw_items:
                     if not budget.take_source():
                         truncated = True
                         break
-                    try:
-                        item = next(iterator)
-                    except StopIteration:
-                        break
-                    except Exception:
-                        truncated = True
-                        break
                     result.append(project(item, depth + 1))
-                if len(result) > item_limit:
-                    truncated = True
-                    result = result[:item_limit]
                 if truncated:
                     if len(result) >= item_limit:
                         result[-1] = TRUNCATED
@@ -250,35 +333,20 @@ def json_safe(
             finally:
                 active.discard(identity)
 
-        if isinstance(current, (set, frozenset)):
+        if issubclass(type(current), (set, frozenset)):
             active.add(identity)
             try:
-                try:
-                    size = len(current)
-                except Exception:
-                    return [UNORDERED_OMITTED]
-                if size > item_limit:
+                raw_items, omitted = _builtin_set_items(current, item_limit)
+                if omitted:
                     return [UNORDERED_OMITTED]
                 projected: list[Any] = []
-                try:
-                    iterator = iter(current)
-                except Exception:
-                    return [UNORDERED_OMITTED]
-                for _ in range(size):
+                for item in raw_items:
                     if not budget.take_source():
-                        return [UNORDERED_OMITTED]
-                    try:
-                        item = next(iterator)
-                    except (StopIteration, Exception):
                         return [UNORDERED_OMITTED]
                     projected.append(project(item, depth + 1))
                 projected.sort(
                     key=lambda item: json.dumps(
-                        item,
-                        ensure_ascii=False,
-                        sort_keys=True,
-                        separators=(",", ":"),
-                        allow_nan=False,
+                        item, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
                     )
                 )
                 return projected
@@ -292,7 +360,7 @@ def json_safe(
 
 def json_safe_dict(value: Any, **kwargs: Any) -> dict[str, Any]:
     projected = json_safe(value, **kwargs)
-    return projected if isinstance(projected, dict) else {}
+    return projected if type(projected) is dict else {}
 
 
 def strict_json_dumps(value: Any, **kwargs: Any) -> str:

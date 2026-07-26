@@ -19,15 +19,36 @@ jobs:
           cache-dependency-path: pyproject.toml
       - name: Install
         run: python -m pip install -e '.[dev]'
-      - name: Test
+      - name: Focused Post8 persistence, malformed-terrain, and retained semantic suite
+        run: >-
+          python -m pytest -q
+          tests/test_v040_post8_remediation.py
+          tests/test_v040_post8_version.py
+          tests/test_v040_post7_remediation.py
+          tests/test_v040_post7_version.py
+          tests/test_v040_post6_remediation.py
+          tests/test_v040_post6_version.py
+          tests/test_v040_post5_remediation.py
+          tests/test_v040_post4_remediation.py
+          tests/test_v040_post3_remediation.py
+          tests/test_v040_remediation.py
+          tests/test_v040_cognitive_foundations.py
+      - name: Complete test suite
         run: python -m pytest -q
       - name: Compile
         run: python -m compileall -q app tests scripts
+      - name: Advisory Ruff
+        continue-on-error: true
+        run: python -m ruff check app tests scripts
       - name: Clean generated validation files
         shell: bash
         run: |
           find app tests scripts -type d -name __pycache__ -prune -exec rm -rf {} +
           rm -rf .pytest_cache .ruff_cache
           find data/runtime -maxdepth 1 -type f ! -name .gitkeep -delete
-      - name: Validate package
+      - name: Validate source package
         run: python scripts/validate_package.py
+      - name: Build local candidate archive
+        run: python scripts/build_release.py --output dist/embodied-alife-update.zip
+      - name: Reconcile archive, manifest, checksum, hygiene, and privacy
+        run: python scripts/validate_candidate_archive.py dist/embodied-alife-update.zip

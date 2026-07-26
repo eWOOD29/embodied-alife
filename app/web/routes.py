@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from app.diagnostics import build_diagnostic_bundle
 from app.serialization import finite_number, json_safe, json_safe_dict
+from app.simulation.safe_state import builtin_dict_copy
 from app.updater.manager import UpdateError
 from app.version import __version__
 
@@ -54,23 +55,25 @@ def _updater(request: Request):
 
 def _health_payload(request: Request) -> dict:
     engine = _engine(request)
-    brain_status = getattr(getattr(engine, "brain", None), "status", {})
-    brain_status = brain_status if isinstance(brain_status, dict) else {}
+    brain_status = builtin_dict_copy(getattr(getattr(engine, "brain", None), "status", {}), limit=64)
     updater_status = getattr(_updater(request), "status", None)
+    run_id = getattr(engine, "run_id", None)
+    world_generation_id = getattr(engine, "world_generation_id", None)
+    update_state = getattr(updater_status, "state", None)
     return {
         "status": "ok",
         "app": "embodied-alife",
         "version": __version__,
-        "run_id": getattr(engine, "run_id", None),
-        "world_generation_id": getattr(engine, "world_generation_id", None),
+        "run_id": run_id if type(run_id) is str else None,
+        "world_generation_id": world_generation_id if type(world_generation_id) is str else None,
         "paused": getattr(engine, "paused", False) is True,
         "alive": getattr(getattr(engine, "agent", None), "alive", False) is True,
         "seed": finite_number(getattr(getattr(engine, "world", None), "seed", None), 0.0),
         "sim_time": round(finite_number(getattr(engine.world, "sim_time", None), 0.0) or 0.0, 2),
-        "model_mode": brain_status.get("mode") if isinstance(brain_status.get("mode"), str) else "unknown",
+        "model_mode": brain_status.get("mode") if type(brain_status.get("mode")) is str else "unknown",
         "model_available": brain_status.get("available") is True,
         "generation_healthy": brain_status.get("generation_healthy") is True,
-        "update_state": getattr(updater_status, "state", "unknown") if isinstance(getattr(updater_status, "state", "unknown"), str) else "unknown",
+        "update_state": update_state if type(update_state) is str else "unknown",
     }
 
 
@@ -218,7 +221,8 @@ async def control(payload: ControlRequest, request: Request) -> dict:
         if payload.action == "reset":
             return engine.reset(payload.seed)
         if payload.action == "save":
-            return engine.save_snapshot(payload.name or f"snapshot-{int(engine.world.sim_time)}")
+            safe_time = finite_number(getattr(engine.world, "sim_time", None), 0.0, minimum=0.0) or 0.0
+            return engine.save_snapshot(payload.name or f"snapshot-{int(safe_time)}")
         if payload.action == "load":
             if not payload.name:
                 raise ValueError("snapshot name is required")

@@ -1,5 +1,46 @@
 # Changelog
 
+## [0.4.0.post8] — 2026-07-25
+
+### Fixed
+
+- Made `AgentState.explored` serialization read list, tuple, set, and frozenset storage without invoking hostile subclass operations, preserving valid siblings through engine serialization, persistence, snapshots, explicit save, autosave/stop persistence, and restart.
+- Made malformed or hostile terrain roots, rows, and scalar cells become honest unknown/omitted observations instead of plausible `Terrain.ROCK`, preventing invalid source material from acquiring validated-perception proofs while retaining safe neighboring observations.
+- Added exact production-path regressions for hostile persistence-adjacent containers, malformed terrain ingestion, decision-time ingestion, batch atomicity, valid-input idempotence, affected-record-only updates, restart, snapshot, and Reset behavior while retaining the previously passing Post6/Post7 contracts.
+
+### Candidate status
+
+- This source is an unmerged pre-publication candidate. No v0.4.0.post8 tag, Release, updater asset, Post5 asset change, local Windows validation, or v0.4.1 work is included or authorized by this changelog entry.
+
+## [0.4.0.post7] — 2026-07-25
+
+### Fixed
+
+- Hardened observer, diagnostics, REST, WebSocket, prompt, fallback, serialization, and persistence consumers so hostile built-in subclasses cannot invoke overridden iteration, indexing, mapping, equality, conversion, formatting, truthiness, hashing, or representation behavior.
+- Added controlled built-in-storage projections that preserve valid sibling records while safely omitting or bounding hostile values.
+- Normalized weather and simulation-time scalars once at active boundaries, preserving honest unknown-state semantics without invented conditions or source identities.
+- Split authoritative perception ingestion from pure projection, made unchanged observations idempotent across time, retained unchanged proofs byte-for-byte, and limited re-signing to newly observed or materially changed records.
+- Added exact production-path regressions for hostile final consumers, REST/WebSocket delivery, normal and first-decision prompts, fallback actions, scheduler weather, simulation-time conversion, perception proof counts, pure projections, restart, snapshots, Reset, and positive useful-sibling continuity.
+
+### Candidate status
+
+- This source is an unmerged pre-publication candidate. No v0.4.0.post7 tag, Release, updater asset, Post5 asset change, local Windows validation, or v0.4.1 work is included or authorized by this changelog entry.
+
+## [0.4.0.post6] — 2026-07-24
+
+### Fixed
+
+- Replaced bounded generic proof canonicalization with versioned, domain-separated, family-specific authorization envelopes that bind every Ari-facing semantic, identity, link, ordering, origin, experiment, run, and world field without prefix authentication.
+- Added a persisted experiment authorization epoch that survives restart and same-experiment snapshots, rotates on Reset, and makes legacy or cross-experiment proofs fail closed without deleting observer records.
+- Finalized action-result events with their authoritative database ID, run ID, world-generation ID, and epoch before signing, so copied or altered event envelopes cannot inherit authority.
+- Enforced exact built-in verification boundaries that reject hostile mappings, iterators, cycles, unsupported values, malformed proofs, and non-finite event payloads without invoking arbitrary object methods.
+- Hardened active world time, resource, NPC, shelter, need, movement, action-validation, action-execution, perception, affordance, observer, persistence, REST, WebSocket, prompt, and fallback paths against malformed directly mutated state.
+- Added exact regressions for the Post5 after-64, after-2,000-character, linked-tail, Reset replay, cross-world replay, event-copy, hostile-verification, and malformed-active-state exploits while preserving positive task, note, marker, and view-result continuity.
+
+### Candidate status
+
+- This source is an unmerged pre-publication candidate. No v0.4.0.post6 tag, Release, updater asset, Post5 containment action, or local Windows validation is included or authorized by this changelog entry.
+
 ## [0.4.0.post5] — 2026-07-24
 
 ### Fixed

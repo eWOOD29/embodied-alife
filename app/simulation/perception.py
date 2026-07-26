@@ -8,8 +8,10 @@ from typing import Any
 from app.serialization import finite_number
 from app.simulation.actions import ari_record_origin_is_safe
 from app.simulation.integrity import seal_knowledge, verify_knowledge, verify_record
-from app.simulation.agent import AgentState
+from app.simulation.agent import AgentState, AwakeningState
+from app.simulation.belief_store import BeliefStore
 from app.simulation.needs import drive_labels
+from app.simulation.safe_state import builtin_dict_copy, builtin_dict_items, builtin_sequence
 from app.simulation.world import BLOCKING_TERRAIN, Terrain, WorldState
 
 INTERACTION_RADIUS = 2.2
@@ -29,9 +31,20 @@ ACTIVE_TEXT_LIMIT = 240
 
 
 def _truncate(value: Any, limit: int = BELIEF_TEXT_LIMIT) -> str:
-    if not isinstance(value, (str, int, float, bool)):
+    if type(value) is str:
+        text = value
+    elif type(value) is int:
+        text = str(value)
+    elif type(value) is float:
+        number = finite_number(value)
+        if number is None:
+            return ""
+        text = str(number)
+    elif type(value) is bool:
+        text = "true" if value else "false"
+    else:
         return ""
-    text = str(value).replace("\n", " ").strip()
+    text = text.replace("\n", " ").strip()
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
@@ -41,18 +54,14 @@ def _safe_number(value: Any, default: float = 0.0, *, minimum: float | None = No
 
 
 def _bounded_pairs(value: Any, *, count_limit: int, key_limit: int, value_limit: int) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        return {}
     result: dict[str, Any] = {}
-    for index, (raw_key, raw_value) in enumerate(value.items()):
-        if index >= count_limit:
-            break
+    for raw_key, raw_value in builtin_dict_items(value, limit=count_limit):
         key = _truncate(raw_key, key_limit)
         if not key:
             continue
-        if isinstance(raw_value, (int, float)) and not isinstance(raw_value, bool):
+        if type(raw_value) in {int, float}:
             projected: Any = _safe_number(raw_value)
-        elif isinstance(raw_value, bool):
+        elif type(raw_value) is bool:
             projected = raw_value
         else:
             projected = _truncate(raw_value, value_limit)
@@ -64,9 +73,9 @@ def _known_tile_summaries(agent: AgentState, ax: int | None, ay: int | None) -> 
     if ax is None or ay is None:
         return []
     records: list[tuple[int, int, int, str]] = []
-    known_terrain = agent.known_terrain if isinstance(agent.known_terrain, dict) else {}
-    for index, (raw_key, raw_terrain) in enumerate(known_terrain.items()):
-        if index >= 4096 or not isinstance(raw_key, str) or not verify_knowledge(agent, "terrain", raw_key, raw_terrain):
+    known_terrain = builtin_dict_copy(agent.known_terrain, limit=4096)
+    for raw_key, raw_terrain in known_terrain.items():
+        if not type(raw_key) is str or not verify_knowledge(agent, "terrain", raw_key, raw_terrain):
             continue
         try:
             x_text, y_text = raw_key.split(",", 1)
@@ -84,10 +93,10 @@ def _known_tile_summaries(agent: AgentState, ax: int | None, ay: int | None) -> 
 def _belief_summary(agent: AgentState) -> dict[str, Any]:
     counts: dict[str, int] = {}
     records: list[tuple[float, str, Any]] = []
-    beliefs = agent.beliefs if isinstance(agent.beliefs, dict) else {}
+    beliefs = agent.beliefs if type(agent.beliefs) in {dict, BeliefStore} else {}
     verified_total = 0
     for index, (key, belief) in enumerate(beliefs.items()):
-        if index >= 4096 or not isinstance(belief, dict) or not verify_record("belief", belief, agent):
+        if index >= 4096 or type(belief) is not dict and type(belief).__name__ != "BeliefValue" or not verify_record("belief", belief, agent):
             continue
         verified_total += 1
         status = _truncate(belief.get("status", "hypothesis"), 32) or "hypothesis"
@@ -112,9 +121,9 @@ def _known_location_summaries(agent: AgentState, agent_x: float | None, agent_y:
     if agent_x is None or agent_y is None:
         return []
     result: list[dict[str, Any]] = []
-    known_locations = agent.known_locations if isinstance(agent.known_locations, dict) else {}
-    for index, (label, raw) in enumerate(known_locations.items()):
-        if index >= 4096 or not isinstance(raw, dict):
+    known_locations = builtin_dict_copy(agent.known_locations, limit=4096)
+    for label, raw in known_locations.items():
+        if type(raw) is not dict:
             continue
         identity = _truncate(label, 160)
         if not identity or not verify_knowledge(agent, "location", identity, raw):
@@ -134,7 +143,7 @@ def _known_location_summaries(agent: AgentState, agent_x: float | None, agent_y:
 
 
 def _safe_event_summary(event: Any) -> dict[str, Any]:
-    if not isinstance(event, dict):
+    if type(event) is not dict:
         return {"message": _truncate(event, 200)}
     return {
         "sim_time": _safe_number(event.get("sim_time"), 0.0),
@@ -165,8 +174,19 @@ def _line_points(x0: int, y0: int, x1: int, y1: int) -> list[tuple[int, int]]:
     return points
 
 
+def _has_line_of_sight(world: WorldState, x0: int, y0: int, x1: int, y1: int) -> bool:
+    for x, y in _line_points(x0, y0, x1, y1)[1:-1]:
+        tile = world.tile(x, y)
+        if type(tile) is not Terrain or tile in BLOCKING_TERRAIN:
+            return False
+    return True
+
+
 def has_line_of_sight(world: WorldState, x0: int, y0: int, x1: int, y1: int) -> bool:
-    return all(world.tile(x, y) not in BLOCKING_TERRAIN for x, y in _line_points(x0, y0, x1, y1)[1:-1])
+    try:
+        return _has_line_of_sight(world, x0, y0, x1, y1)
+    except Exception:
+        return False
 
 
 def _direction(dx: float, dy: float) -> str:
@@ -175,59 +195,153 @@ def _direction(dx: float, dy: float) -> str:
     return labels[int((angle + 22.5) // 45) % 8]
 
 
-def build_perception(world: WorldState, agent: AgentState, radius: int = 10) -> dict[str, Any]:
+def _observation_position(world: WorldState, agent: AgentState) -> tuple[int, int, int, float, float] | None:
     world_size_number = _safe_number(getattr(world, "size", None), math.nan)
     world_size = int(world_size_number) if math.isfinite(world_size_number) and world_size_number >= 1 else 0
     raw_x = _safe_number(getattr(agent, "x", None), math.nan)
     raw_y = _safe_number(getattr(agent, "y", None), math.nan)
-    position_known = (
+    if not (
         world_size > 0
         and math.isfinite(raw_x)
         and math.isfinite(raw_y)
         and 0.0 <= raw_x <= world_size - 1
         and 0.0 <= raw_y <= world_size - 1
-    )
-    agent_x = raw_x if position_known else None
-    agent_y = raw_y if position_known else None
-    ax = int(round(agent_x)) if agent_x is not None else None
-    ay = int(round(agent_y)) if agent_y is not None else None
+    ):
+        return None
+    return world_size, int(round(raw_x)), int(round(raw_y)), raw_x, raw_y
 
-    explored_store = agent.explored if isinstance(agent.explored, set) else None
-    terrain_store = agent.known_terrain if isinstance(agent.known_terrain, dict) else None
-    location_store = agent.known_locations if isinstance(agent.known_locations, dict) else None
 
-    visible_tiles: list[dict[str, Any]] = []
-    terrain_counts: dict[str, int] = {}
-    if ax is not None and ay is not None:
+def _terrain_observations(world: WorldState, ax: int, ay: int, world_size: int, radius: int) -> list[tuple[int, int, str]]:
+    result: list[tuple[int, int, str]] = []
+    try:
         for y in range(max(0, ay - radius), min(world_size, ay + radius + 1)):
             for x in range(max(0, ax - radius), min(world_size, ax + radius + 1)):
                 distance = math.hypot(x - ax, y - ay)
-                if distance > radius or not has_line_of_sight(world, ax, ay, x, y):
+                if distance > radius or not _has_line_of_sight(world, ax, ay, x, y):
                     continue
-                terrain = world.tile(x, y).value
-                terrain_counts[terrain] = terrain_counts.get(terrain, 0) + 1
-                visible_tiles.append({"offset_east": x - ax, "offset_south": y - ay, "terrain": terrain})
-                key = f"{x},{y}"
-                if explored_store is not None:
-                    explored_store.add(key)
-                if terrain_store is not None:
-                    terrain_store[key] = terrain
-                    seal_knowledge(agent, "terrain", key, terrain, "validated_perception", source_ref=f"perception:{getattr(world, 'sim_time', 0)}:{key}")
-                location_key = None
-                certainty = None
-                if terrain == Terrain.CAVE.value:
-                    location_key, certainty = "cave_entrance", 1.0
-                elif terrain == Terrain.BUILD_AREA.value:
-                    location_key, certainty = "stable_clearing", 0.9
-                elif terrain in {Terrain.SHALLOW_WATER.value, Terrain.DEEP_WATER.value}:
-                    location_key, certainty = f"water_near_{x // 8}_{y // 8}", 0.8
-                if location_store is not None and location_key is not None:
-                    value = {"x": x, "y": y, "certainty": certainty, "last_seen": _safe_number(getattr(world, "sim_time", 0.0))}
-                    location_store[location_key] = value
-                    seal_knowledge(agent, "location", location_key, value, "validated_perception", source_ref=f"perception:{getattr(world, 'sim_time', 0)}:{location_key}")
+                tile = world.tile(x, y)
+                if type(tile) is not Terrain:
+                    continue
+                result.append((x, y, tile.value))
+    except Exception:
+        return []
+    return result
+
+
+def _location_observation(x: int, y: int, terrain: str, sim_time: float | None) -> tuple[str, dict[str, Any]] | None:
+    if terrain == Terrain.CAVE.value:
+        identity, certainty = "cave_entrance", 1.0
+    elif terrain == Terrain.BUILD_AREA.value:
+        identity, certainty = "stable_clearing", 0.9
+    elif terrain in {Terrain.SHALLOW_WATER.value, Terrain.DEEP_WATER.value}:
+        identity, certainty = f"water_near_{x // 8}_{y // 8}", 0.8
+    else:
+        return None
+    return identity, {"x": x, "y": y, "certainty": certainty, "last_seen": sim_time}
+
+
+def _same_location_observation(existing: Any, observed: dict[str, Any]) -> bool:
+    if type(existing) is not dict:
+        return False
+    return (
+        type(existing.get("x")) is int
+        and type(existing.get("y")) is int
+        and type(existing.get("certainty")) in {int, float}
+        and existing.get("x") == observed.get("x")
+        and existing.get("y") == observed.get("y")
+        and float(existing.get("certainty")) == float(observed.get("certainty"))
+    )
+
+
+def ingest_perception(world: WorldState, agent: AgentState, radius: int = 10) -> dict[str, int]:
+    """Authoritatively ingest newly observed or materially changed Ari knowledge.
+
+    This boundary is intentionally separate from projection. Unchanged observations do not
+    mutate durable state and never invoke proof generation. Source identities are stable and
+    do not depend on simulation time.
+    """
+    position = _observation_position(world, agent)
+    if position is None:
+        return {"explored_added": 0, "terrain_signed": 0, "locations_signed": 0}
+    world_size, ax, ay, _, _ = position
+    observations = _terrain_observations(world, ax, ay, world_size, radius)
+    explored_store = agent.explored if type(agent.explored) is set else None
+    terrain_store = agent.known_terrain if type(agent.known_terrain) is dict else None
+    location_store = agent.known_locations if type(agent.known_locations) is dict else None
+    sim_time = finite_number(getattr(world, "sim_time", None), None, minimum=0.0)
+    explored_added = terrain_signed = locations_signed = 0
+    location_observations: dict[str, dict[str, Any]] = {}
+
+    for x, y, terrain in observations:
+        key = f"{x},{y}"
+        if explored_store is not None and key not in explored_store:
+            explored_store.add(key)
+            explored_added += 1
+        if terrain_store is not None:
+            exists = key in terrain_store
+            existing = terrain_store.get(key)
+            if not (exists and type(existing) is str and existing == terrain):
+                terrain_store[key] = terrain
+                if seal_knowledge(
+                    agent, "terrain", key, terrain, "validated_perception",
+                    source_ref=f"perception:terrain:{key}",
+                ):
+                    terrain_signed += 1
+        location = _location_observation(x, y, terrain, sim_time)
+        if location is not None:
+            location_observations[location[0]] = location[1]
+
+    if location_store is not None:
+        for identity, observed in location_observations.items():
+            exists = identity in location_store
+            existing = location_store.get(identity)
+            if exists and _same_location_observation(existing, observed):
+                continue
+            location_store[identity] = observed
+            if seal_knowledge(
+                agent, "location", identity, observed, "validated_perception",
+                source_ref=f"perception:location:{identity}",
+            ):
+                locations_signed += 1
+
+    return {
+        "explored_added": explored_added,
+        "terrain_signed": terrain_signed,
+        "locations_signed": locations_signed,
+    }
+
+
+def observe(world: WorldState, agent: AgentState, radius: int = 10) -> dict[str, Any]:
+    """Perform authoritative ingestion, then return a pure perception projection."""
+    ingest_perception(world, agent, radius)
+    return build_perception(world, agent, radius)
+
+
+def build_perception(world: WorldState, agent: AgentState, radius: int = 10) -> dict[str, Any]:
+    """Project current perception and Ari-known state without durable mutation."""
+    position = _observation_position(world, agent)
+    if position is None:
+        world_size = 0
+        ax = ay = None
+        agent_x = agent_y = None
+        position_known = False
+        observations: list[tuple[int, int, str]] = []
+    else:
+        world_size, ax, ay, agent_x, agent_y = position
+        position_known = True
+        observations = _terrain_observations(world, ax, ay, world_size, radius)
+
+    terrain_store = agent.known_terrain if type(agent.known_terrain) is dict else None
+    location_store = agent.known_locations if type(agent.known_locations) is dict else None
+    visible_tiles: list[dict[str, Any]] = []
+    terrain_counts: dict[str, int] = {}
+    if ax is not None and ay is not None:
+        for x, y, terrain in observations:
+            terrain_counts[terrain] = terrain_counts.get(terrain, 0) + 1
+            visible_tiles.append({"offset_east": x - ax, "offset_south": y - ay, "terrain": terrain})
 
     objects: list[dict[str, Any]] = []
-    resources = world.resources if isinstance(getattr(world, "resources", None), dict) else {}
+    resources = builtin_dict_copy(getattr(world, "resources", None), limit=4096)
     if agent_x is not None and agent_y is not None and ax is not None and ay is not None:
         for index, resource in enumerate(resources.values()):
             if index >= 4096:
@@ -253,7 +367,7 @@ def build_perception(world: WorldState, agent: AgentState, radius: int = 10) -> 
                 })
 
     entities: list[dict[str, Any]] = []
-    npcs = world.npcs if isinstance(getattr(world, "npcs", None), dict) else {}
+    npcs = builtin_dict_copy(getattr(world, "npcs", None), limit=4096)
     if agent_x is not None and agent_y is not None and ax is not None and ay is not None:
         for index, npc in enumerate(npcs.values()):
             if index >= 4096:
@@ -293,9 +407,9 @@ def build_perception(world: WorldState, agent: AgentState, radius: int = 10) -> 
         affordances.extend(["look", "move", "move_to", "inspect", "flee"])
         if any(obj["distance"] <= INTERACTION_RADIUS and (obj["portable"] or obj["kind"] == "berry_bush") for obj in objects):
             affordances.append("pick_up")
-        inventory = agent.inventory if isinstance(agent.inventory, dict) else {}
+        inventory = builtin_dict_copy(agent.inventory, limit=4096)
         if any(obj["distance"] <= INTERACTION_RADIUS and obj["appears_edible"] for obj in objects) or any(
-            isinstance(inventory.get(key), int) and not isinstance(inventory.get(key), bool) and inventory.get(key, 0) > 0
+            type(inventory.get(key)) is int and inventory.get(key, 0) > 0
             for key in ("berry", "berry_bush", "edible_plant")
         ):
             affordances.append("eat")
@@ -305,7 +419,7 @@ def build_perception(world: WorldState, agent: AgentState, radius: int = 10) -> 
             for x in range(max(0, ax - 1), min(world_size, ax + 2))
         ):
             affordances.append("drink")
-        if any(isinstance(value, int) and not isinstance(value, bool) and value > 0 for value in inventory.values()):
+        if any(type(value) is int and value > 0 for value in inventory.values()):
             affordances.append("drop")
         if shelter or underfoot in {Terrain.MEADOW, Terrain.BUILD_AREA, Terrain.CAVE}:
             affordances.append("sleep")
@@ -326,30 +440,30 @@ def build_perception(world: WorldState, agent: AgentState, radius: int = 10) -> 
     )
 
     key_items = [
-        item for item in (agent.key_items.values() if isinstance(agent.key_items, dict) else [])
+        item for item in builtin_dict_copy(agent.key_items, limit=4096).values()
         if verify_record("key_item", item, agent)
     ]
     safe_tasks = [
-        task for task in (agent.tasks.values() if isinstance(agent.tasks, dict) else [])
+        task for task in builtin_dict_copy(agent.tasks, limit=4096).values()
         if ari_record_origin_is_safe("task", task, agent)
     ]
     safe_notes = [
-        note for note in (agent.notes.values() if isinstance(agent.notes, dict) else [])
+        note for note in builtin_dict_copy(agent.notes, limit=4096).values()
         if ari_record_origin_is_safe("note", note, agent)
     ]
     safe_markers = [
-        marker for marker in (agent.map_markers.values() if isinstance(agent.map_markers, dict) else [])
+        marker for marker in builtin_dict_copy(agent.map_markers, limit=4096).values()
         if ari_record_origin_is_safe("marker", marker, agent)
     ]
     safe_episodes = [
-        episode for episode in (agent.short_term_episodes.values() if isinstance(agent.short_term_episodes, dict) else [])
+        episode for episode in builtin_dict_copy(agent.short_term_episodes, limit=4096).values()
         if verify_record("episode", episode, agent)
     ]
 
     body = {
         "position": {"subjective_origin": "self", "known": position_known},
         "facing": _truncate(getattr(agent, "facing", ""), 32),
-        "movement": "sleeping" if getattr(agent, "sleeping", False) is True else ("active" if isinstance(getattr(agent, "current_action", None), dict) else "stationary"),
+        "movement": "sleeping" if getattr(agent, "sleeping", False) is True else ("active" if type(getattr(agent, "current_action", None)) is dict else "stationary"),
         "health_reserve": health_reserve,
         "energy_reserve": energy_reserve,
         "hunger_deficit": hunger_deficit,
@@ -382,7 +496,7 @@ def build_perception(world: WorldState, agent: AgentState, radius: int = 10) -> 
         "recent_episode_count": len(safe_episodes),
     }
 
-    recent_events = agent.recent_events if isinstance(agent.recent_events, list) else []
+    recent_events = builtin_sequence(agent.recent_events, limit=4096)
     try:
         hour = round(_safe_number(world.hour()), 1)
     except Exception:
@@ -392,7 +506,7 @@ def build_perception(world: WorldState, agent: AgentState, radius: int = 10) -> 
     except Exception:
         light = None
     return {
-        "awakening": agent.awakening.narrative if isinstance(agent.awakening, object) and not getattr(agent.awakening, "presented", False) else None,
+        "awakening": agent.awakening.narrative if type(agent.awakening) is AwakeningState and agent.awakening.presented is not True else None,
         "body": body,
         "cognitive_tools": cognition_summary,
         "drive_labels": drive_labels(safe_needs),
@@ -400,7 +514,7 @@ def build_perception(world: WorldState, agent: AgentState, radius: int = 10) -> 
         "visible_entities": sorted(entities, key=lambda item: item["distance"])[:12],
         "terrain_summary": terrain_counts,
         "local_tiles": visible_tiles,
-        "underfoot": underfoot.value if isinstance(underfoot, Terrain) else "unknown",
+        "underfoot": underfoot.value if type(underfoot) is Terrain else "unknown",
         "weather": _truncate(getattr(world, "weather", ""), 80),
         "ambient_temperature_c": _safe_number(getattr(world, "ambient_temperature_c", None), 0.0),
         "day": int(_safe_number(getattr(world, "day", None), 0.0)),

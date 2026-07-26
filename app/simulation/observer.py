@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-from collections import deque
-from typing import Any, Mapping
+from dataclasses import is_dataclass
+from typing import Any
 
 from app.serialization import finite_number, json_safe, json_safe_dict
+from app.simulation.agent import AgentState
 from app.simulation.perception import build_perception
+from app.simulation.safe_state import builtin_dict_copy, builtin_dict_get, builtin_sequence, builtin_tail
+from app.simulation.world import WorldState
 
 OBSERVER_RECORD_LIMIT = 4096
 OBSERVER_EVENT_LIMIT = 120
@@ -14,22 +17,22 @@ OBSERVER_SNAPSHOT_LIMIT = 200
 
 def _member(value: Any, name: str, default: Any = None) -> Any:
     try:
-        if isinstance(value, Mapping):
-            return value.get(name, default)
+        if issubclass(type(value), dict):
+            return builtin_dict_get(value, name, default)
         return getattr(value, name, default)
     except Exception:
         return default
 
 
 def _text(value: Any, limit: int = 4000) -> str:
-    if isinstance(value, str):
+    if type(value) is str:
         text = value.replace("\x00", "").strip()
-    elif isinstance(value, int) and not isinstance(value, bool):
+    elif type(value) is int:
         text = str(value)
-    elif isinstance(value, float):
+    elif type(value) is float:
         number = finite_number(value)
         text = "" if number is None else str(number)
-    elif isinstance(value, bool):
+    elif type(value) is bool:
         text = "true" if value else "false"
     else:
         return ""
@@ -40,19 +43,12 @@ def _number(value: Any, default: float | None = None, *, minimum: float | None =
     return finite_number(value, default, minimum=minimum, maximum=maximum)
 
 
-def _mapping(value: Any) -> Mapping[Any, Any]:
-    return value if isinstance(value, Mapping) else {}
+def _mapping(value: Any) -> dict[Any, Any]:
+    return builtin_dict_copy(value, limit=OBSERVER_RECORD_LIMIT)
 
 
 def _tail(value: Any, limit: int) -> list[Any]:
-    if not isinstance(value, (list, tuple, deque)):
-        return []
-    result: deque[Any] = deque(maxlen=max(1, limit))
-    for index, item in enumerate(value):
-        if index >= OBSERVER_RECORD_LIMIT:
-            break
-        result.append(item)
-    return list(result)
+    return builtin_tail(value, limit=max(1, limit), scan_limit=OBSERVER_RECORD_LIMIT)
 
 
 def _safe_call(value: Any, method: str) -> Any:
@@ -81,7 +77,7 @@ def _record_projection(value: Any, fields: tuple[str, ...]) -> dict[str, Any] | 
     if not identity:
         return None
     metadata = _member(value, "metadata")
-    if isinstance(metadata, Mapping):
+    if issubclass(type(metadata), dict):
         result["metadata"] = json_safe_dict(metadata, max_depth=5, max_items=64, max_text=1000, max_nodes=512, max_source_items=1024)
     return result
 
@@ -127,24 +123,26 @@ def _npcs(value: Any) -> list[dict[str, Any]]:
 
 def _safe_records(value: Any, limit: int) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
-    source = value if isinstance(value, (list, tuple, deque)) else []
-    for index, record in enumerate(source):
-        if index >= limit:
-            break
-        if isinstance(record, Mapping):
+    for record in builtin_sequence(value, limit=limit):
+        if issubclass(type(record), dict):
+            projected = json_safe_dict(record, max_depth=8, max_items=128, max_text=4000, max_nodes=2048, max_source_items=4096)
+        elif is_dataclass(record) and not isinstance(record, type):
             projected = json_safe_dict(record, max_depth=8, max_items=128, max_text=4000, max_nodes=2048, max_source_items=4096)
         else:
-            raw = _safe_call(record, "to_dict")
-            projected = json_safe_dict(raw, max_depth=8, max_items=128, max_text=4000, max_nodes=2048, max_source_items=4096) if isinstance(raw, Mapping) else {}
+            projected = {}
         if projected:
             result.append(projected)
     return result
 
 
 def _agent_projection(agent: Any) -> dict[str, Any]:
-    raw = _safe_call(agent, "to_dict")
-    if isinstance(raw, Mapping):
-        return json_safe_dict(raw, max_depth=10, max_items=10000, max_text=4000, max_nodes=100000, max_source_items=120000)
+    if type(agent) is AgentState:
+        try:
+            raw = agent.to_dict()
+        except Exception:
+            raw = None
+        if type(raw) is dict:
+            return json_safe_dict(raw, max_depth=10, max_items=10000, max_text=4000, max_nodes=100000, max_source_items=120000)
     fields = (
         "name", "x", "y", "facing", "health", "energy", "hunger", "hydration",
         "body_temperature_c", "sleep_pressure", "pain", "injury", "inventory", "inventory_capacity",
@@ -154,13 +152,17 @@ def _agent_projection(agent: Any) -> dict[str, Any]:
 
 
 def _world_projection(world: Any, *, include_map: bool) -> dict[str, Any]:
-    try:
-        hour = _number(world.hour())
-    except Exception:
+    if type(world) is WorldState:
+        try:
+            hour = _number(world.hour())
+        except Exception:
+            hour = None
+        try:
+            daylight = _number(world.daylight())
+        except Exception:
+            daylight = None
+    else:
         hour = None
-    try:
-        daylight = _number(world.daylight())
-    except Exception:
         daylight = None
     result = {
         "seed": _number(_member(world, "seed"), 0.0),

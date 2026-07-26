@@ -41,7 +41,7 @@ async def consolidate_sleep(
     verified_memories = [
         record.to_dict()
         for record in vault.list_records()
-        if verify_memory_record(runtime_dir, record, key)
+        if verify_memory_record(runtime_dir, record, key, authority=agent)
     ][-12:]
     result = await brain.consolidate(
         {
@@ -63,6 +63,7 @@ async def consolidate_sleep(
                 key,
                 "validated_consolidation",
                 source_ref=f"consolidation:{sim_time:.3f}:{record.id}",
+                authority=agent,
             ):
                 written.append(record)
             else:
@@ -87,6 +88,7 @@ async def consolidate_sleep(
                 "validated_consolidation",
                 source_type="reflection",
                 source_ref=f"consolidation:{sim_time:.3f}:{safe_key}",
+                authority=agent,
             )
     if result.value.next_intention:
         agent.current_intention = result.value.next_intention

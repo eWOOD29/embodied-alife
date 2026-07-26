@@ -4,6 +4,7 @@ from typing import Any
 
 from app.serialization import finite_number
 from app.simulation.agent import AgentState
+from app.simulation.safe_state import builtin_dict_copy, builtin_sequence
 from app.simulation.world import Terrain, WorldState
 
 INTERACTION_RADIUS = 2.2
@@ -15,9 +16,9 @@ INVENTORY_LIMIT = 64
 
 
 def _text(value: Any, limit: int = 160) -> str:
-    if isinstance(value, str):
+    if type(value) is str:
         return value.strip()[:limit]
-    if isinstance(value, int) and not isinstance(value, bool):
+    if type(value) is int:
         return str(value)[:limit]
     return ""
 
@@ -44,15 +45,11 @@ def _flag(value: Any) -> bool:
 
 
 def _mapping(value: Any) -> dict[Any, Any]:
-    return value if isinstance(value, dict) else {}
+    return builtin_dict_copy(value, limit=256)
 
 
 def _sequence(value: Any) -> list[Any]:
-    if isinstance(value, list):
-        return value
-    if isinstance(value, tuple):
-        return list(value[:TARGET_LIMIT])
-    return []
+    return builtin_sequence(value, limit=TARGET_LIMIT)
 
 
 def _inventory(value: Any) -> dict[str, int]:
@@ -97,7 +94,7 @@ def build_action_affordances(
     perception: dict[str, Any],
 ) -> dict[str, Any]:
     """Translate deterministic constraints using only normalized local values."""
-    safe_perception = perception if isinstance(perception, dict) else {}
+    safe_perception = builtin_dict_copy(perception, limit=256)
 
     hunger_deficit = _number(getattr(agent, "hunger", None), 0.0, minimum=0.0, maximum=100.0) or 0.0
     satiety = max(0.0, 100.0 - hunger_deficit)
@@ -116,8 +113,9 @@ def build_action_affordances(
     targets: dict[str, dict[str, Any]] = {}
     visible_objects = _sequence(safe_perception.get("visible_objects"))
     for raw in visible_objects[:TARGET_LIMIT]:
-        if not isinstance(raw, dict):
+        if not issubclass(type(raw), dict):
             continue
+        raw = builtin_dict_copy(raw, limit=64)
         target_id = _text(raw.get("id"), 160)
         if not target_id or target_id in targets:
             continue
@@ -164,8 +162,9 @@ def build_action_affordances(
 
     visible_entities = _sequence(safe_perception.get("visible_entities"))
     for raw in visible_entities[:TARGET_LIMIT]:
-        if not isinstance(raw, dict):
+        if not issubclass(type(raw), dict):
             continue
+        raw = builtin_dict_copy(raw, limit=64)
         target_id = _text(raw.get("id"), 160)
         if not target_id or target_id in targets:
             continue
@@ -232,7 +231,7 @@ def build_action_affordances(
         "can_build_now": can_build,
         "build_requirements": {
             "required": {"branch": 3, "stone": 2},
-            "underfoot": underfoot.value if isinstance(underfoot, Terrain) else "unknown",
+            "underfoot": underfoot.value if type(underfoot) is Terrain else "unknown",
         },
         "guidance": [
             "Treat executable_now as a hard constraint for target-specific actions.",

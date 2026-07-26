@@ -15,6 +15,7 @@ from app.simulation.cognition import (
     starter_key_items,
     starter_tasks,
 )
+from app.simulation.safe_state import builtin_collection
 
 
 @dataclass(slots=True)
@@ -24,9 +25,9 @@ class InventoryItem:
 
 
 def _scalar_text(value: Any, limit: int = 160) -> str:
-    if isinstance(value, str):
+    if type(value) is str:
         return value[:limit]
-    if isinstance(value, int) and not isinstance(value, bool):
+    if type(value) is int:
         return str(value)[:limit]
     return ""
 
@@ -95,22 +96,11 @@ def _number_mapping(value: Any, limit: int = 1000) -> dict[str, float]:
 
 
 def _string_list(value: Any, limit: int) -> list[str]:
-    if not isinstance(value, (list, tuple, set, frozenset)):
-        return []
-    if isinstance(value, (set, frozenset)):
-        iterable = sorted(
-            (raw for raw in value if isinstance(raw, (str, int)) and not isinstance(raw, bool)),
-            key=lambda raw: (type(raw).__name__, raw),
-        )
-    else:
-        iterable = value
     result: list[str] = []
-    for raw in iterable:
+    for raw in builtin_collection(value, limit=limit):
         item = _scalar_text(raw, 4000)
         if item:
             result.append(item)
-        if len(result) >= limit:
-            break
     return result
 
 
@@ -185,6 +175,9 @@ class AgentState:
     decision_source: str = "fallback"
     ari_knowledge_proofs: dict[str, dict[str, Any]] = field(default_factory=dict)
     _ari_integrity_key: bytes | None = field(default=None, repr=False, compare=False)
+    _ari_authority_epoch: str | None = field(default=None, repr=False, compare=False)
+    _ari_authority_run_id: str | None = field(default=None, repr=False, compare=False)
+    _ari_authority_world_generation_id: str | None = field(default=None, repr=False, compare=False)
 
     def __setattr__(self, name: str, value: Any) -> None:
         if name == "beliefs" and not isinstance(value, BeliefStore):
@@ -228,14 +221,7 @@ class AgentState:
             for field_info in fields(self)
             if not field_info.name.startswith("_")
         }
-        explored = self.explored if isinstance(self.explored, (list, tuple, set, frozenset)) else []
-        safe_explored = []
-        for raw in explored:
-            item = _scalar_text(raw)
-            if item:
-                safe_explored.append(item)
-            if len(safe_explored) >= 10000:
-                break
+        safe_explored = _string_list(self.explored, 10000)
         data["explored"] = sorted(set(safe_explored))
         return json_safe_dict(
             data,
