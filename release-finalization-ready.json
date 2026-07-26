@@ -1,0 +1,65 @@
+{
+  "artifact": {
+    "candidate_zip_members": 119,
+    "candidate_zip_sha256": "4f44cbaa76786136fa6e62e3d2f7517cf0574849b672e67185ddfa64b831c483",
+    "candidate_zip_size": 242052,
+    "expired": false,
+    "expires_at": "2026-10-23T19:31:22Z",
+    "id": 8623114889,
+    "name": "post8-exact-head-evidence-3fb63ef",
+    "outer_sha256": "fe05afd146f75a0229aab3cdfbbcb8b7cf1f7846f2b53acef7864010fa4f7f73",
+    "size": 264963
+  },
+  "base_sha": "a51d589268cd889d5f84c5c611c4e08cb3a25602",
+  "branch": "agent/v0.4.0-post8-remediation",
+  "candidate_sha": "3fb63ef571f9bda5a6709d78a5acb68c28e4786e",
+  "closed_unmerged_prs": {
+    "21": {
+      "head_sha": "7fd1e3eaea1048cdc4b8ddc0072a4c2fdb5bcb6e",
+      "merged": false,
+      "state": "closed"
+    },
+    "23": {
+      "head_sha": "1a45c3f83343648f8f9f3bffaaf6951449029f6c",
+      "merged": false,
+      "state": "closed"
+    },
+    "25": {
+      "head_sha": "174723fa613802e92e2d8081fb898331f1d427d3",
+      "merged": false,
+      "state": "closed"
+    }
+  },
+  "historical_release_count": 18,
+  "historical_tag_count": 19,
+  "parent_sha": "7fd1e3eaea1048cdc4b8ddc0072a4c2fdb5bcb6e",
+  "post8_delta": {
+    "changed_files": 12,
+    "commits": 1,
+    "files": [
+      ".github/workflows/tests.yml",
+      "CHANGELOG.md",
+      "app/simulation/agent.py",
+      "app/simulation/perception.py",
+      "app/simulation/safe_state.py",
+      "app/simulation/world.py",
+      "app/version.py",
+      "pyproject.toml",
+      "scripts/validate_candidate_archive.py",
+      "tests/test_v040_post7_version.py",
+      "tests/test_v040_post8_remediation.py",
+      "tests/test_v040_post8_version.py"
+    ]
+  },
+  "pr": {
+    "draft": true,
+    "mergeable": true,
+    "merged": false,
+    "number": 24,
+    "state": "open"
+  },
+  "release_absent": true,
+  "stage": "preflight-live-state",
+  "status": "PASS",
+  "tag_absent": true
+}
