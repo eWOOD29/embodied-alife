@@ -1,0 +1,49 @@
+name: post8-release-finalization-pr-trigger
+
+on:
+  pull_request:
+    branches:
+      - agent/v0.4.0-post8-remediation
+    paths:
+      - .github/workflows/post8-release-finalization-pr-trigger.yml
+
+permissions:
+  contents: write
+  actions: write
+  pull-requests: read
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: eWOOD29/embodied-alife
+      TEMP_BRANCH: ops/post8-release-finalization-3fb63ef
+      CANDIDATE_SHA: 3fb63ef571f9bda5a6709d78a5acb68c28e4786e
+      POST7_SHA: 7fd1e3eaea1048cdc4b8ddc0072a4c2fdb5bcb6e
+      BASE_SHA: a51d589268cd889d5f84c5c611c4e08cb3a25602
+      TAG: v0.4.0.post8
+      ARTIFACT_ID: "8623114889"
+      OUTER_SHA256: fe05afd146f75a0229aab3cdfbbcb8b7cf1f7846f2b53acef7864010fa4f7f73
+      UPDATE_SHA256: 4f44cbaa76786136fa6e62e3d2f7517cf0574849b672e67185ddfa64b831c483
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ops/post8-release-finalization-3fb63ef
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Recover and run exact-byte finalizer
+        shell: bash
+        run: |
+          python - <<'PY'
+          import base64, gzip
+          from pathlib import Path
+          text = Path('.github/workflows/post8-release-finalization-temp.yml').read_text(encoding='utf-8')
+          payload = text.split("<<'PAYLOAD'", 1)[1].split('\n          PAYLOAD', 1)[0]
+          encoded = ''.join(line.strip() for line in payload.splitlines())
+          Path('/tmp/post8_finalize.py').write_bytes(gzip.decompress(base64.b64decode(encoded)))
+          PY
+          python /tmp/post8_finalize.py
