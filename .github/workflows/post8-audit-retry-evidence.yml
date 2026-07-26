@@ -1,0 +1,400 @@
+name: post8-published-byte-audit-retry-evidence
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+jobs:
+  acquire-and-verify:
+    if: github.event.pull_request.head.ref == 'audit/post8-published-byte-retry'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      REPO: eWOOD29/embodied-alife
+      TAG: v0.4.0.post8
+      CANDIDATE_SHA: 3fb63ef571f9bda5a6709d78a5acb68c28e4786e
+      MERGE_SHA: 65ed0a371ed1257254ac9f2f0777e17244ecf122
+      BASE_SHA: a51d589268cd889d5f84c5c611c4e08cb3a25602
+      TREE_SHA: 98a54f8b4155921bf65a5bc8913040d63a7ae57c
+      ARTIFACT_ID: '8623114889'
+      REQUIRED_OUTER_SHA: fe05afd146f75a0229aab3cdfbbcb8b7cf1f7846f2b53acef7864010fa4f7f73
+      REQUIRED_UPDATE_SHA: 4f44cbaa76786136fa6e62e3d2f7517cf0574849b672e67185ddfa64b831c483
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Acquire live public objects and retained artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          api() {
+            curl --retry 4 --retry-all-errors -fsSL \
+              -H 'Accept: application/vnd.github+json' \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "https://api.github.com/repos/${REPO}$1"
+          }
+          api "/releases/tags/${TAG}" > evidence/release-tag.json
+          api "/releases/latest" > evidence/release-latest.json
+          api "/releases?per_page=100" > evidence/releases-all.json
+          api "/tags?per_page=100" > evidence/tags-all.json
+          api "/pulls/24" > evidence/pr-24.json
+          api "/pulls/26" > evidence/pr-26.json
+          api "/pulls/27" > evidence/pr-27.json
+          api "/commits/${CANDIDATE_SHA}" > evidence/candidate-commit.json
+          api "/commits/${MERGE_SHA}" > evidence/merge-commit.json
+          api "/commits/${TAG}" > evidence/tag-commit.json
+          api "/branches/main" > evidence/main-branch.json
+          api "/branches/ops/post8-release-finalization-3fb63ef" > evidence/controller-branch.json
+          api "/git/ref/tags/${TAG}" > evidence/tag-ref.json
+
+          curl --retry 4 --retry-all-errors -fsSL \
+            "https://github.com/${REPO}/releases/download/${TAG}/embodied-alife-update.zip" \
+            -o evidence/tag-updater.zip
+          curl --retry 4 --retry-all-errors -fsSL \
+            "https://github.com/${REPO}/releases/download/${TAG}/embodied-alife-update.zip.sha256" \
+            -o evidence/tag-updater.zip.sha256
+          curl --retry 4 --retry-all-errors -fsSL \
+            "https://github.com/${REPO}/releases/latest/download/embodied-alife-update.zip" \
+            -o evidence/latest-updater.zip
+          curl --retry 4 --retry-all-errors -fsSL \
+            -H 'Accept: application/octet-stream' \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/${REPO}/actions/artifacts/${ARTIFACT_ID}/zip" \
+            -o evidence/retained-artifact.zip
+          curl --retry 4 --retry-all-errors -fsSL \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/${REPO}/tarball/${TAG}" \
+            -o evidence/tag-source.tar.gz
+
+      - name: Analyze exact bytes, source, updater path, privacy, cleanup, and history
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/post8_audit_retry.py <<'PY'
+          from __future__ import annotations
+
+          import hashlib
+          import importlib.util
+          import json
+          import os
+          import re
+          import stat
+          import subprocess
+          import sys
+          import tarfile
+          import tempfile
+          import zipfile
+          from pathlib import Path, PurePosixPath
+
+          E = Path('evidence')
+          REQUIRED_UPDATE = os.environ['REQUIRED_UPDATE_SHA']
+          REQUIRED_OUTER = os.environ['REQUIRED_OUTER_SHA']
+          CANDIDATE = os.environ['CANDIDATE_SHA']
+          MERGE = os.environ['MERGE_SHA']
+          BASE = os.environ['BASE_SHA']
+          TREE = os.environ['TREE_SHA']
+          TAG = os.environ['TAG']
+          EXPECTED_CHECKSUM = f'{REQUIRED_UPDATE}  embodied-alife-update.zip\n'
+          RESERVED = {'CON','PRN','AUX','NUL'} | {f'COM{i}' for i in range(1,10)} | {f'LPT{i}' for i in range(1,10)}
+
+          def load(name: str):
+              return json.loads((E / name).read_text(encoding='utf-8'))
+
+          def sha(path: Path) -> str:
+              h = hashlib.sha256()
+              with path.open('rb') as f:
+                  for chunk in iter(lambda: f.read(1024 * 1024), b''):
+                      h.update(chunk)
+              return h.hexdigest()
+
+          def ensure(condition: bool, label: str, failures: list[str]):
+              if not condition:
+                  failures.append(label)
+
+          failures: list[str] = []
+          release = load('release-tag.json')
+          latest = load('release-latest.json')
+          pr24, pr26, pr27 = load('pr-24.json'), load('pr-26.json'), load('pr-27.json')
+          candidate_commit = load('candidate-commit.json')
+          merge_commit = load('merge-commit.json')
+          tag_commit = load('tag-commit.json')
+          main_branch = load('main-branch.json')
+          controller_branch = load('controller-branch.json')
+          tag_ref = load('tag-ref.json')
+          releases = load('releases-all.json')
+          tags = load('tags-all.json')
+
+          tag_zip = E / 'tag-updater.zip'
+          latest_zip = E / 'latest-updater.zip'
+          checksum_path = E / 'tag-updater.zip.sha256'
+          artifact_zip = E / 'retained-artifact.zip'
+          tag_source = E / 'tag-source.tar.gz'
+
+          tag_sha = sha(tag_zip)
+          latest_sha = sha(latest_zip)
+          outer_sha = sha(artifact_zip)
+          checksum_bytes = checksum_path.read_bytes()
+
+          with zipfile.ZipFile(artifact_zip) as outer:
+              bad_outer = outer.testzip()
+              outer_names = outer.namelist()
+              retained_bytes = outer.read('embodied-alife-update.zip')
+          retained_sha = hashlib.sha256(retained_bytes).hexdigest()
+          retained_path = E / 'retained-updater.zip'
+          retained_path.write_bytes(retained_bytes)
+
+          assets = {item['name']: item for item in release.get('assets', [])}
+          package_asset = assets.get('embodied-alife-update.zip', {})
+          checksum_asset = assets.get('embodied-alife-update.zip.sha256', {})
+
+          ensure(release.get('id') == 359896955, 'release ID mismatch', failures)
+          ensure(release.get('tag_name') == TAG, 'release tag mismatch', failures)
+          ensure(release.get('name') == 'Embodied ALife v0.4.0.post8', 'release title mismatch', failures)
+          ensure(release.get('target_commitish') == MERGE, 'release target mismatch', failures)
+          ensure(release.get('draft') is False, 'release is draft', failures)
+          ensure(release.get('prerelease') is False, 'release is prerelease', failures)
+          ensure(latest.get('id') == release.get('id') and latest.get('tag_name') == TAG, 'latest release does not resolve to Post8', failures)
+          ensure(package_asset.get('id') == 489911673, 'updater asset ID mismatch', failures)
+          ensure(package_asset.get('name') == 'embodied-alife-update.zip', 'updater asset name mismatch', failures)
+          ensure(package_asset.get('size') == 242052, 'updater asset size mismatch', failures)
+          ensure(package_asset.get('content_type') == 'application/zip', 'updater content type mismatch', failures)
+          ensure(package_asset.get('created_at') == package_asset.get('updated_at'), 'updater asset appears replaced', failures)
+          ensure(checksum_asset.get('id') == 489911677, 'checksum asset ID mismatch', failures)
+          ensure(checksum_asset.get('size') == 92, 'checksum asset size mismatch', failures)
+          ensure(checksum_asset.get('content_type') == 'text/plain', 'checksum content type mismatch', failures)
+          ensure(checksum_asset.get('created_at') == checksum_asset.get('updated_at'), 'checksum asset appears replaced', failures)
+          digest = str(package_asset.get('digest') or '')
+          if digest:
+              ensure(digest == f'sha256:{REQUIRED_UPDATE}', 'GitHub asset digest mismatch', failures)
+
+          ensure(tag_sha == REQUIRED_UPDATE, 'tag-specific updater hash mismatch', failures)
+          ensure(latest_sha == REQUIRED_UPDATE, 'latest updater hash mismatch', failures)
+          ensure(tag_zip.read_bytes() == latest_zip.read_bytes(), 'tag/latest updater bytes differ', failures)
+          ensure(outer_sha == REQUIRED_OUTER, 'retained artifact outer hash mismatch', failures)
+          ensure(artifact_zip.stat().st_size == 264963, 'retained artifact size mismatch', failures)
+          ensure(bad_outer is None, 'retained artifact ZIP integrity failure', failures)
+          ensure(len(outer_names) == len(set(outer_names)) == 40, 'retained artifact member count mismatch', failures)
+          ensure(retained_sha == REQUIRED_UPDATE, 'retained updater hash mismatch', failures)
+          ensure(retained_bytes == tag_zip.read_bytes(), 'retained/public updater bytes differ', failures)
+          ensure(checksum_bytes == EXPECTED_CHECKSUM.encode('utf-8'), 'checksum text mismatch', failures)
+          ensure(tag_zip.stat().st_size == package_asset.get('size'), 'downloaded updater size mismatch', failures)
+          ensure(checksum_path.stat().st_size == checksum_asset.get('size'), 'downloaded checksum size mismatch', failures)
+
+          parents = [p.get('sha') for p in merge_commit.get('parents', [])]
+          ensure(pr24.get('state') == 'closed' and pr24.get('merged_at') is not None, 'PR 24 not closed/merged', failures)
+          ensure(pr24.get('head', {}).get('sha') == CANDIDATE, 'PR 24 head mismatch', failures)
+          ensure(pr24.get('merge_commit_sha') == MERGE, 'PR 24 merge SHA mismatch', failures)
+          ensure(parents == [BASE, CANDIDATE], 'merge parent order mismatch', failures)
+          ensure(candidate_commit.get('commit', {}).get('tree', {}).get('sha') == TREE, 'candidate tree mismatch', failures)
+          ensure(merge_commit.get('commit', {}).get('tree', {}).get('sha') == TREE, 'merge tree mismatch', failures)
+          ensure(main_branch.get('commit', {}).get('sha') == MERGE, 'main moved beyond required merge', failures)
+          ensure(tag_commit.get('sha') == MERGE, 'tag commit mismatch', failures)
+          ref_obj = tag_ref.get('object', {})
+          ensure(ref_obj.get('sha') == MERGE or tag_commit.get('sha') == MERGE, 'tag ref does not resolve to merge', failures)
+
+          with tempfile.TemporaryDirectory(prefix='post8-audit-') as td:
+              root = Path(td)
+              source_dir = root / 'source'
+              staged_dir = root / 'staged'
+              source_dir.mkdir()
+              with tarfile.open(tag_source, 'r:gz') as tf:
+                  tf.extractall(source_dir, filter='data')
+              entries = list(source_dir.iterdir())
+              source_root = entries[0] if len(entries) == 1 and entries[0].is_dir() else source_dir
+
+              with zipfile.ZipFile(tag_zip) as z:
+                  bad_member = z.testzip()
+                  infos = z.infolist()
+                  names = [i.filename for i in infos]
+                  manifest = json.loads(z.read('update-manifest.json').decode('utf-8'))
+                  managed = manifest.get('managed_paths')
+                  source_mismatches = []
+                  for path in managed if isinstance(managed, list) else []:
+                      source_path = source_root / path
+                      if not source_path.is_file() or source_path.read_bytes() != z.read(path):
+                          source_mismatches.append(path)
+                  z.extractall(staged_dir)
+
+              unsafe = []
+              symlinks = []
+              protected = []
+              for info in infos:
+                  n = info.filename
+                  p = PurePosixPath(n)
+                  parts = p.parts
+                  stem = parts[-1].split('.')[0].upper() if parts else ''
+                  if (p.is_absolute() or not parts or any(x in {'', '.', '..'} for x in parts)
+                          or '\\' in n or '\x00' in n or ':' in parts[0] or stem in RESERVED):
+                      unsafe.append(n)
+                  mode = info.external_attr >> 16
+                  if mode and stat.S_ISLNK(mode):
+                      symlinks.append(n)
+              for p in managed if isinstance(managed, list) else []:
+                  if p in {'.env','.venv','data','.git'} or p.startswith(('.venv/','data/','.git/')):
+                      protected.append(p)
+
+              ensure(bad_member is None, 'public ZIP integrity failure', failures)
+              ensure(len(names) == len(set(names)) == 119, 'public ZIP member count mismatch', failures)
+              ensure(isinstance(managed, list) and len(managed) == 118, 'managed file count mismatch', failures)
+              ensure(set(managed or []) == (set(names) - {'update-manifest.json'}), 'managed paths do not reconcile', failures)
+              ensure(manifest.get('schema_version') == 1, 'manifest schema mismatch', failures)
+              ensure(manifest.get('app_id') == 'embodied-alife', 'manifest app ID mismatch', failures)
+              ensure(manifest.get('version') == '0.4.0.post8', 'manifest version mismatch', failures)
+              ensure(manifest.get('preserved_roots') == ['.env','.venv','data','.git'], 'preserved roots mismatch', failures)
+              ensure(manifest.get('entrypoint') == ['.venv/Scripts/python.exe','-m','app.serve'], 'entrypoint mismatch', failures)
+              ensure(not unsafe and not symlinks and not protected, 'unsafe/protected archive path found', failures)
+              ensure(not source_mismatches, 'managed source equivalence mismatch', failures)
+
+              app_version = (staged_dir / 'app/version.py').read_text(encoding='utf-8')
+              pyproject = (staged_dir / 'pyproject.toml').read_text(encoding='utf-8')
+              ensure('0.4.0.post8' in app_version, 'embedded app version mismatch', failures)
+              ensure('version = "0.4.0.post8"' in pyproject, 'embedded pyproject version mismatch', failures)
+
+              sys.path.insert(0, str(source_root))
+              from app.updater.security import inspect_update_archive, parse_checksum, extract_update_archive
+              parsed_hash = parse_checksum(checksum_path.read_text(encoding='utf-8'), 'embodied-alife-update.zip')
+              production_manifest = inspect_update_archive(tag_zip, max_uncompressed_bytes=200_000_000, expected_version='0.4.0.post8')
+              production_stage = root / 'production-stage'
+              extract_update_archive(tag_zip, production_stage)
+              ensure(parsed_hash == REQUIRED_UPDATE, 'production checksum parser rejected hash', failures)
+              ensure(production_manifest.get('version') == '0.4.0.post8', 'production validator rejected manifest', failures)
+              ensure((production_stage / 'update-manifest.json').is_file(), 'verified staging extraction failed', failures)
+
+              privacy_spec = importlib.util.spec_from_file_location('privacy_scan', source_root / 'scripts/privacy_scan.py')
+              privacy_module = importlib.util.module_from_spec(privacy_spec)
+              assert privacy_spec and privacy_spec.loader
+              privacy_spec.loader.exec_module(privacy_module)
+              privacy_findings = privacy_module.scan_tree(staged_dir, include_runtime=True)
+              ensure(not privacy_findings, 'privacy scanner findings present', failures)
+
+              forbidden_members = [n for n in names if any(part in {'.git','.venv','data','dist','__pycache__','.pytest_cache','.ruff_cache'} for part in PurePosixPath(n).parts)]
+              temp_names = [n for n in names if any(token in n.lower() for token in ('audit-retry-evidence','release-finalization-temp','release-finalization-evidence','controller'))]
+              ensure(not forbidden_members and not temp_names, 'runtime or temporary artifact in updater', failures)
+
+              temp_workflow = '.github/workflows/post8-audit-retry-evidence.yml'
+              tag_names = set(p.relative_to(source_root).as_posix() for p in source_root.rglob('*') if p.is_file())
+              ensure(temp_workflow not in tag_names, 'temporary audit workflow present in tag', failures)
+              ensure('.github/workflows/post8-release-finalization-temp.yml' not in tag_names, 'temporary finalizer workflow present in tag', failures)
+
+          ensure(pr26.get('state') == 'closed' and pr26.get('merged_at') is None, 'PR 26 cleanup mismatch', failures)
+          ensure(pr27.get('state') == 'closed' and pr27.get('merged_at') is None, 'PR 27 cleanup mismatch', failures)
+          ensure(controller_branch.get('commit', {}).get('sha') == CANDIDATE, 'controller branch not reset to candidate', failures)
+
+          historical_releases = [r for r in releases if r.get('tag_name') != TAG]
+          historical_tags = [t for t in tags if t.get('name') != TAG]
+          post8_published = release.get('published_at') or ''
+          modified_after_post8 = []
+          unavailable_assets = []
+          for r in historical_releases:
+              if str(r.get('updated_at') or '') > post8_published:
+                  modified_after_post8.append(f"release:{r.get('id')}")
+              for a in r.get('assets', []):
+                  if str(a.get('updated_at') or '') > post8_published:
+                      modified_after_post8.append(f"asset:{a.get('id')}")
+                  url = a.get('browser_download_url')
+                  if url:
+                      code = subprocess.run(['curl','--retry','2','--retry-all-errors','-fsSL','-r','0-0','-o','/dev/null','-w','%{http_code}',url], capture_output=True, text=True).stdout.strip()
+                      if code not in {'200','206'}:
+                          unavailable_assets.append({'id': a.get('id'), 'code': code})
+          ensure(len(historical_releases) == 18, 'historical release count mismatch', failures)
+          ensure(len(historical_tags) == 19, 'historical tag count mismatch', failures)
+          ensure(not modified_after_post8, 'historical object updated after Post8 publication', failures)
+          ensure(not unavailable_assets, 'historical asset unavailable', failures)
+
+          notes = str(release.get('body') or '')
+          lower_notes = notes.lower()
+          bad_claims = []
+          for phrase in ('v0.4.1 complete','v0.4.1 completed','post9 complete','post9 completed','locally validated on windows','project acceptance complete'):
+              if phrase in lower_notes:
+                  bad_claims.append(phrase)
+          ensure(not bad_claims, 'release notes overclaim later/local acceptance', failures)
+
+          result = {
+              'verdict': 'PASS' if not failures else 'FAIL',
+              'failures': failures,
+              'source_identity': {
+                  'pr24_merged': pr24.get('merged_at') is not None,
+                  'candidate': CANDIDATE,
+                  'merge': MERGE,
+                  'parents': parents,
+                  'candidate_tree': candidate_commit.get('commit', {}).get('tree', {}).get('sha'),
+                  'merge_tree': merge_commit.get('commit', {}).get('tree', {}).get('sha'),
+                  'main': main_branch.get('commit', {}).get('sha'),
+                  'tag_commit': tag_commit.get('sha'),
+              },
+              'release': {
+                  'id': release.get('id'), 'tag': release.get('tag_name'), 'name': release.get('name'),
+                  'draft': release.get('draft'), 'prerelease': release.get('prerelease'),
+                  'target_commitish': release.get('target_commitish'), 'published_at': release.get('published_at'),
+                  'latest_id': latest.get('id'), 'notes': notes,
+              },
+              'assets': {
+                  'package': {k: package_asset.get(k) for k in ('id','name','size','content_type','created_at','updated_at','digest','browser_download_url')},
+                  'checksum': {k: checksum_asset.get(k) for k in ('id','name','size','content_type','created_at','updated_at','digest','browser_download_url')},
+              },
+              'bytes': {
+                  'tag_updater_sha256': tag_sha, 'latest_updater_sha256': latest_sha,
+                  'retained_outer_sha256': outer_sha, 'retained_updater_sha256': retained_sha,
+                  'tag_latest_equal': tag_zip.read_bytes() == latest_zip.read_bytes(),
+                  'public_retained_equal': retained_bytes == tag_zip.read_bytes(),
+                  'checksum_text': checksum_path.read_text(encoding='utf-8'),
+              },
+              'archive': {
+                  'members': len(names), 'unique_members': len(set(names)), 'managed_files': len(managed or []),
+                  'manifest_keys': sorted(manifest.keys()), 'schema_version': manifest.get('schema_version'),
+                  'app_id': manifest.get('app_id'), 'version': manifest.get('version'),
+                  'preserved_roots': manifest.get('preserved_roots'), 'entrypoint': manifest.get('entrypoint'),
+                  'unsafe_paths': unsafe, 'symlinks': symlinks, 'protected_managed': protected,
+                  'source_mismatches': source_mismatches, 'privacy_findings': privacy_findings,
+                  'production_validator': production_manifest.get('version'), 'staged_without_install': True,
+              },
+              'cleanup': {
+                  'pr26_closed_unmerged': pr26.get('state') == 'closed' and pr26.get('merged_at') is None,
+                  'pr27_closed_unmerged': pr27.get('state') == 'closed' and pr27.get('merged_at') is None,
+                  'controller_branch_sha': controller_branch.get('commit', {}).get('sha'),
+              },
+              'history': {
+                  'release_count_excluding_post8': len(historical_releases),
+                  'tag_count_excluding_post8': len(historical_tags),
+                  'modified_after_post8': modified_after_post8,
+                  'unavailable_assets': unavailable_assets,
+                  'releases': [{'id': r.get('id'), 'tag': r.get('tag_name'), 'updated_at': r.get('updated_at'),
+                                'assets': [{'id': a.get('id'), 'name': a.get('name'), 'size': a.get('size'), 'updated_at': a.get('updated_at')} for a in r.get('assets', [])]}
+                               for r in historical_releases],
+                  'tags': historical_tags,
+              },
+          }
+          (E / 'audit-results.json').write_text(json.dumps(result, indent=2, sort_keys=True), encoding='utf-8')
+          (E / 'sha256sums.txt').write_text(
+              f'{tag_sha}  tag-updater.zip\n{latest_sha}  latest-updater.zip\n{outer_sha}  retained-artifact.zip\n{retained_sha}  retained-updater.zip\n',
+              encoding='utf-8')
+          print(json.dumps({'verdict': result['verdict'], 'failure_count': len(failures), 'failures': failures}, indent=2))
+          if failures:
+              raise SystemExit(1)
+          PY
+          python /tmp/post8_audit_retry.py
+
+      - name: Upload independently inspectable evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: post8-published-byte-audit-retry-evidence
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 30
