@@ -16,43 +16,30 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - name: Diagnose and apply tested Post9 patch
+      - name: Verify patch and stage non-workflow tree
         shell: bash
         run: |
-          set -uo pipefail
+          set -euo pipefail
           mkdir -p /tmp/post9-bootstrap-diagnostics
-          {
-            echo "checked_out=$(git rev-parse HEAD)"
-            find .post9-bootstrap -maxdepth 1 -type f -printf '%f %s\n' | sort
-            cat .post9-bootstrap/0* > /tmp/post9.diff.xz.b64
-            echo "base64_bytes=$(wc -c < /tmp/post9.diff.xz.b64)"
-            sha256sum /tmp/post9.diff.xz.b64
-            base64 -d /tmp/post9.diff.xz.b64 > /tmp/post9.diff.xz
-            echo "xz_bytes=$(wc -c < /tmp/post9.diff.xz)"
-            sha256sum /tmp/post9.diff.xz
-            xz -dc /tmp/post9.diff.xz > /tmp/post9.diff
-            echo "diff_bytes=$(wc -c < /tmp/post9.diff)"
-            sha256sum /tmp/post9.diff
-          } 2>&1 | tee /tmp/post9-bootstrap-diagnostics/transfer.txt
-          transfer=${PIPESTATUS[0]}
-          if [ "$transfer" -ne 0 ]; then exit "$transfer"; fi
-          echo '0adb361684361471e51a85be53662c0730f41634ffe3330742217ded873dfa53  /tmp/post9.diff.xz.b64' | sha256sum -c - | tee -a /tmp/post9-bootstrap-diagnostics/transfer.txt
+          cat .post9-bootstrap/0* > /tmp/post9.diff.xz.b64
+          echo '0adb361684361471e51a85be53662c0730f41634ffe3330742217ded873dfa53  /tmp/post9.diff.xz.b64' | sha256sum -c - | tee /tmp/post9-bootstrap-diagnostics/transfer.txt
+          base64 -d /tmp/post9.diff.xz.b64 > /tmp/post9.diff.xz
           echo 'c282ce09bde5bc34ddd23fd642efc631d90fff70ad7ff38fe8128ac42fcc6ea4  /tmp/post9.diff.xz' | sha256sum -c - | tee -a /tmp/post9-bootstrap-diagnostics/transfer.txt
+          xz -dc /tmp/post9.diff.xz > /tmp/post9.diff
           echo '617ab351de6d3f08680026a9b329a2f1c0592a5b88198f49b45e366a7710f7ad  /tmp/post9.diff' | sha256sum -c - | tee -a /tmp/post9-bootstrap-diagnostics/transfer.txt
-          set -e
-          git fetch origin agent/v0.4.0-post9-remediation
-          git checkout agent/v0.4.0-post9-remediation
+          git fetch origin ops/post9-staged-code
+          git checkout -B post9-staged origin/ops/post9-staged-code
           test "$(git rev-parse HEAD)" = '65ed0a371ed1257254ac9f2f0777e17244ecf122'
           git apply --check /tmp/post9.diff
           git apply /tmp/post9.diff
-          git add .github/workflows/tests.yml CHANGELOG.md app/simulation/scheduler.py app/version.py pyproject.toml scripts/validate_candidate_archive.py tests/test_v040_post8_version.py tests/test_v040_post9_remediation.py tests/test_v040_post9_version.py
+          git restore .github/workflows/tests.yml
+          git add CHANGELOG.md app/simulation/scheduler.py app/version.py pyproject.toml scripts/validate_candidate_archive.py tests/test_v040_post8_version.py tests/test_v040_post9_remediation.py tests/test_v040_post9_version.py
           git diff --cached --name-only | tee /tmp/post9-bootstrap-diagnostics/changed-files.txt
-          test "$(git diff --cached --name-only | wc -l)" = '9'
-          git diff --cached --name-only | diff -u <(printf '%s\n' '.github/workflows/tests.yml' 'CHANGELOG.md' 'app/simulation/scheduler.py' 'app/version.py' 'pyproject.toml' 'scripts/validate_candidate_archive.py' 'tests/test_v040_post8_version.py' 'tests/test_v040_post9_remediation.py' 'tests/test_v040_post9_version.py') -
+          test "$(git diff --cached --name-only | wc -l)" = '8'
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'Fix Post9 legacy awakening migration boundary'
-          git push origin HEAD:agent/v0.4.0-post9-remediation
+          git commit -m 'Stage Post9 non-workflow candidate tree'
+          git push origin HEAD:ops/post9-staged-code
       - name: Upload bootstrap diagnostics
         if: always()
         uses: actions/upload-artifact@v4
