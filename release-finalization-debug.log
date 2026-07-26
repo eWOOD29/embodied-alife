@@ -1,7 +1,7 @@
 Traceback (most recent call last):
-  File "<stdin>", line 6, in <module>
-  File "/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/base64.py", line 88, in b64decode
-    return binascii.a2b_base64(s, strict_mode=validate)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-binascii.Error: Incorrect padding
+  File "<stdin>", line 9, in <module>
+  File "/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/gzip.py", line 606, in decompress
+    decompressed = do.decompress(data[fp.tell():])
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+zlib.error: Error -3 while decompressing data: invalid distance too far back
 [Errno 2] No such file or directory: '/tmp/post8_finalize.py'python: can't open file '/tmp/post8_finalize.py': [Errno 2] No such file or directory
