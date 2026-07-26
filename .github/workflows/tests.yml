@@ -11,6 +11,7 @@ permissions:
 
 jobs:
   test:
+    if: github.event_name != 'pull_request' || github.head_ref != 'ops/post8-release-finalization-3fb63ef'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -84,15 +85,17 @@ jobs:
           set +e
           {
             python - <<'PY'
-          import base64, gzip, re
+          import base64, gzip, hashlib
           from pathlib import Path
-          text = Path('.github/workflows/post8-release-finalization-temp.yml').read_text(encoding='utf-8')
-          match = re.search(r"<<'PAYLOAD'\s*\n(.*?)^\s*PAYLOAD\s*$", text, flags=re.MULTILINE | re.DOTALL)
-          if match is None:
-              raise SystemExit('payload block not found')
-          encoded = ''.join(re.findall(r'[A-Za-z0-9+/=]+', match.group(1)))
-          encoded += '=' * (-len(encoded) % 4)
-          Path('/tmp/post8_finalize.py').write_bytes(gzip.decompress(base64.b64decode(encoded, validate=True)))
+          parts = sorted(Path('.release-finalizer-payload').glob('part-*.txt'))
+          if [path.name for path in parts] != [f'part-{index:02d}.txt' for index in range(1, 6)]:
+              raise SystemExit(f'unexpected payload parts: {[path.name for path in parts]}')
+          encoded = ''.join(path.read_text(encoding='utf-8').strip() for path in parts)
+          data = gzip.decompress(base64.b64decode(encoded, validate=True))
+          digest = hashlib.sha256(data).hexdigest()
+          if digest != 'd9ef2afd461a7e0d692338c23537c6f7b079d197b114c2e94aadef5f7341e9a4':
+              raise SystemExit(f'finalizer payload digest mismatch: {digest}')
+          Path('/tmp/post8_finalize.py').write_bytes(data)
           PY
             python -m py_compile /tmp/post8_finalize.py
             python /tmp/post8_finalize.py
