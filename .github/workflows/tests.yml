@@ -79,7 +79,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
-      - name: Recover, run, and retain diagnostic output
+      - name: Recover, patch, run, and retain diagnostic output
         shell: bash
         run: |
           set +e
@@ -92,9 +92,17 @@ jobs:
               raise SystemExit(f'unexpected payload parts: {[path.name for path in parts]}')
           encoded = ''.join(path.read_text(encoding='utf-8').strip() for path in parts)
           data = gzip.decompress(base64.b64decode(encoded, validate=True))
-          digest = hashlib.sha256(data).hexdigest()
-          if digest != 'd9ef2afd461a7e0d692338c23537c6f7b079d197b114c2e94aadef5f7341e9a4':
-              raise SystemExit(f'finalizer payload digest mismatch: {digest}')
+          original_digest = hashlib.sha256(data).hexdigest()
+          if original_digest != 'd9ef2afd461a7e0d692338c23537c6f7b079d197b114c2e94aadef5f7341e9a4':
+              raise SystemExit(f'original finalizer payload digest mismatch: {original_digest}')
+          old = b'accept="application/octet-stream"'
+          new = b'accept="application/vnd.github+json"'
+          if data.count(old) != 1:
+              raise SystemExit(f'unexpected artifact accept-header occurrence count: {data.count(old)}')
+          data = data.replace(old, new)
+          patched_digest = hashlib.sha256(data).hexdigest()
+          if patched_digest != '37489949fa6aec22fe6d55cec3e58fc7a67ab19985e011beddcfc9c16fa2627b':
+              raise SystemExit(f'patched finalizer payload digest mismatch: {patched_digest}')
           Path('/tmp/post8_finalize.py').write_bytes(data)
           PY
             python -m py_compile /tmp/post8_finalize.py
