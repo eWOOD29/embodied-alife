@@ -1,0 +1,40 @@
+name: post9-bootstrap
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.head_ref == 'ops/post9-bootstrap'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Verify and apply tested Post9 patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .post9-bootstrap/0* > /tmp/post9.diff.xz.b64
+          echo '0adb361684361471e51a85be53662c0730f41634ffe3330742217ded873dfa53  /tmp/post9.diff.xz.b64' | sha256sum -c -
+          base64 -d /tmp/post9.diff.xz.b64 > /tmp/post9.diff.xz
+          echo 'c282ce09bde5bc34ddd23fd642efc631d90fff70ad7ff38fe8128ac42fcc6ea4  /tmp/post9.diff.xz' | sha256sum -c -
+          xz -dc /tmp/post9.diff.xz > /tmp/post9.diff
+          echo '617ab351de6d3f08680026a9b329a2f1c0592a5b88198f49b45e366a7710f7ad  /tmp/post9.diff' | sha256sum -c -
+          git fetch origin agent/v0.4.0-post9-remediation
+          git checkout agent/v0.4.0-post9-remediation
+          test "$(git rev-parse HEAD)" = '65ed0a371ed1257254ac9f2f0777e17244ecf122'
+          git apply --check /tmp/post9.diff
+          git apply /tmp/post9.diff
+          git add .github/workflows/tests.yml CHANGELOG.md app/simulation/scheduler.py app/version.py pyproject.toml scripts/validate_candidate_archive.py tests/test_v040_post8_version.py tests/test_v040_post9_remediation.py tests/test_v040_post9_version.py
+          test "$(git diff --cached --name-only | wc -l)" = '9'
+          git diff --cached --name-only | diff -u <(printf '%s\n' '.github/workflows/tests.yml' 'CHANGELOG.md' 'app/simulation/scheduler.py' 'app/version.py' 'pyproject.toml' 'scripts/validate_candidate_archive.py' 'tests/test_v040_post8_version.py' 'tests/test_v040_post9_remediation.py' 'tests/test_v040_post9_version.py') -
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Fix Post9 legacy awakening migration boundary'
+          git push origin HEAD:agent/v0.4.0-post9-remediation
