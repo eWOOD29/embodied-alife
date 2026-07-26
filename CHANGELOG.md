@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.0.post9] — 2026-07-26
+
+### Fixed
+
+- Added an existing-experiment restore boundary that distinguishes explicit current-format awakening state from legacy absence or malformed awakening containers before perception, prompting, fallback, API, diagnostics, persistence, snapshot, restart, or action-controller consumers run.
+- Migrated legacy-existing experiments to `presented=true` without replaying the full new-experiment awakening, reconstructing `presented_at` only from a matching retained awakening event and otherwise leaving it honestly unknown.
+- Preserved explicit current-format `presented=false` and `presented=true` states, while genuinely new and Reset experiments still receive exactly one awakening through the established production action boundary.
+- Added synthetic portable production-path regressions for database restore, historical-event and no-event migration, malformed containers, continuity, perception, prompts, fallback, REST, diagnostics, persistence, snapshots, restart, idempotence, and new/Reset action behavior.
+
+### Candidate status
+
+- This source is an unmerged pre-publication candidate. No v0.4.0.post9 tag, Release, updater asset, Post8 asset or history change, local Windows remediation, Reset, rollback, restore, installation, or v0.4.1 work is included or authorized by this changelog entry.
+
 ## [0.4.0.post8] — 2026-07-25
 
 ### Fixed

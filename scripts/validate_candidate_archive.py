@@ -16,6 +16,7 @@ TEMPORARY_PATHS = {
     ".github/workflows/post6-pr-export.yml",
     ".github/workflows/post7-exact-head-audit.yml",
     ".github/workflows/post8-exact-head-audit.yml",
+    ".github/workflows/post9-exact-head-audit.yml",
 }
 
 
