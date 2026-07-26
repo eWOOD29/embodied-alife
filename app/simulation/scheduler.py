@@ -44,6 +44,87 @@ from app.storage.snapshots import SnapshotStore
 MEMORY_INTEGRITY_VERSION = 1
 
 
+def _matching_awakening_timestamp(
+    events: Any,
+    *,
+    run_id: str,
+    world_generation_id: str,
+) -> float | None:
+    """Return a bounded timestamp only from an awakening event bound to this experiment."""
+
+    matches: list[float] = []
+    for event in builtin_sequence(events, limit=10000):
+        if type(event) is not dict or event.get("kind") != "awakening":
+            continue
+        data = event.get("data") if type(event.get("data")) is dict else {}
+        event_run_id = event.get("run_id") if type(event.get("run_id")) is str else data.get("run_id")
+        event_world_id = (
+            event.get("world_generation_id")
+            if type(event.get("world_generation_id")) is str
+            else data.get("world_generation_id")
+        )
+        if event_run_id != run_id or event_world_id != world_generation_id:
+            continue
+        timestamp = finite_number(event.get("sim_time"), None, minimum=0.0, maximum=1_000_000_000.0)
+        if timestamp is not None:
+            matches.append(timestamp)
+    return matches[-1] if matches else None
+
+
+def _restored_agent_payload(
+    raw_agent: Any,
+    *,
+    run_id: str,
+    world_generation_id: str,
+    state_events: Any,
+    database_events: Any,
+) -> tuple[dict[str, Any], bool]:
+    """Sanitize awakening at the existing-experiment restore boundary.
+
+    AgentState.from_dict intentionally remains context-free so genuinely new and
+    Reset-created agents keep their not-yet-presented awakening. Existing state
+    must instead distinguish an explicit current-format value from legacy absence
+    or malformed input before any Ari-facing consumer runs.
+    """
+
+    if type(raw_agent) is not dict:
+        raise ValueError("invalid_agent_state")
+    payload = dict(raw_agent)
+    sentinel = object()
+    raw_awakening = raw_agent.get("awakening", sentinel)
+    if type(raw_awakening) is dict and type(raw_awakening.get("presented")) is bool:
+        current: dict[str, Any] = {"presented": raw_awakening["presented"]}
+        narrative = raw_awakening.get("narrative")
+        if type(narrative) is str:
+            current["narrative"] = narrative
+        presented_at = raw_awakening.get("presented_at")
+        if presented_at is None:
+            current["presented_at"] = None
+        else:
+            current["presented_at"] = finite_number(
+                presented_at,
+                None,
+                minimum=0.0,
+                maximum=1_000_000_000.0,
+            )
+        payload["awakening"] = current
+        return payload, False
+
+    timestamp = _matching_awakening_timestamp(
+        state_events,
+        run_id=run_id,
+        world_generation_id=world_generation_id,
+    )
+    if timestamp is None:
+        timestamp = _matching_awakening_timestamp(
+            database_events,
+            run_id=run_id,
+            world_generation_id=world_generation_id,
+        )
+    payload["awakening"] = {"presented": True, "presented_at": timestamp}
+    return payload, True
+
+
 class SimulationEngine:
     def __init__(
         self,
@@ -645,7 +726,18 @@ class SimulationEngine:
         self.run_id = raw_run_id if type(raw_run_id) is str and raw_run_id else uuid.uuid4().hex
         self.world_generation_id = raw_world_generation_id if type(raw_world_generation_id) is str and raw_world_generation_id else uuid.uuid4().hex
         self.world = WorldState.from_dict(raw_world)
-        self.agent = AgentState.from_dict(state.get("agent"))
+        try:
+            database_events = self.database.list_events(limit=10000)
+        except Exception:
+            database_events = []
+        agent_payload, awakening_migrated = _restored_agent_payload(
+            state.get("agent"),
+            run_id=self.run_id,
+            world_generation_id=self.world_generation_id,
+            state_events=state.get("events"),
+            database_events=database_events,
+        )
+        self.agent = AgentState.from_dict(agent_payload)
         attach_key(
             self.agent,
             self._ari_integrity_key,
@@ -680,6 +772,8 @@ class SimulationEngine:
         self.database.set_metadata("run_id", self.run_id)
         self.database.set_metadata("world_generation_id", self.world_generation_id)
         self.database.set_metadata("authorization_epoch_id", live_epoch)
+        if awakening_migrated:
+            self._persist_current()
 
     def _persist_current(self) -> None:
         self.database.set_metadata("current_state", self.serialize())

@@ -15,7 +15,7 @@ from scripts.build_release import project_version
 from app.updater.manager import UpdateManager
 
 
-def _post8_package(path: Path) -> tuple[Path, str]:
+def _post9_package(path: Path) -> tuple[Path, str]:
     path.parent.mkdir(parents=True, exist_ok=True)
     managed_paths = ["app/main.py", "app/version.py", "pyproject.toml", "scripts/apply_update.py"]
     with zipfile.ZipFile(path, "w") as archive:
@@ -25,7 +25,7 @@ def _post8_package(path: Path) -> tuple[Path, str]:
                 {
                     "schema_version": 1,
                     "app_id": "embodied-alife",
-                    "version": "0.4.0.post8",
+                    "version": "0.4.0.post9",
                     "managed_paths": managed_paths,
                     "preserved_roots": [".env", ".venv", "data", ".git"],
                     "entrypoint": [".venv/Scripts/python.exe", "-m", "app.serve"],
@@ -33,26 +33,26 @@ def _post8_package(path: Path) -> tuple[Path, str]:
             ),
         )
         archive.writestr("app/main.py", "# synthetic updater fixture\n")
-        archive.writestr("app/version.py", '__version__ = "0.4.0.post8"\n')
-        archive.writestr("pyproject.toml", '[project]\nname = "embodied-alife"\nversion = "0.4.0.post8"\n')
+        archive.writestr("app/version.py", '__version__ = "0.4.0.post9"\n')
+        archive.writestr("pyproject.toml", '[project]\nname = "embodied-alife"\nversion = "0.4.0.post9"\n')
         archive.writestr("scripts/apply_update.py", "# synthetic updater fixture\n")
     return path, hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def test_post8_orders_above_prior_post_releases_and_runtime_remains_synchronized() -> None:
-    assert Version("0.4.0.post8") > Version("0.4.0.post7") > Version("0.4.0.post6")
-    assert Version(__version__) >= Version("0.4.0.post8")
-    assert project_version() == __version__
+def test_post9_orders_above_prior_post_releases_and_synchronized_package_version() -> None:
+    assert Version("0.4.0.post9") > Version("0.4.0.post8") > Version("0.4.0.post7")
+    assert __version__ == "0.4.0.post9"
+    assert project_version() == "0.4.0.post9"
 
 
 @pytest.mark.asyncio
-async def test_updater_stages_post8_over_post7_without_fixed_post_ceiling(settings, monkeypatch) -> None:
-    package, digest = _post8_package(settings.runtime_dir / "embodied-alife-update.zip")
+async def test_updater_stages_post9_over_post7_without_fixed_post_ceiling(settings, monkeypatch) -> None:
+    package, digest = _post9_package(settings.runtime_dir / "embodied-alife-update.zip")
     release = {
-        "tag_name": "v0.4.0.post8",
-        "name": "v0.4.0.post8",
-        "body": "post8 remediation",
-        "html_url": "https://github.com/eWOOD29/embodied-alife/releases/tag/v0.4.0.post8",
+        "tag_name": "v0.4.0.post9",
+        "name": "v0.4.0.post9",
+        "body": "post9 remediation",
+        "html_url": "https://github.com/eWOOD29/embodied-alife/releases/tag/v0.4.0.post9",
         "published_at": "2026-07-24T00:00:00Z",
         "draft": False,
         "prerelease": False,
@@ -83,7 +83,7 @@ async def test_updater_stages_post8_over_post7_without_fixed_post_ceiling(settin
             return httpx.Response(200, text=f"{digest}  embodied-alife-update.zip\n")
         return httpx.Response(404)
 
-    monkeypatch.setattr("app.updater.manager.__version__", "0.4.0.post7")
+    monkeypatch.setattr("app.updater.manager.__version__", "0.4.0.post8")
     settings.update_repository = "test/project"
     settings.update_enabled = True
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler), follow_redirects=True)
@@ -91,11 +91,11 @@ async def test_updater_stages_post8_over_post7_without_fixed_post_ceiling(settin
     try:
         status = await manager.check()
         assert status["update_available"] is True
-        assert status["latest_version"] == "0.4.0.post8"
-        prepared = await manager.prepare_install(expected_version="0.4.0.post8")
+        assert status["latest_version"] == "0.4.0.post9"
+        prepared = await manager.prepare_install(expected_version="0.4.0.post9")
         assert prepared["verified_sha256"] == digest
         request = json.loads(Path(prepared["request_path"]).read_text(encoding="utf-8"))
-        assert request["manifest"]["version"] == "0.4.0.post8"
+        assert request["manifest"]["version"] == "0.4.0.post9"
         assert Path(request["staged_path"], "app", "version.py").is_file()
     finally:
         await client.aclose()
@@ -109,5 +109,5 @@ def test_release_workflow_derives_exact_tag_from_dynamic_package_version() -> No
     assert "0.4.0.post4" not in workflow
     assert "0.4.0.post5" not in installer
     assert "0.4.0.post7" not in installer
-    assert "0.4.0.post8" not in installer
+    assert "0.4.0.post9" not in installer
     assert "post4" not in installer.lower()
