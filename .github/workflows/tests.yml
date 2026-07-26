@@ -95,10 +95,10 @@ jobs:
           original_digest = hashlib.sha256(data).hexdigest()
           if original_digest != 'd9ef2afd461a7e0d692338c23537c6f7b079d197b114c2e94aadef5f7341e9a4':
               raise SystemExit(f'original finalizer payload digest mismatch: {original_digest}')
-          old = b'accept="application/octet-stream"'
-          new = b'accept="application/vnd.github+json"'
+          old = b'''    _, outer_bytes, _ = api(\n        f"/repos/{REPO}/actions/artifacts/{ARTIFACT_ID}/zip",\n        accept="application/octet-stream",\n        expected=(200,),\n        parse_json=False,\n    )'''
+          new = b'''    _, outer_bytes, _ = api(\n        f"/repos/{REPO}/actions/artifacts/{ARTIFACT_ID}/zip",\n        accept="application/vnd.github+json",\n        expected=(200,),\n        parse_json=False,\n    )'''
           if data.count(old) != 1:
-              raise SystemExit(f'unexpected artifact accept-header occurrence count: {data.count(old)}')
+              raise SystemExit(f'unexpected artifact download block occurrence count: {data.count(old)}')
           data = data.replace(old, new)
           patched_digest = hashlib.sha256(data).hexdigest()
           if patched_digest != '37489949fa6aec22fe6d55cec3e58fc7a67ab19985e011beddcfc9c16fa2627b':
