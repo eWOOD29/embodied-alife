@@ -1,0 +1,72 @@
+name: post9-post8-object-recheck
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  recheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query and verify immutable Post8 objects
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          api='https://api.github.com/repos/eWOOD29/embodied-alife'
+          curl -fsSL -H "Accept: application/vnd.github+json" -H "Authorization: Bearer $GH_TOKEN" "$api/releases/359896955" > evidence/release.json
+          curl -fsSL -H "Accept: application/vnd.github+json" -H "Authorization: Bearer $GH_TOKEN" "$api/releases/latest" > evidence/latest.json
+          curl -fsSL -H "Accept: application/vnd.github+json" -H "Authorization: Bearer $GH_TOKEN" "$api/git/ref/tags/v0.4.0.post8" > evidence/tag.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          release = json.loads(Path('evidence/release.json').read_text())
+          latest = json.loads(Path('evidence/latest.json').read_text())
+          tag = json.loads(Path('evidence/tag.json').read_text())
+
+          assert release['id'] == 359896955
+          assert release['tag_name'] == 'v0.4.0.post8'
+          assert release['draft'] is False
+          assert release['prerelease'] is False
+          assert latest['id'] == 359896955
+          assert latest['tag_name'] == 'v0.4.0.post8'
+          assert tag['ref'] == 'refs/tags/v0.4.0.post8'
+          assert tag['object']['sha'] == '65ed0a371ed1257254ac9f2f0777e17244ecf122'
+          assets = {asset['id']: asset for asset in release['assets']}
+          assert set(assets) == {489911673, 489911677}
+          assert assets[489911673]['name'] == 'embodied-alife-update.zip'
+          assert assets[489911673]['size'] == 242052
+          assert assets[489911677]['name'] == 'embodied-alife-update.zip.sha256'
+          assert assets[489911677]['size'] == 92
+
+          summary = {
+              'release_id': release['id'],
+              'tag_name': release['tag_name'],
+              'release_name': release['name'],
+              'draft': release['draft'],
+              'prerelease': release['prerelease'],
+              'published_at': release['published_at'],
+              'latest_release_id': latest['id'],
+              'tag_target_sha': tag['object']['sha'],
+              'assets': [
+                  {'id': asset['id'], 'name': asset['name'], 'size': asset['size'], 'created_at': asset['created_at'], 'updated_at': asset['updated_at']}
+                  for asset in release['assets']
+              ],
+              'verdict': 'PASS',
+          }
+          Path('evidence/summary.json').write_text(json.dumps(summary, indent=2, sort_keys=True) + '\n')
+          PY
+          cat evidence/summary.json
+
+      - name: Upload Post8 object recheck
+        uses: actions/upload-artifact@v4
+        with:
+          name: post9-post8-object-recheck
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 90
